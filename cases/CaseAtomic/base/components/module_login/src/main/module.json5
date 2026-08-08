@@ -1,0 +1,15 @@
+{
+  "module": {
+    "name": "module_login",
+    "type": "har",
+    "deviceTypes": [
+      "phone"
+    ],
+    "requestPermissions": [{
+      "name": "ohos.permission.GET_NETWORK_INFO"
+    },
+      {
+      "name": "ohos.permission.INTERNET"
+    }]
+  },
+}

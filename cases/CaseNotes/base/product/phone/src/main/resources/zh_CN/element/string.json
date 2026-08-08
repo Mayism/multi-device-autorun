@@ -1,0 +1,144 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "模块描述"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "笔记"
+    },
+    {
+      "name": "notecard_desc",
+      "value": "显示最近的笔记"
+    },
+    {
+      "name": "notecard_display_name",
+      "value": "笔记卡片"
+    },
+    {
+      "name": "avatar",
+      "value": "头像"
+    },
+    {
+      "name": "nickName",
+      "value": "昵称"
+    },
+    {
+      "name": "log_out",
+      "value": "退出登录"
+    },
+    {
+      "name": "screen_is_taking",
+      "value": "正在截图，请稍等..."
+    },
+    {
+      "name": "button_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "save_album_success",
+      "value": "已保存至相册"
+    },
+    {
+      "name": "sort_by_create_time",
+      "value": "按创建时间排序"
+    },
+    {
+      "name": "sort_by_update_time",
+      "value": "按修改时间排序"
+    },
+    {
+      "name": "sort_order",
+      "value": "排序方式"
+    },
+    {
+      "name": "confirm_delete_diary",
+      "value": "确定删除笔记吗? 已删除的笔记可以在回收站恢复"
+    },
+    {
+      "name": "delete",
+      "value": "删除"
+    },
+    {
+      "name": "move_to_other_category",
+      "value": "移动到其他分类"
+    },
+    {
+      "name": "copy_content",
+      "value": "复制内容"
+    },
+    {
+      "name": "no_match_note",
+      "value": "没有找到匹配的笔记"
+    },
+    {
+      "name": "homepage",
+      "value": "首页"
+    },
+    {
+      "name": "search_note",
+      "value": "请输入关键字搜索"
+    },
+    {
+      "name": "searchtrash_note",
+      "value": "请输入关键字搜索"
+    },
+    {
+      "name": "delete_note",
+      "value": "删除笔记"
+    },
+    {
+      "name": "confirm",
+      "value": "确定"
+    },
+    {
+      "name": "cancel",
+      "value": "取消"
+    },
+    {
+      "name": "note_category",
+      "value": "笔记分类"
+    },
+    {
+      "name": "go_note_category",
+      "value": "前往笔记分类"
+    },
+    {
+      "name": "more",
+      "value": "更多"
+    },
+    {
+      "name": "give_up",
+      "value": "放弃修改"
+    },
+    {
+      "name": "editor",
+      "value": "编辑"
+    },
+    {
+      "name": "create_note",
+      "value": "新建笔记"
+    },
+    {
+      "name": "privacyAgreementPath",
+      "value": "https://developer.huawei.com/"
+    },
+    {
+      "name": "earliest_in_trash",
+      "value": "最早进入回收站时间"
+    },
+    {
+      "name": "latest_in_trash",
+      "value": "最迟进入回收站时间"
+    },
+    {
+      "name": "agcit_huawei_notes",
+      "value": "1.0.5"
+    }
+  ]
+}

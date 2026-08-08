@@ -1,0 +1,228 @@
+diff --git a/commons/lib_foundation/src/main/ets/components/AgreeDialog.ets b/commons/lib_foundation/src/main/ets/components/AgreeDialog.ets
+index 84b6d27..e7329ed 100644
+--- a/commons/lib_foundation/src/main/ets/components/AgreeDialog.ets
++++ b/commons/lib_foundation/src/main/ets/components/AgreeDialog.ets
+@@ -37,7 +37,9 @@ struct AgreeDialog {
+             }
+ 
+           }
++          .layoutWeight(1)
+           .id('ss_agree_dialog_scroll')
++
+           Row({ space: CommonConstants.SPACE_16 }) {
+             Button('退出应用')
+               .fontColor($r('app.color.common_theme_color'))
+@@ -57,10 +59,6 @@ struct AgreeDialog {
+           .margin({ top: 24 })
+           .height(56)
+           .alignItems(VerticalAlign.Top)
+-          .position({
+-            bottom: 0,
+-            left: 0
+-          })
+         }
+         .backgroundColor(Color.White)
+         .width(CommonConstants.FULL_PERCENT)
+diff --git a/components/module_login/src/main/ets/components/QuickLogin.ets b/components/module_login/src/main/ets/components/QuickLogin.ets
+index aaa3a74..63a5c2f 100644
+--- a/components/module_login/src/main/ets/components/QuickLogin.ets
++++ b/components/module_login/src/main/ets/components/QuickLogin.ets
+@@ -224,74 +224,73 @@ export struct QuickLogin {
+               .maxLines(1)
+               .constraintSize({ maxWidth: '100%', minHeight: 48 })
+ 
+-              Text('华为账号绑定号码')
+-                .fontSize($r('sys.float.ohos_id_text_size_body2'))
+-                .fontColor($r('sys.color.ohos_id_color_text_secondary'))
+-                .fontFamily($r('sys.string.ohos_id_text_font_family_regular'))
+-                .fontWeight(FontWeight.Regular)
+-                .lineHeight(19)
+-                .textAlign(TextAlign.Center)
+-                .maxLines(1)
+-                .constraintSize({ maxWidth: '100%' })
+-                .margin({
+-                  top: 8,
+-                })
+-            }.margin({
+-              top: 64,
+-            })
++            Text('华为账号绑定号码')
++              .fontSize($r('sys.float.ohos_id_text_size_body2'))
++              .fontColor($r('sys.color.ohos_id_color_text_secondary'))
++              .fontFamily($r('sys.string.ohos_id_text_font_family_regular'))
++              .fontWeight(FontWeight.Regular)
++              .lineHeight(19)
++              .textAlign(TextAlign.Center)
++              .maxLines(1)
++              .constraintSize({ maxWidth: '100%' })
++              .margin({
++                top: 8,
++              })
++          }
+ 
+-            Column() {
+-              LoginWithHuaweiIDButton({
+-                params: {
+-                  // LoginWithHuaweiIDButton支持的样式
+-                  style: loginComponentManager.Style.BUTTON_CUSTOM,
+-                  customButtonParams: {
+-                    backgroundColor: this.loginBtnBgColor,
+-                  },
+-                  // 账号登录按钮在登录过程中展示加载态
+-                  extraStyle: {
+-                    buttonStyle: new loginComponentManager.ButtonStyle().loadingStyle({
+-                      show: true,
+-                    }),
+-                  },
+-                  // LoginWithHuaweiIDButton的边框圆角半径
+-                  borderRadius: 24,
+-                  // LoginWithHuaweiIDButton支持的登录类型
+-                  loginType: loginComponentManager.LoginType.QUICK_LOGIN,
+-                  // LoginWithHuaweiIDButton支持按钮的样式跟随系统深浅色模式切换
+-                  supportDarkMode: true,
+-                  // verifyPhoneNumber：如果华为账号用户在过去90天内未进行短信验证，是否拉起Account Kit提供的短信验证码页面
+-                  verifyPhoneNumber: true,
++          Blank().layoutWeight(1).constraintSize({ maxHeight: 56, minHeight: 24 })
++
++          Column() {
++            LoginWithHuaweiIDButton({
++              params: {
++                // LoginWithHuaweiIDButton支持的样式
++                style: loginComponentManager.Style.BUTTON_CUSTOM,
++                customButtonParams: {
++                  backgroundColor: this.loginBtnBgColor,
+                 },
+-                controller: this.controller,
+-              })
+-            }
+-            .height(40)
+-            .width('100%')
+-            .margin({
+-              top: 56,
++                // 账号登录按钮在登录过程中展示加载态
++                extraStyle: {
++                  buttonStyle: new loginComponentManager.ButtonStyle().loadingStyle({
++                    show: true,
++                  }),
++                },
++                // LoginWithHuaweiIDButton的边框圆角半径
++                borderRadius: 24,
++                // LoginWithHuaweiIDButton支持的登录类型
++                loginType: loginComponentManager.LoginType.QUICK_LOGIN,
++                // LoginWithHuaweiIDButton支持按钮的样式跟随系统深浅色模式切换
++                supportDarkMode: true,
++                // verifyPhoneNumber：如果华为账号用户在过去90天内未进行短信验证，是否拉起Account Kit提供的短信验证码页面
++                verifyPhoneNumber: true,
++              },
++              controller: this.controller,
+             })
+-          }.width('100%')
++          }
++          .height(40)
++          .width('100%')
++        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
++
++        Blank().layoutWeight(1).constraintSize({ minHeight: 24 })
+ 
++        Row() {
+           Row() {
+-            Row() {
+-              Checkbox({ name: 'privacyCheckbox', group: 'privacyCheckboxGroup' })
+-                .width(24)
+-                .height(24)
+-                .focusable(true)
+-                .focusOnTouch(true)
+-                .margin({ top: 0 })
+-                .onChange((value: boolean) => {
+-                  if (value) {
+-                    this.isSelected = true;
+-                    this.controller.setAgreementStatus(loginComponentManager.AgreementStatus.ACCEPTED);
+-                  } else {
+-                    this.isSelected = false;
+-                    this.controller.setAgreementStatus(loginComponentManager.AgreementStatus.NOT_ACCEPTED);
+-                  }
+-                  hilog.info(0x0000, 'testTag', `agreementChecked: ${value}`);
+-                })
+-            }
++            Checkbox({ name: 'privacyCheckbox', group: 'privacyCheckboxGroup' })
++              .width(24)
++              .height(24)
++              .focusable(true)
++              .focusOnTouch(true)
++              .margin({ top: 0 })
++              .onChange((value: boolean) => {
++                if (value) {
++                  this.isSelected = true;
++                  this.controller.setAgreementStatus(loginComponentManager.AgreementStatus.ACCEPTED);
++                } else {
++                  this.isSelected = false;
++                  this.controller.setAgreementStatus(loginComponentManager.AgreementStatus.NOT_ACCEPTED);
++                }
++                hilog.info(0x0000, 'testTag', `agreementChecked: ${value}`);
++              })
++          }
+ 
+           Row() {
+             Text() {
+@@ -338,7 +337,7 @@ export struct QuickLogin {
+       }
+       .width('100%')
+       .height('100%')
+-      .padding({ top: '154vp', left: 16, right: 16, })
++      .padding({left: 16, right: 16, })
+     }
+     .edgeEffect(EdgeEffect.Spring)
+   }
+diff --git a/components/module_swipeplayer/src/main/ets/components/VideoPlayerView.ets b/components/module_swipeplayer/src/main/ets/components/VideoPlayerView.ets
+index a513e78..ef37eb6 100644
+--- a/components/module_swipeplayer/src/main/ets/components/VideoPlayerView.ets
++++ b/components/module_swipeplayer/src/main/ets/components/VideoPlayerView.ets
+@@ -306,8 +306,7 @@ export struct VideoPlayerView {
+                 type: XComponentType.SURFACE,
+                 controller: this.xComponentController,
+               })
+-                .width(this.vm.videoWidth)
+-                .height(this.vm.videoHeight)
++                .aspectRatio(Number(this.vm.videoWidth) / Number(this.vm.videoHeight))
+                 // SS_B_05 测试定位：当前播放视频画面挂固定 id（分屏前后宽高比断言）
+                 .id(this.isCurrent ? 'ss_video_xcomponent' : '')
+                 .onLoad(() => {
+diff --git a/products/phone/src/main/ets/pages/SafePage.ets b/products/phone/src/main/ets/pages/SafePage.ets
+index 84b96b9..e8e2a57 100644
+--- a/products/phone/src/main/ets/pages/SafePage.ets
++++ b/products/phone/src/main/ets/pages/SafePage.ets
+@@ -13,25 +13,28 @@ struct SafePage {
+   build() {
+     NavDestination() {
+       Column() {
+-        Column() {
++        Blank().layoutWeight(1).constraintSize({maxHeight:136,minHeight:24})
++        Flex({ direction: FlexDirection.Column, alignItems: ItemAlign.Center }) {
+           Image($r('app.media.startIcon'))
+             .id('ss_safe_icon')
+             .width(200)
+             .draggable(false)
+-            .margin({ top: 136 })
++            .displayPriority(1)
++
+           Text('天气应用')
+             .fontSize($r('sys.float.Title_L'))
+             .fontWeight(FontWeight.Medium)
+             .margin({
+               top: CommonConstants.SPACE_24,
+               bottom: 2,
+-            })
++            }).displayPriority(3)
++
+           Text('业务描述')
+             .fontSize($r('sys.float.Body_M'))
+-            .fontColor($r('sys.color.font_secondary'))
+-        }
+-        .layoutWeight(1)
++            .fontColor($r('sys.color.font_secondary')).displayPriority(2)
+ 
++        }
++        .displayPriority(5).layoutWeight(3)
+         Column() {
+           Image($r('app.media.ic_security'))
+             .width(16)

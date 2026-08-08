@@ -1,0 +1,28 @@
+{
+  "string": [
+    {
+      "name": "app_name",
+      "value": "Notes"
+    },
+    {
+      "name": "loading_ad",
+      "value": "正在加载..."
+    },
+    {
+      "name": "skip_ad",
+      "value": "跳过"
+    },
+    {
+      "name": "agcit_huawei_notes",
+      "value": "1.0.5"
+    },
+    {
+      "name": "agcittype_huawei_notes",
+      "value": "industryTemplate"
+    },
+    {
+      "name": "agcitkid_huawei_notes",
+      "value": "agcit_huawei_notes_secretlock/1.0.3,agcit_huawei_notes_richeditor/1.0.3,agcit_huawei_enterprise_recruitment_check_app_update/1.0.2,agcit_huawei_recipes_aggregated_ads/1.0.2"
+    }
+  ]
+}

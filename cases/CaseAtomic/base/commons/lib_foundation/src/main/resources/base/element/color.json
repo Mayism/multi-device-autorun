@@ -1,0 +1,12 @@
+{
+  "color": [
+    {
+      "name": "common_page_bg",
+      "value": "#F1F3F5"
+    },
+    {
+      "name": "common_theme_color",
+      "value": "#3F7EF7"
+    }
+  ]
+}

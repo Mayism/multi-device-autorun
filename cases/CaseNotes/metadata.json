@@ -1,0 +1,32 @@
+{
+  "case_id": "note-template-derive-base",
+  "mode": "derive_base",
+  "source_base_commit": null,
+  "source_answer_commit": "a88d5e89fbfc71dbb60e7c2caaddc1fe88fa6b61",
+  "removal_commits": [
+    "7e20df5873cdb58a11e701b501fcdb0fe890f424"
+  ],
+  "golden_commits": [],
+  "test_commits": [
+    "4cb43ba442a5734ae0a8634d8f74667bcbecf4d6",
+    "fb8c18d8050c6a9d276913474e93954c8a895ab8"
+  ],
+  "generated_base_commit": "a8e475c463afedd80c446902f444215a48d630f1",
+  "generated_answer_commit": "a88d5e89fbfc71dbb60e7c2caaddc1fe88fa6b61",
+  "generated_test_commit": "cdffb465d77ca5e3882fdf7788e51cd041c8a403",
+  "golden_patch": "golden_patch.patch",
+  "test_patch": "test_patch.patch",
+  "base_project": "base",
+  "fail_to_pass": [
+    "should_note_list_be_side_bar_on_lg_breakpoint",
+    "should_category_list_be_three_lanes_on_lg_breakpoint",
+    "should_note_list_be_side_bar_on_pc_breakpoint"
+  ],
+  "pass_to_pass": [
+    "should_note_list_be_full_screen_on_sm_breakpoint",
+    "should_category_list_be_one_lanes_on_sm_breakpoint",
+    "should_note_list_be_full_screen_on_md_breakpoint",
+    "should_category_list_be_one_lanes_on_md_breakpoint",
+    "should_note_window_can_change_size_on_pc_breakpoint"
+  ]
+}

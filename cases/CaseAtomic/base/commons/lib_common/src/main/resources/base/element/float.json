@@ -1,0 +1,68 @@
+{
+  "float": [
+    {
+      "name": "small_img_width",
+      "value": "12vp"
+    },
+    {
+      "name": "medium_img_width",
+      "value": "16vp"
+    },
+    {
+      "name": "normal_img_size",
+      "value": "24vp"
+    },
+    {
+      "name": "large_img_size",
+      "value": "40vp"
+    },
+    {
+      "name": "arrow_right_w",
+      "value": "12vp"
+    },
+    {
+      "name": "xxl_radius",
+      "value": "32vp"
+    },
+    {
+      "name": "xl_radius",
+      "value": "24vp"
+    },
+    {
+      "name": "radius_20",
+      "value": "20vp"
+    },
+    {
+      "name": "large_radius",
+      "value": "16vp"
+    },
+    {
+      "name": "medium_radius",
+      "value": "12vp"
+    },
+    {
+      "name": "small_radius",
+      "value": "8vp"
+    },
+    {
+      "name": "xs_radius",
+      "value": "4vp"
+    },
+    {
+      "name": "xs_padding",
+      "value": "4vp"
+    },
+    {
+      "name": "s_padding",
+      "value": "8vp"
+    },
+    {
+      "name": "m_padding",
+      "value": "12vp"
+    },
+    {
+      "name": "l_padding",
+      "value": "16vp"
+    }
+  ]
+}

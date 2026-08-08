@@ -1,0 +1,11 @@
+{
+  "module": {
+    "name": "richeditor_styled_string_test",
+    "type": "feature",
+    "deviceTypes": [
+      "default"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

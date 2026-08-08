@@ -1,0 +1,12 @@
+{
+  "routerMap": [
+    {
+      "name": "QuickLogin",
+      "pageSourceFile": "src/main/ets/pages/QuickLoginPage.ets",
+      "buildFunction": "quickLoginPageBuilder",
+      "data": {
+        "description": "快速登录页面"
+      }
+    }
+  ]
+}

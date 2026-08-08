@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "CAMERA",
+      "value": "相机权限申请"
+    },
+    {
+      "name": "PASTEBOARD",
+      "value": "剪贴板内容申请"
+    },
+    {
+      "name": "MICROPHONE_reason",
+      "value": "语音识别"
+    },
+    {
+      "name": "agcit_huawei_weather_module_login",
+      "value": "1.0.0"
+    },
+    {
+      "name": "agcittype_huawei_weather_module_login",
+      "value": "serviceComponent"
+    }
+  ]
+}

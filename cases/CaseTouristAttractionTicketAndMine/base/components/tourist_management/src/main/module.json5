@@ -1,0 +1,9 @@
+{
+  "module": {
+    "name": "tourist_management",
+    "type": "har",
+    "deviceTypes": [
+      "default"
+    ],
+  }
+}

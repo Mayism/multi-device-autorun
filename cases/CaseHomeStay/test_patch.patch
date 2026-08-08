@@ -1,0 +1,205 @@
+diff --git a/main/src/ohosTest/ets/test/List.test.ets b/main/src/ohosTest/ets/test/List.test.ets
+index 794c7dc..7b02434 100644
+--- a/main/src/ohosTest/ets/test/List.test.ets
++++ b/main/src/ohosTest/ets/test/List.test.ets
+@@ -1,5 +1,9 @@
+ import abilityTest from './Ability.test';
++import mdFailToPass from './MdFailToPass.test';
++import smPassToPass from './SmPassToPass.test';
+ 
+ export default function testsuite() {
+   abilityTest();
++  mdFailToPass();
++  smPassToPass();
+ }
+\ No newline at end of file
+diff --git a/main/src/ohosTest/ets/test/MdFailToPass.test.ets b/main/src/ohosTest/ets/test/MdFailToPass.test.ets
+new file mode 100644
+index 0000000..6bbe4c6
+--- /dev/null
++++ b/main/src/ohosTest/ets/test/MdFailToPass.test.ets
+@@ -0,0 +1,88 @@
++import { describe, beforeAll, it, expect } from '@ohos/hypium';
++import { abilityDelegatorRegistry, Driver, ON } from '@kit.TestKit';
++import { Want } from '@kit.AbilityKit';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++
++const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++
++export default function mdFailToPass() {
++  describe('MdFailToPassTest', () => {
++    let driver = Driver.create();
++
++    beforeAll(async () => {
++      const bundleName = abilityDelegatorRegistry.getArguments().bundleName;
++      const want: Want = {
++        bundleName: bundleName,
++        abilityName: 'EntryAbility'
++      };
++      await delegator.startAbility(want);
++      await driver.waitForIdle(4000, 5000);
++    })
++
++    it('should_recommend_room_waterFlow_be_four_lanes_on_SM_breakpoint', 0, async () => {
++      try {
++        const recommend_waterFlow = await driver.waitForComponent(ON.id('recommend_water_flow'), 2000);
++        const recommend = await driver.waitForComponent(ON.id('recommend_water_flow_0'), 2000);
++
++        const waterFlow_bounds = await recommend_waterFlow.getBounds();
++        const recommend_bounds = await recommend.getBounds();
++
++        const waterFlow_width = waterFlow_bounds.right - waterFlow_bounds.left;
++        const recommend_width = recommend_bounds.right - recommend_bounds.left;
++
++        expect(Math.round(waterFlow_width / recommend_width)).assertEqual(4);
++      } catch (err) {
++        hilog.error(0x0000, 'testTag', 'should_recommend_room_waterFlow_be_two_lanes_on_SM_breakpoint error',
++          JSON.stringify(err));
++      }
++    })
++
++    it('should_all_room_waterFlow_be_four_lanes_on_SM_breakpoint', 0, async () => {
++      try {
++        const view_more = await driver.waitForComponent(ON.text('查看更多'), 2000);
++
++        await view_more.click();
++
++        const all_room_waterFlow = await driver.waitForComponent(ON.id('all_room_water_flow'), 2000);
++
++        const room = await driver.waitForComponent(ON.id('all_room_water_flow_0'), 2000);
++
++        const waterFlow_bounds = await all_room_waterFlow.getBounds();
++        const room_bounds = await room.getBounds();
++
++        const waterFlow_width = waterFlow_bounds.right - waterFlow_bounds.left;
++        const room_width = room_bounds.right - room_bounds.left;
++
++        expect(Math.round(waterFlow_width / room_width)).assertEqual(4);
++      } catch (err) {
++        hilog.error(0x0000, 'testTag', 'should_all_room_waterFlow_be_two_lanes_on_SM_breakpoint error',
++          JSON.stringify(err));
++      } finally {
++        await driver.pressBack();
++        await driver.delayMs(500);
++      }
++    })
++
++    it('should_note_waterFlow_be_four_lanes_on_SM_breakpoint', 0, async () => {
++      try {
++        const discovery = await driver.waitForComponent(ON.text('发现'), 2000);
++
++        await discovery.click();
++
++        const all_room_waterFlow = await driver.waitForComponent(ON.id('notes_water_flow'), 2000);
++        const room = await driver.waitForComponent(ON.id('notes_water_flow_0'), 2000);
++
++        const waterFlow_bounds = await all_room_waterFlow.getBounds();
++        const room_bounds = await room.getBounds();
++
++        const waterFlow_width = waterFlow_bounds.right - waterFlow_bounds.left;
++        const room_width = room_bounds.right - room_bounds.left;
++
++        expect(Math.round(waterFlow_width / room_width)).assertEqual(4);
++      } catch (err) {
++        hilog.error(0x0000, 'testTag', 'should_note_waterFlow_be_two_lanes_on_SM_breakpoint error',
++          JSON.stringify(err));
++      }
++    })
++  })
++}
+\ No newline at end of file
+diff --git a/main/src/ohosTest/ets/test/SmPassToPass.test.ets b/main/src/ohosTest/ets/test/SmPassToPass.test.ets
+new file mode 100644
+index 0000000..7e0ec95
+--- /dev/null
++++ b/main/src/ohosTest/ets/test/SmPassToPass.test.ets
+@@ -0,0 +1,88 @@
++import { describe, beforeAll, it, expect } from '@ohos/hypium';
++import { abilityDelegatorRegistry, Driver, ON } from '@kit.TestKit';
++import { Want } from '@kit.AbilityKit';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++
++const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++
++export default function smPassToPass() {
++  describe('SmPassToPassTest', () => {
++    let driver = Driver.create();
++
++    beforeAll(async () => {
++      const bundleName = abilityDelegatorRegistry.getArguments().bundleName;
++      const want: Want = {
++        bundleName: bundleName,
++        abilityName: 'EntryAbility'
++      };
++      await delegator.startAbility(want);
++      await driver.waitForIdle(4000, 5000);
++    })
++
++    it('should_recommend_room_waterFlow_be_two_lanes_on_SM_breakpoint', 0, async () => {
++      try {
++        const recommend_waterFlow = await driver.waitForComponent(ON.id('recommend_water_flow'), 2000);
++        const recommend = await driver.waitForComponent(ON.id('recommend_water_flow_0'), 2000);
++
++        const waterFlow_bounds = await recommend_waterFlow.getBounds();
++        const recommend_bounds = await recommend.getBounds();
++
++        const waterFlow_width = waterFlow_bounds.right - waterFlow_bounds.left;
++        const recommend_width = recommend_bounds.right - recommend_bounds.left;
++
++        expect(Math.round(waterFlow_width / recommend_width)).assertEqual(2);
++      } catch (err) {
++        hilog.error(0x0000, 'testTag', 'should_recommend_room_waterFlow_be_two_lanes_on_SM_breakpoint error',
++          JSON.stringify(err));
++      }
++    })
++
++    it('should_all_room_waterFlow_be_two_lanes_on_SM_breakpoint', 0, async () => {
++      try {
++        const view_more = await driver.waitForComponent(ON.text('查看更多'), 2000);
++
++        await view_more.click();
++
++        const all_room_waterFlow = await driver.waitForComponent(ON.id('all_room_water_flow'), 2000);
++
++        const room = await driver.waitForComponent(ON.id('all_room_water_flow_0'), 2000);
++
++        const waterFlow_bounds = await all_room_waterFlow.getBounds();
++        const room_bounds = await room.getBounds();
++
++        const waterFlow_width = waterFlow_bounds.right - waterFlow_bounds.left;
++        const room_width = room_bounds.right - room_bounds.left;
++
++        expect(Math.round(waterFlow_width / room_width)).assertEqual(2);
++      } catch (err) {
++        hilog.error(0x0000, 'testTag', 'should_all_room_waterFlow_be_two_lanes_on_SM_breakpoint error',
++          JSON.stringify(err));
++      } finally {
++        await driver.pressBack();
++        await driver.delayMs(500);
++      }
++    })
++
++    it('should_note_waterFlow_be_two_lanes_on_SM_breakpoint', 0, async () => {
++      try {
++        const discovery = await driver.waitForComponent(ON.text('发现'), 2000);
++
++        await discovery.click();
++
++        const all_room_waterFlow = await driver.waitForComponent(ON.id('notes_water_flow'), 2000);
++        const room = await driver.waitForComponent(ON.id('notes_water_flow_0'), 2000);
++
++        const waterFlow_bounds = await all_room_waterFlow.getBounds();
++        const room_bounds = await room.getBounds();
++
++        const waterFlow_width = waterFlow_bounds.right - waterFlow_bounds.left;
++        const room_width = room_bounds.right - room_bounds.left;
++
++        expect(Math.round(waterFlow_width / room_width)).assertEqual(2);
++      } catch (err) {
++        hilog.error(0x0000, 'testTag', 'should_note_waterFlow_be_two_lanes_on_SM_breakpoint error',
++          JSON.stringify(err));
++      }
++    })
++  })
++}
+\ No newline at end of file
