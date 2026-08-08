@@ -1,0 +1,12 @@
+{
+  "module": {
+    "name": "lib_news_api_test",
+    "type": "feature",
+    "deviceTypes": [
+      "phone",
+      "tablet"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false
+  }
+}

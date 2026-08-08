@@ -1,0 +1,64 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "这是一个适用于天气服务的应用模板"
+    },
+    {
+      "name": "PhoneAbility_desc",
+      "value": "这是一个适用于天气服务的应用模板"
+    },
+    {
+      "name": "PhoneAbility_label",
+      "value": "天气模板"
+    },
+    {
+      "name": "tab_home",
+      "value": "天气"
+    },
+    {
+      "name": "tab_video",
+      "value": "视频"
+    },
+    {
+      "name": "tab_mine",
+      "value": "我的"
+    },
+    {
+      "name": "PhoneFormAbility_desc",
+      "value": "form_description"
+    },
+    {
+      "name": "PhoneFormAbility_label",
+      "value": "form_label"
+    },
+    {
+      "name": "widget_desc",
+      "value": "天气卡片"
+    },
+    {
+      "name": "widget_display_name",
+      "value": "天气卡片"
+    },
+    {
+      "name": "widget1_desc",
+      "value": "天气卡片"
+    },
+    {
+      "name": "widget1_display_name",
+      "value": "天气卡片"
+    },
+    {
+      "name": "widget2_desc",
+      "value": "天气卡片"
+    },
+    {
+      "name": "widget2_display_name",
+      "value": "天气卡片"
+    },
+    {
+      "name": "agcit_huawei_weather",
+      "value": "1.0.0"
+    }
+  ]
+}

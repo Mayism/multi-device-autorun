@@ -1,0 +1,32 @@
+{
+  "color": [
+    {
+      "name": "app_theme",
+      "value": "#5C79D9"
+    },
+    {
+      "name": "membership",
+      "value": "#D3B685"
+    },
+    {
+      "name": "gradient_start",
+      "value": "#DFE8FB"
+    },
+    {
+      "name": "common_sheet_bg",
+      "value": "#F1F3F5"
+    },
+    {
+      "name": "comment_input_bg",
+      "value": "#0D000000"
+    },
+    {
+      "name": "home_linear",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "action_linear",
+      "value": "#F1F3F5"
+    }
+  ]
+}

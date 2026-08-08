@@ -1,0 +1,17 @@
+{
+  "name": "phone",
+  "version": "1.0.0",
+  "description": "Please describe the basic information.",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {
+    "lib_foundation": "file:../../commons/lib_foundation",
+    "lib_common": "file:../../commons/lib_common",
+    "business_home": "file:../../features/business_home",
+    "business_mine": "file:../../features/business_mine",
+    "business_video": "file:../../features/business_video",
+    "module_swipeplayer": "file:../../components/module_swipeplayer",
+  }
+}
+

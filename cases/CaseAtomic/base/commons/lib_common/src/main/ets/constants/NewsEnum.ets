@@ -1,0 +1,22 @@
+export enum NewsEnum {
+  /**
+   * 文章
+   */
+  Article = 0,
+  /**
+   * 视频
+   */
+  Video,
+  /**
+   * 动态
+   */
+  Post,
+  /**
+   * 广播
+   */
+  Broadcast,
+  /**
+   * 电视
+   */
+  Television
+}

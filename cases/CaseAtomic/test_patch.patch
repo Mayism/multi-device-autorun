@@ -1,0 +1,916 @@
+diff --git a/products/phone/src/ohosTest/ets/test/SplitDialog.test.ets b/products/phone/src/ohosTest/ets/test/SplitDialog.test.ets
+new file mode 100644
+index 0000000..7e5d39f
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SplitDialog.test.ets
+@@ -0,0 +1,97 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  startAbility,
++  enterSplit,
++  exitSplit,
++  getBounds,
++  getRealRect,
++  clickByText,
++  flingUp,
++  Sid,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++} from './SplitTestHelper';
++
++/**
++ * SS_B_02 启动隐私页"取消"弹窗分屏后底部按钮不应与文案内容重叠
++ *
++ * 用例类型：fail_to_pass
++ */
++export default function splitDialogTest() {
++  describe('SplitDialog', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('SS_B_02');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'PhoneAbility');
++        // 冷启动默认进入 SafePage（getAgreed() 始终 false）。等待页面稳定。
++        await driver.delayMs(1000);
++        // 切换分屏（系统默认 1/2 比例）
++        const splitOk = await enterSplit(driver);
++        dbg(`SS_B_02 beforeAll: enterSplit ok=${splitOk}`);
++        // 取"取消"按钮：分屏后可能落到可视区外，先直接取，取不到则 flingUp 滚动 SafePage 查找，找到后点击触发 AgreeDialog
++        let cancelVisible = await getBounds(driver, ON.text('取消'), '取消按钮');
++        if (cancelVisible === null) {
++          dbg(`SS_B_02 beforeAll: 当前可视区未取到"取消"按钮，开始 flingUp 滚动查找`);
++          for (let i = 0; i < 4; i++) {
++            await flingUp(driver);
++            await driver.delayMs(500);
++            cancelVisible = await getBounds(driver, ON.text('取消'), '取消按钮');
++            dbg(`SS_B_02 beforeAll: 第${i + 1}次 flingUp 后取"取消"按钮=${cancelVisible === null ? 'null' : JSON.stringify(cancelVisible)}`);
++            if (cancelVisible !== null) {
++              break;
++            }
++          }
++        }
++        await clickByText(driver, '取消');
++        await driver.delayMs(1000);
++      } catch (e) {
++        err('SplitDialog beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        setCaseTag('SS_B_02');
++        await exitSplit(driver);
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++      } catch (e) {
++        err('SplitDialog afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    it('should_dialogContent_notOverlap_with_bottomButtons_after_split', Level.LEVEL1, async (done: Function) => {
++      try {
++        // Scroll 内容区真实布局底边（componentUtils 取屏幕坐标，不受视口裁剪影响）
++        const scroll = getRealRect(Sid.AGREE_DIALOG_SCROLL);
++        // 底部按钮区顶边
++        const btnExit = await getBounds(driver, ON.text('退出应用'), '退出应用按钮');
++        dbg(`SS_B_02: scroll=${JSON.stringify(scroll)} btnExit=${JSON.stringify(btnExit)}`);
++
++        if (scroll === null || btnExit === null) {
++          // 取不到无法判定重叠，判失败
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++
++        // 断言 Scroll 底边 ≤ 按钮顶边（内容区不应延伸到按钮区之下被遮挡）
++        const scrollBottom = scroll.top + scroll.height;
++        dbg(`SS_B_02: scrollBottom=${scrollBottom} btnExit.top=${btnExit.top} (重叠=${scrollBottom > btnExit.top})`);
++        expect(scrollBottom <= btnExit.top).assertTrue();
++      } catch (e) {
++        err('SS_B_02 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      }
++      done();
++    });
++  });
++}
+diff --git a/products/phone/src/ohosTest/ets/test/SplitImage.test.ets b/products/phone/src/ohosTest/ets/test/SplitImage.test.ets
+new file mode 100644
+index 0000000..bbf8f23
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SplitImage.test.ets
+@@ -0,0 +1,105 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  startAbility,
++  enterSplit,
++  exitSplit,
++  getBounds,
++  ratioDeviation,
++  getWindowViewBounds,
++  Sid,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++} from './SplitTestHelper';
++
++/**
++ * SS_B_03 启动隐私页图标在分屏小窗口下隐藏（displayPriority 隐藏能力）
++ *
++ * 用例类型：fail_to_pass
++ */
++export default function splitImageTest() {
++  describe('SplitImage', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('SS_B_03');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'PhoneAbility');
++        // 冷启动默认进入 SafePage（全屏）。等待图标渲染稳定。
++        await driver.delayMs(1000);
++      } catch (e) {
++        err('SplitImage beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        setCaseTag('SS_B_03');
++        await exitSplit(driver);
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++      } catch (e) {
++        err('SplitImage afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    it('should_safePage_icon_hidden_after_split', Level.LEVEL1, async (done: Function) => {
++      try {
++        // 1. 分屏前（全屏空间充足）：图标应展示——getBounds 取得到，记宽高比 R0（窗口内可见尺寸）
++        const before = await getBounds(driver, ON.id(Sid.SAFE_ICON), '图标-分屏前');
++        dbg(`SS_B_03: 分屏前图标 before=${before ? JSON.stringify(before) : 'null'}`);
++        if (before === null) {
++          // 分屏前图标就取不到：异常（全屏应展示），判失败
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const beforeH = before.bottom - before.top;
++        if (beforeH <= 0) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const r0 = (before.right - before.left) / beforeH;
++
++        // 2. 切换分屏（系统默认 1/2 比例，半屏空间不足触发隐藏能力），等待布局重排稳定
++        const splitOk = await enterSplit(driver);
++        expect(splitOk).assertTrue();
++        await driver.delayMs(1500);
++
++        // 3. 分屏后：两种正确态择一。先 getBounds 判定是否展示（隐藏后不在布局树 → null）
++        const after = await getBounds(driver, ON.id(Sid.SAFE_ICON), '图标-分屏后');
++        dbg(`SS_B_03: 分屏后图标 after=${after ? JSON.stringify(after) : 'null(已隐藏)'}`);
++        if (after === null) {
++          // 态一：图标被隐藏（不在布局树）→ 正确
++          expect(true).assertTrue();
++        } else {
++          // 态二：图标仍展示 → 聚焦窗口内实际展示效果，须同时满足两条件
++          const win = await getWindowViewBounds(driver);
++          dbg(`SS_B_03: 图标展示 win=${win ? JSON.stringify(win) : 'null'}`);
++          if (win === null) {
++            expect(false).assertTrue();
++          } else {
++            // ① 完整落在可视窗口内不被遮挡（getBounds 顶/底边在窗口范围内，同屏幕坐标基准）
++            const fullyVisible = after.top >= win.top && after.bottom <= win.bottom;
++            // ② 宽高比与分屏前一致（偏差<5%，证明未变形）
++            const afterH = after.bottom - after.top;
++            const dev = afterH > 0 ? ratioDeviation(r0, (after.right - after.left) / afterH) : Infinity;
++            dbg(`SS_B_03: fullyVisible=${fullyVisible} ratioDev=${dev.toFixed(4)} (r0=${r0.toFixed(4)})`);
++            expect(fullyVisible).assertTrue();
++            expect(dev < 0.05).assertTrue();
++          }
++        }
++      } catch (e) {
++        err('SS_B_03 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      }
++      done();
++    });
++  });
++}
+diff --git a/products/phone/src/ohosTest/ets/test/SplitScroll.test.ets b/products/phone/src/ohosTest/ets/test/SplitScroll.test.ets
+new file mode 100644
+index 0000000..f020b9f
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SplitScroll.test.ets
+@@ -0,0 +1,106 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  On,
++  Bounds,
++  startAbility,
++  enterSplit,
++  exitSplit,
++  getBounds,
++  clickIfExists,
++  flingUp,
++  flingDown,
++  getWindowViewBounds,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++} from './SplitTestHelper';
++
++/**
++ * SS_B_01 分屏后登录页内容可上下滚动查看完整内容（不被截断）
++ *
++ * 用例类型：fail_to_pass
++ */
++export default function splitScrollTest() {
++  describe('SplitScroll', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('SS_B_01');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'PhoneAbility');
++        // 冷启动先到 SafePage：点"同意"进入 Main，"我的"tab 才可见
++        await clickIfExists(driver, ON.text('同意'), 'SafePage 同意');
++        await driver.delayMs(200);
++        // 通用前置：切到"我的"tab → 点击"点击登录"进入登录页（QuickLoginPage）
++        await clickIfExists(driver, ON.text('我的'), '我的tab');
++        await driver.delayMs(200);
++        await clickIfExists(driver, ON.text('点击登录'), '点击登录入口');
++        await driver.delayMs(200);
++      } catch (e) {
++        err('SplitScroll beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        setCaseTag('SS_B_01');
++        await exitSplit(driver);
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++        await driver.pressBack();
++      } catch (e) {
++        err('SplitScroll afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    // 底部标记：协议勾选 Checkbox位于 Scroll 内容最底部。分屏后半屏高度下初始被截断不可见；滚到底后可见。
++    const bottomCheckbox: On = ON.type('Checkbox');
++
++    it('should_loginPage_content_scrollable_after_split', Level.LEVEL1, async (done: Function) => {
++      try {
++        // 切换分屏（系统默认 1/2 比例）。分屏本身是基础操作，失败判异常失败
++        const splitOk = await enterSplit(driver);
++        expect(splitOk).assertTrue();
++        await driver.delayMs(1000);
++
++        // 记录初始（滚前）状态：Checkbox 应不可见（适配前被截断）
++        const before = await getBounds(driver, bottomCheckbox, '协议Checkbox-before');
++        dbg(`SS_B_01: before=${before ? JSON.stringify(before) : 'null(被截断不可见)'}`);
++
++        // 反复 fling 上滑，每次滚动后判断 Checkbox 是否落入可视窗口，可见即停
++        let after: Bounds | null = null;
++        let win = await getWindowViewBounds(driver);
++        for (let i = 0; i < 4; i++) {
++          await flingUp(driver);
++          await driver.delayMs(500);
++          after = await getBounds(driver, bottomCheckbox, '协议Checkbox-after');
++          win = await getWindowViewBounds(driver);
++          if (after !== null && win !== null && after.top >= win.top && after.bottom <= win.bottom) {
++            dbg(`SS_B_01: 第${i + 1}次 flingUp 后 Checkbox 已可见 ${JSON.stringify(after)}`);
++            break;
++          }
++          dbg(`SS_B_01: 第${i + 1}次 flingUp 后 Checkbox 仍不可见 after=${after ? JSON.stringify(after) : 'null'}`);
++        }
++
++        dbg(`SS_B_01: after=${after ? JSON.stringify(after) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++
++        if (after === null || win === null) {
++          // 滚到底后仍取不到 Checkbox：Scroll 未生效（适配前的失败态）
++          expect(false).assertTrue();
++        } else {
++          // 断言 Checkbox 顶/底边落在可视窗口范围内
++          expect(after.top >= win.top && after.bottom <= win.bottom).assertTrue();
++        }
++      } catch (e) {
++        err('SS_B_01 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      }
++      done();
++    });
++  });
++}
+diff --git a/products/phone/src/ohosTest/ets/test/SplitTab.test.ets b/products/phone/src/ohosTest/ets/test/SplitTab.test.ets
+new file mode 100644
+index 0000000..3c5cd1a
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SplitTab.test.ets
+@@ -0,0 +1,79 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  startAbility,
++  enterSplit,
++  exitSplit,
++  getBounds,
++  clickIfExists,
++  getWindowViewBounds,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++  Sid,
++} from './SplitTestHelper';
++
++/**
++ * SS_B_06 首页 Tab 栏分屏后无需滚动即可完整可见（固定布局）
++ *
++ * 用例类型：pass_to_pass
++ */
++export default function splitTabTest() {
++  describe('SplitTab', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('SS_B_06');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'PhoneAbility');
++        // 冷启动先到 SafePage：点"同意"进入 Main（首页）
++        await driver.delayMs(1000);
++        await clickIfExists(driver, ON.text('同意'), 'SafePage 同意');
++        await driver.delayMs(1000);
++        // 切换分屏（系统默认 1/2 比例）
++        const splitOk = await enterSplit(driver);
++        dbg(`SS_B_06 beforeAll: enterSplit ok=${splitOk}`);
++        await driver.delayMs(1500);
++      } catch (e) {
++        err('SplitTab beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        setCaseTag('SS_B_06');
++        await exitSplit(driver);
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++      } catch (e) {
++        err('SplitTab afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    it('should_homeTabBar_fullyVisible_without_scroll_after_split', Level.LEVEL1, async (done: Function) => {
++      try {
++        const bar = await getBounds(driver, ON.id(Sid.HOME_TABS), 'Tab 栏');
++        // 可视窗口绝对边界（同为绝对屏幕坐标），与 bar 做坐标范围比较
++        const win = await getWindowViewBounds(driver);
++        dbg(`SS_B_06: bar=${JSON.stringify(bar)} win=${JSON.stringify(win)}`);
++
++        if (bar === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++
++        // Tab 栏完整落在可视窗口内：顶边 ≥ 窗口顶边 且底边 ≤ 窗口底边（绝对坐标同基准比较）
++        expect(bar.top >= win.top && bar.bottom <= win.bottom).assertTrue();
++      } catch (e) {
++        err('SS_B_06 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      }
++      done();
++    });
++  });
++}
+diff --git a/products/phone/src/ohosTest/ets/test/SplitTestHelper.ets b/products/phone/src/ohosTest/ets/test/SplitTestHelper.ets
+new file mode 100644
+index 0000000..b1b67b5
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SplitTestHelper.ets
+@@ -0,0 +1,392 @@
++/*
++ * 分屏一多适配测试 - 公共辅助
++ *
++ * 关键约束：
++ * 1. 测试 hap 与被测 app 同进程（共进程加载），可直接读 AppStorage、调 mainWindow API。
++ * 2. 分屏/调窗口尺寸一律用 UiWindow 触控 API（split/resize/maximize）。
++ * 3. 被测组件若未设 .id()，UiTest 用 ON.text()/ON.type() 兜底定位（见各用例）。
++ * 4. .test.ets 文件不能 import '@kit.TestKit'（触发 hvigor OhmUrl 解析失败），
++ *    故本 helper 统一从 TestKit 取值并 re-export，测试文件只 import 自本 helper。
++ */
++import { window, componentUtils, ComponentUtils } from '@kit.ArkUI';
++import { common, Want } from '@kit.AbilityKit';
++import { abilityDelegatorRegistry, Driver, ON, On, Component, UiDirection, UiWindow } from '@kit.TestKit';
++
++// ============================ 常量与类型 ============================
++
++/** 被测应用 bundleName（取自 AppScope/app.json5） */
++export const BUNDLE_NAME = 'tqyy.1.xxxxxx';
++
++/** UiTest Rect 的精简版（SDK Rect 类型为 any，本地 interface 给测试文件明确字段类型） */
++export interface Bounds {
++  left: number;
++  top: number;
++  right: number;
++  bottom: number;
++}
++
++/** 组件真实布局矩形（含屏幕坐标 top/left + 尺寸）。用于需要与其它组件屏幕坐标比较的场景（如 SS_B_02 重叠检测）。 */
++export interface RealRect {
++  left: number;
++  top: number;
++  width: number;
++  height: number;
++}
++
++/** 组件 id 约定（需给被测组件补对应 .id()） */
++export enum Sid {
++  /** SafePage 起始图标（SS_B_03 隐藏能力断言）。源码：SafePage.ets */
++  SAFE_ICON = 'ss_safe_icon',
++  /** AgreeDialog 弹窗卡片 Column。源码：AgreeDialog.ets */
++  AGREE_DIALOG = 'ss_agree_dialog',
++  /** AgreeDialog 内 Scroll 内容区（SS_B_02 检测与按钮区重叠）。源码：AgreeDialog.ets */
++  AGREE_DIALOG_SCROLL = 'ss_agree_dialog_scroll',
++  /** Main 首页底部 Tab 栏（SS_B_06 边界断言）。源码：Main.ets */
++  HOME_TABS = 'ss_home_tabs',
++  /** 视频 Tab-精选当前播放视频画面 XComponent（SS_B_05 宽高比断言）。源码：VideoPlayerView.ets */
++  VIDEO_XCOMPONENT = 'ss_video_xcomponent',
++}
++
++// ============================ Delegator & 日志 ============================
++
++/** 全局 AbilityDelegator，用于 beforeAll 的 startAbility。 */
++export const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++
++/** 动态取被测应用 bundleName（优先 delegator 参数；回退到模块常量）。 */
++export function getBundleName(): string {
++  try {
++    const bn = abilityDelegatorRegistry.getArguments().bundleName;
++    return bn || BUNDLE_NAME;
++  } catch (e) {
++    return BUNDLE_NAME;
++  }
++}
++
++/** 用例级 tag：beforeAll 里调 setCaseTag('用例名称')。 */
++let _caseTag: string = '';
++export function setCaseTag(tag: string): void {
++  _caseTag = tag;
++}
++
++/** 统一调试日志，带 [SPLIT]（或 [SPLIT][用例tag]）前缀。关键判断都经此打日志，便于失败定位。 */
++export function dbg(msg: string): void {
++  const prefix = _caseTag ? `[SPLIT][${_caseTag}]` : '[SPLIT]';
++  console.info(`${prefix} ${msg}`);
++}
++
++/**
++ * 输出 error 级别日志（格式与 dbg 统一：[SPLIT][用例号] 前缀，但走 console.error 保留 error 级别）。
++ */
++export function err(msg: string): void {
++  const prefix = _caseTag ? `[SPLIT][${_caseTag}]` : '[SPLIT]';
++  console.error(`${prefix} ${msg}`);
++}
++
++// ============================ 启动与主窗口 ============================
++
++/** 缓存的主窗口。startAbility（beforeAll 异步阶段）填充；getMainWindow() 等同步调用方据此返回。 */
++let _mainWindowCache: window.Window | null = null;
++
++/**
++ * 异步缓存被测应用主窗口（替代废弃的全局 getContext()）。
++ */
++async function cacheMainWindow(): Promise<void> {
++  if (_mainWindowCache !== null) {
++    return;
++  }
++  try {
++    const ability = await delegator.getCurrentTopAbility();
++    const ctx = ability.context as common.UIAbilityContext;
++    _mainWindowCache = ctx.windowStage.getMainWindowSync();
++    dbg('cacheMainWindow: 已缓存主窗口');
++  } catch (e) {
++    dbg(`cacheMainWindow 失败: ${(e as Error).message}（后续 getMainWindow 调用将抛错）`);
++  }
++}
++
++/**
++ * 获取当前主窗口（同步，返回缓存值）。
++ */
++export function getMainWindow(): window.Window {
++  if (_mainWindowCache === null) {
++    throw new Error('getMainWindow: 主窗口缓存未就绪，请确认 beforeAll 已 await startAbility(...)');
++  }
++  return _mainWindowCache;
++}
++
++/**
++ * 启动被测 ability 并等待 UI 稳定，同时缓存主窗口。
++ */
++export async function startAbility(driver: Driver, bundleName: string, abilityName: string): Promise<void> {
++  try {
++    const want: Want = {
++      bundleName: bundleName,
++      abilityName: abilityName,
++    };
++    await delegator.startAbility(want);
++    await driver.waitForIdle(3000, 5000);
++    await cacheMainWindow();
++  } catch (e) {
++    err('startAbility 失败: ' + JSON.stringify(e));
++  }
++}
++
++// ============================ 屏幕尺寸 & 窗口查找 ============================
++
++/**
++ * 通过 UiTest Driver 查找被测应用主窗口（UiWindow）。
++ */
++export async function getUiWindow(driver: Driver): Promise<UiWindow | null> {
++  try {
++    const win: UiWindow = await driver.findWindow({ bundleName: BUNDLE_NAME });
++    if (win === null || win === undefined) {
++      dbg(`getUiWindow: 被测窗口未找到（bundleName=${BUNDLE_NAME}），可能未启动或已退出`);
++      return null;
++    }
++    return win;
++  } catch (e) {
++    dbg(`getUiWindow 异常: ${(e as Error).message}`);
++    return null;
++  }
++}
++
++/**
++ * 启动系统"设置"填充分屏后剩余半屏。
++ */
++export async function launchSettings(): Promise<void> {
++  const settingsWant: Want = {
++    bundleName: 'com.huawei.hmos.settings',
++    abilityName: 'com.huawei.hmos.settings.MainAbility',
++  };
++  try {
++    await delegator.startAbility(settingsWant);
++  } catch (e) {
++    err(`launchSettings by bundleName 失败: ${(e as Error).message}, retry by action`);
++    try {
++      const actionWant: Want = { action: 'ohos.settings.action.SETTINGS' };
++      await delegator.startAbility(actionWant);
++    } catch (e2) {
++      err(`launchSettings by action 失败: ${(e2 as Error).message}`);
++    }
++  }
++}
++
++// ============================ 分屏 & 窗口 Resize ============================
++
++/**
++ * 进入分屏（用 UiTest UiWindow.split() 触控式分屏）。
++ */
++export async function enterSplit(driver: Driver): Promise<boolean> {
++  const uiWin = await getUiWindow(driver);
++  if (uiWin === null) {
++    dbg('enterSplit: 被测窗口未找到，无法分屏');
++    return false;
++  }
++  try {
++    await uiWin.split();
++  } catch (e) {
++    dbg(`enterSplit: split() 抛错（可能已生效）: ${(e as Error).message}`);
++  }
++  await launchSettings();
++  try {
++    await driver.waitForIdle(2000, 3000);
++  } catch (e) {
++    // waitForIdle 失败不阻断分屏判定
++  }
++  let afterSize = 'unknown';
++  try {
++    const uiWin2 = await getUiWindow(driver);
++    if (uiWin2 !== null) {
++      const b2 = await uiWin2.getBounds() as Bounds;
++      afterSize = `${b2.right - b2.left}x${b2.bottom - b2.top}`;
++    }
++  } catch (e) {
++    // ignore
++  }
++  dbg(`enterSplit: 分屏后窗口尺寸(px): ${afterSize}`);
++  return true;
++}
++
++/**
++ * 退出分屏恢复全屏（用例间状态复位）。
++ */
++export async function exitSplit(driver: Driver): Promise<void> {
++  const uiWin = await getUiWindow(driver);
++  if (uiWin === null) {
++    dbg('exitSplit: 被测窗口未找到，跳过');
++    return;
++  }
++  try {
++    await uiWin.maximize();
++    await driver.waitForIdle(1500, 2500);
++    dbg('exitSplit: 已退出分屏恢复全屏');
++  } catch (e) {
++    dbg(`exitSplit: maximize 抛错（可能已全屏）: ${(e as Error).message}`);
++  }
++}
++
++/**
++ * 取被测窗口可视区域的绝对屏幕边界（px）：分屏后被测窗口 bounds 的 {left,top,right,bottom}。
++ */
++export async function getWindowViewBounds(driver: Driver): Promise<Bounds | null> {
++  const uiWin = await getUiWindow(driver);
++  if (uiWin === null) {
++    dbg('getWindowViewBounds: 被测窗口未找到 → null');
++    return null;
++  }
++  try {
++    const b = await uiWin.getBounds() as Bounds;
++    const result: Bounds = { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
++    dbg(`getWindowViewBounds: L=${result.left} T=${result.top} R=${result.right} B=${result.bottom} (${result.right - result.left}x${result.bottom - result.top})`);
++    return result;
++  } catch (e) {
++    dbg(`getWindowViewBounds 异常: ${(e as Error).message} → null`);
++    return null;
++  }
++}
++
++// ============================ 组件查询 ============================
++
++/**
++ * 获取组件边界(left/top/right/bottom)。返回本地 Bounds 接口（非 SDK Component/Rect），
++ */
++export async function getBounds(driver: Driver, on: On, label?: string): Promise<Bounds | null> {
++  const tag = label ?? '组件';
++  try {
++    const comp: Component = await driver.findComponent(on);
++    const r = await comp.getBounds() as Bounds;
++    const result: Bounds = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
++    dbg(`getBounds[${tag}]: L=${result.left} T=${result.top} R=${result.right} B=${result.bottom} (${result.right - result.left}x${result.bottom - result.top})`);
++    return result;
++  } catch (e) {
++    dbg(`getBounds[${tag}]: 未找到/异常, err=${(e as Error).message}`);
++    return null;
++  }
++}
++
++/** 点击组件（若存在）。返回是否成功点击。@param label 可读定位描述，用于失败日志 */
++export async function clickIfExists(driver: Driver, on: On, label?: string): Promise<boolean> {
++  const tag = label ?? '组件';
++  try {
++    const comp: Component = await driver.findComponent(on);
++    await comp.click();
++    dbg(`clickIfExists[${tag}]: 点击成功`);
++    return true;
++  } catch (e) {
++    dbg(`clickIfExists[${tag}]: 未找到/点击失败, err=${(e as Error).message}`);
++    return false;
++  }
++}
++
++/** 通过文本查找并点击组件（无需 .id() 的兜底定位）。未找到/失败抛 Error。 */
++export async function clickByText(driver: Driver, text: string): Promise<void> {
++  try {
++    const comp: Component = await driver.findComponent(ON.text(text));
++    await comp.click();
++    dbg(`clickByText: 点击成功 text='${text}'`);
++  } catch (e) {
++    dbg(`clickByText: 点击失败/未找到 text='${text}', err=${(e as Error).message}`);
++    throw new Error(`clickByText failed: text='${text}', cause=${(e as Error).message}`);
++  }
++}
++
++// ============================ 真实尺寸 ============================
++
++/**
++ * 取组件真实布局矩形（含屏幕坐标 top/left + 尺寸），基于 componentUtils，不受视口裁剪影响。
++ */
++export function getRealRect(id: string): RealRect | null {
++  const tag = `getRealRect[${id}]`;
++  try {
++    const cu: ComponentUtils = getMainWindow().getUIContext().getComponentUtils();
++    const info: componentUtils.ComponentInfo = cu.getRectangleById(id);
++    const left: number = info.screenOffset.x;
++    const top: number = info.screenOffset.y;
++    const w: number = info.size.width;
++    const h: number = info.size.height;
++    dbg(`${tag}: L=${left} T=${top} ${w}x${h} (bottom=${top + h})`);
++    const result: RealRect = { left: left, top: top, width: w, height: h };
++    return result;
++  } catch (e) {
++    dbg(`${tag}: 异常 ${(e as Error).message}`);
++    return null;
++  }
++}
++
++/** 计算两次宽高比的相对偏差 |r1-r0| / r0，供 SS_B_03 断言"偏差<5%"。r0 为 0 返回 Infinity。 */
++export function ratioDeviation(r0: number, r1: number): number {
++  if (r0 === 0) {
++    return Infinity;
++  }
++  return Math.abs(r1 - r0) / Math.abs(r0);
++}
++
++// ============================ 滚动 ============================
++
++/**
++ * 在被测应用窗口内向上 fling 滚动（坐标式 swipe）。
++ */
++export async function flingUp(driver: Driver): Promise<void> {
++  const win = await getUiWindow(driver);
++  if (win === null) {
++    dbg('flingUp: 被测窗口未找到，回退全局 fling');
++    try {
++      await driver.fling(UiDirection.UP, 600);
++    } catch (e) {
++      dbg(`flingUp: 兜底 fling 失败（窗口可能已异常）: ${(e as Error).message}`);
++    }
++    return;
++  }
++  try {
++    const b = await win.getBounds() as Bounds;
++    const cx = Math.floor((b.left + b.right) / 2);
++    const h = b.bottom - b.top;
++    const startY = Math.floor(b.top + h * 0.7);
++    const endY = Math.floor(b.top + h * 0.3);
++    dbg(`flingUp: 被测窗口内 swipe (${cx},${startY})→(${cx},${endY}) [win top=${b.top} h=${h}]`);
++    await driver.swipe(cx, startY, cx, endY, 600);
++  } catch (e) {
++    dbg(`flingUp: 坐标 swipe 失败，回退全局 fling: ${(e as Error).message}`);
++    try {
++      await driver.fling(UiDirection.UP, 600);
++    } catch (e2) {
++      dbg(`flingUp: 兜底 fling 失败: ${(e2 as Error).message}`);
++    }
++  }
++}
++
++/**
++ * 在被测应用窗口内向下 fling 滚动（与 flingUp 对称）。
++ */
++export async function flingDown(driver: Driver): Promise<void> {
++  const win = await getUiWindow(driver);
++  if (win === null) {
++    dbg('flingDown: 被测窗口未找到，回退全局 fling');
++    try {
++      await driver.fling(UiDirection.DOWN, 600);
++    } catch (e) {
++      dbg(`flingDown: 兜底 fling 失败（窗口可能已异常）: ${(e as Error).message}`);
++    }
++    return;
++  }
++  try {
++    const b = await win.getBounds() as Bounds;
++    const cx = Math.floor((b.left + b.right) / 2);
++    const h = b.bottom - b.top;
++    // 与 flingUp 镜像：从 30% 滑到 70%（手指下滑 → 内容向下滚 → 回顶部方向）
++    const startY = Math.floor(b.top + h * 0.3);
++    const endY = Math.floor(b.top + h * 0.7);
++    dbg(`flingDown: 被测窗口内 swipe (${cx},${startY})→(${cx},${endY}) [win top=${b.top} h=${h}]`);
++    await driver.swipe(cx, startY, cx, endY, 600);
++  } catch (e) {
++    dbg(`flingDown: 坐标 swipe 失败，回退全局 fling: ${(e as Error).message}`);
++    try {
++      await driver.fling(UiDirection.DOWN, 600);
++    } catch (e2) {
++      dbg(`flingDown: 兜底 fling 失败: ${(e2 as Error).message}`);
++    }
++  }
++}
++
++// ============================ re-export TestKit ============================
++export { Driver, ON, On, UiDirection };
+diff --git a/products/phone/src/ohosTest/ets/test/SplitVideo.test.ets b/products/phone/src/ohosTest/ets/test/SplitVideo.test.ets
+new file mode 100644
+index 0000000..4ed7622
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SplitVideo.test.ets
+@@ -0,0 +1,101 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  startAbility,
++  enterSplit,
++  getBounds,
++  clickIfExists,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++  Sid,
++  exitSplit,
++} from './SplitTestHelper';
++
++/**
++ * SS_B_05 分屏下视频画面应保持正确宽高比（aspectRatio 响应式）
++ *
++ * 用例类型：fail_to_pass
++ */
++export default function splitVideoTest() {
++  describe('SplitVideo', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('SS_B_05');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'PhoneAbility');
++        // 冷启动先到 SafePage：点"同意"进入 Main
++        await clickIfExists(driver, ON.text('同意'), 'SafePage 同意');
++        await driver.delayMs(500);
++        // 切到"视频"底部 Tab → 默认进入"精选"（VideoType.CHOICE）
++        await clickIfExists(driver, ON.text('视频'), '视频tab');
++        // 等待首个视频加载、首帧渲染稳定
++        await driver.delayMs(2000);
++      } catch (e) {
++        err('SplitVideo beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        setCaseTag('SS_B_05');
++        await exitSplit(driver);
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++        await driver.pressBack();
++      } catch (e) {
++        err('SplitVideo afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    it('should_videoKeepAspectRatio_after_split', Level.LEVEL1, async (done: Function) => {
++      try {
++        // 1. 分屏前（全屏）：取当前播放视频画面 XComponent 宽高，计算 R0
++        const before = await getBounds(driver, ON.id(Sid.VIDEO_XCOMPONENT), '视频画面-分屏前');
++        dbg(`SS_B_05: 分屏前画面 before=${before ? JSON.stringify(before) : 'null'}`);
++        if (before === null) {
++          // 画面取不到（视频未加载/未渲染）→ 无法测宽高比，判失败
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const w0 = before.right - before.left;
++        const h0 = before.bottom - before.top;
++        const r0 = w0 / h0;
++        dbg(`SS_B_05: 分屏前 w0=${w0} h0=${h0} R0=${r0}`);
++
++        // 2. 切换上下分屏（系统默认 1/2 比例），等待窗口尺寸变化稳定
++        const splitOk = await enterSplit(driver);
++        expect(splitOk).assertTrue();
++        await driver.delayMs(1500);
++
++        // 3. 分屏后：再次取画面宽高，计算 R1
++        const after = await getBounds(driver, ON.id(Sid.VIDEO_XCOMPONENT), '视频画面-分屏后');
++        dbg(`SS_B_05: 分屏后画面 after=${after ? JSON.stringify(after) : 'null'}`);
++        if (after === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const w1 = after.right - after.left;
++        const h1 = after.bottom - after.top;
++        const r1 = w1 / h1;
++        dbg(`SS_B_05: 分屏后 w1=${w1} h1=${h1} R1=${r1}`);
++
++        // 4. 断言分屏前后宽高比偏差 < 10%（aspectRatio 响应式，画面不变形）
++        const deviation = Math.abs(r0 - r1) / r0;
++        dbg(`SS_B_05: 偏差=${deviation}（阈值 10%）`);
++        expect(deviation < 0.1).assertTrue();
++      } catch (e) {
++        err('SS_B_05 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      }
++      done();
++    });
++  });
++}

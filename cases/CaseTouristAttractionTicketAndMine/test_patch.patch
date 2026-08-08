@@ -1,0 +1,726 @@
+diff --git a/products/phone/src/ohosTest/ets/test/LgFailToPass.test.ets b/products/phone/src/ohosTest/ets/test/LgFailToPass.test.ets
+new file mode 100644
+index 0000000..18fd281
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/LgFailToPass.test.ets
+@@ -0,0 +1,208 @@
++import { describe, beforeAll, it, expect } from '@ohos/hypium';
++import { abilityDelegatorRegistry, Driver, ON } from '@kit.TestKit';
++import { Want } from '@kit.AbilityKit';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++import { TestHelper } from './TestHelper';
++
++const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++const helper = new TestHelper();
++
++export default function lgFailToPass() {
++  describe('LgFailToPassTest', () => {
++    let driver = Driver.create();
++
++    beforeAll(async () => {
++      const bundleName = abilityDelegatorRegistry.getArguments().bundleName;
++      const want: Want = {
++        bundleName: bundleName,
++        abilityName: 'EntryAbility'
++      };
++      await delegator.startAbility(want);
++      await driver.waitForIdle(4000, 5000);
++    })
++
++    it('should_ticket_list_be_double_on_LG_breakpoint', 0, async () => {
++      try {
++        const ticket = await driver.waitForComponent(ON.text('门票'), 2000);
++        await ticket.click();
++
++        const ticketList = await driver.waitForComponent(ON.id('ticket_list'), 2000);
++        const firstTicket = await driver.waitForComponent(ON.id('ticket_list_0'), 2000);
++        const ticketListBounds = await ticketList.getBounds();
++        const firstTicketBounds = await firstTicket.getBounds();
++
++        const ticketListWidth = ticketListBounds.right - ticketListBounds.left;
++        const firstTicketWidth = firstTicketBounds.right - firstTicketBounds.left;
++        expect(Math.round(ticketListWidth / firstTicketWidth)).assertEqual(2);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'ticket list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_ticket_reserve_span_eight_columns_on_LG_breakpoint', 0, async () => {
++      try {
++        const firstTicket = await driver.waitForComponent(ON.id('ticket_list_0'), 2000);
++        await firstTicket.click();
++
++        const reserve = await driver.waitForComponent(ON.text('预订'), 2000);
++        await reserve.click();
++
++        const ticketReserve = await driver.waitForComponent(ON.id('ticket_reserve'), 2000);
++        const ticketReserveBounds = await ticketReserve.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const ticketReserveWidth = ticketReserveBounds.right - ticketReserveBounds.left;
++        const ticketReserveColumns = Math.round(ticketReserveWidth / screenWidth * 12);
++        expect(ticketReserveColumns).assertEqual(8);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'ticket reserve layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++        await driver.pressBack();
++      }
++    })
++
++    it('should_function_list_be_double_on_LG_breakpoint', 0, async () => {
++      try {
++        const mine = await driver.waitForComponent(ON.text('我的'), 2000);
++        await mine.click();
++
++        const functionList = await driver.waitForComponent(ON.id('function_list'), 2000);
++        const firstFunction = await driver.waitForComponent(ON.id('function_list_0'), 2000);
++        const functionListBounds = await functionList.getBounds();
++        const firstFunctionBounds = await firstFunction.getBounds();
++
++        const functionListWidth = functionListBounds.right - functionListBounds.left;
++        const firstFunctionWidth = firstFunctionBounds.right - firstFunctionBounds.left;
++        expect(Math.round(functionListWidth / firstFunctionWidth)).assertEqual(2);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'function list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_personal_info_span_eight_columns_on_LG_breakpoint', 0, async () => {
++      try {
++        const userName = await driver.waitForComponent(ON.text('华为用户'), 2000);
++        await userName.click();
++
++        const personalInfo = await driver.waitForComponent(ON.id('personal_info'), 2000);
++        const personalInfoBounds = await personalInfo.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const personalInfoWidth = personalInfoBounds.right - personalInfoBounds.left;
++        const personalInfoColumns = Math.round(personalInfoWidth / screenWidth * 12);
++        expect(personalInfoColumns).assertEqual(8);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'personal info layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_address_list_be_double_on_LG_breakpoint', 0, async () => {
++      try {
++        const addressEntry = await driver.waitForComponent(ON.text('我的地址'), 2000);
++        await addressEntry.click();
++
++        const addressList = await driver.waitForComponent(ON.id('address_list'), 2000);
++        const firstAddress = await driver.waitForComponent(ON.id('address_list_0'), 2000);
++        const addressListBounds = await addressList.getBounds();
++        const firstAddressBounds = await firstAddress.getBounds();
++
++        const addressListWidth = addressListBounds.right - addressListBounds.left;
++        const firstAddressWidth = firstAddressBounds.right - firstAddressBounds.left;
++        expect(Math.round(addressListWidth / firstAddressWidth)).assertEqual(2);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'address list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_tourist_list_be_double_on_LG_breakpoint', 0, async () => {
++      try {
++        const touristEntry = await driver.waitForComponent(ON.text('常用旅客'), 2000);
++        await touristEntry.click();
++
++        const touristList = await driver.waitForComponent(ON.id('tourist_list'), 2000);
++        const firstTourist = await driver.waitForComponent(ON.id('tourist_list_0'), 2000);
++        const touristListBounds = await touristList.getBounds();
++        const firstTouristBounds = await firstTourist.getBounds();
++
++        const touristListWidth = touristListBounds.right - touristListBounds.left;
++        const firstTouristWidth = firstTouristBounds.right - firstTouristBounds.left;
++        expect(Math.round(touristListWidth / firstTouristWidth)).assertEqual(2);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'tourist list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_hotline_span_eight_columns_on_LG_breakpoint', 0, async () => {
++      try {
++        const hotlineEntry = await driver.waitForComponent(ON.text('服务热线'), 2000);
++        await hotlineEntry.click();
++
++        const hotline = await driver.waitForComponent(ON.id('hotline'), 2000);
++        const hotlineBounds = await hotline.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const hotlineWidth = hotlineBounds.right - hotlineBounds.left;
++        const hotlineColumns = Math.round(hotlineWidth / screenWidth * 12);
++        expect(hotlineColumns).assertEqual(8);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'hotline layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_ticket_order_list_be_double_on_LG_breakpoint', 0, async () => {
++      try {
++        const ticketOrder = await driver.waitForComponent(ON.text('门票订单'), 2000);
++        await ticketOrder.click();
++
++        const ticketOrderList = await driver.waitForComponent(ON.id('ticket_order_list'), 2000);
++        const firstTicketOrder = await driver.waitForComponent(ON.id('ticket_order_list_0'), 2000);
++        const ticketOrderListBounds = await ticketOrderList.getBounds();
++        const firstTicketOrderBounds = await firstTicketOrder.getBounds();
++
++        const ticketOrderListWidth = ticketOrderListBounds.right - ticketOrderListBounds.left;
++        const firstTicketOrderWidth = firstTicketOrderBounds.right - firstTicketOrderBounds.left;
++        expect(Math.round(ticketOrderListWidth / firstTicketOrderWidth)).assertEqual(2);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'ticket order list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_order_detail_span_eight_columns_on_LG_breakpoint', 0, async () => {
++      try {
++        const firstTicketOrder = await driver.waitForComponent(ON.id('ticket_order_list_0'), 2000);
++        await firstTicketOrder.click();
++
++        const orderDetail = await driver.waitForComponent(ON.id('order_detail'), 2000);
++        const orderDetailBounds = await orderDetail.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const orderDetailWidth = orderDetailBounds.right - orderDetailBounds.left;
++        const orderDetailColumns = Math.round(orderDetailWidth / screenWidth * 12);
++        expect(orderDetailColumns).assertEqual(8);
++      } catch (error) {
++        hilog.error(0x0000, 'LgFailToPassTest', 'order detail layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++        await driver.pressBack();
++      }
++    })
++  })
++}
+diff --git a/products/phone/src/ohosTest/ets/test/List.test.ets b/products/phone/src/ohosTest/ets/test/List.test.ets
+index 794c7dc..d6af4c3 100644
+--- a/products/phone/src/ohosTest/ets/test/List.test.ets
++++ b/products/phone/src/ohosTest/ets/test/List.test.ets
+@@ -1,5 +1,11 @@
+ import abilityTest from './Ability.test';
++import lgFailToPass from './LgFailToPass.test';
++import mdPassToPass from './MdPassToPass.test';
++import smPassToPass from './SmPassToPass.test';
+ 
+ export default function testsuite() {
+   abilityTest();
++  smPassToPass();
++  mdPassToPass();
++  lgFailToPass();
+ }
+\ No newline at end of file
+diff --git a/products/phone/src/ohosTest/ets/test/MdPassToPass.test.ets b/products/phone/src/ohosTest/ets/test/MdPassToPass.test.ets
+new file mode 100644
+index 0000000..054536f
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/MdPassToPass.test.ets
+@@ -0,0 +1,201 @@
++import { describe, beforeAll, it, expect } from '@ohos/hypium';
++import { Want } from '@kit.AbilityKit';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++import { abilityDelegatorRegistry, Driver, ON } from '@kit.TestKit';
++import { TestHelper } from './TestHelper';
++
++const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++const helper = new TestHelper();
++
++export default function mdPassToPass() {
++  describe('MdPassToPassTest', () => {
++    let driver = Driver.create();
++
++    beforeAll(async () => {
++      const bundleName = abilityDelegatorRegistry.getArguments().bundleName;
++      const want: Want = {
++        bundleName: bundleName,
++        abilityName: 'EntryAbility'
++      };
++      await delegator.startAbility(want);
++      await driver.waitForIdle(4000, 5000);
++    })
++
++    it('should_ticket_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const ticket = await driver.waitForComponent(ON.text('门票'), 2000);
++        await ticket.click();
++
++        const ticketList = await driver.waitForComponent(ON.id('ticket_list'), 2000);
++        const firstTicket = await driver.waitForComponent(ON.id('ticket_list_0'), 2000);
++        const ticketListBounds = await ticketList.getBounds();
++        const firstTicketBounds = await firstTicket.getBounds();
++
++        const ticketListWidth = ticketListBounds.right - ticketListBounds.left;
++        const firstTicketWidth = firstTicketBounds.right - firstTicketBounds.left;
++        expect(Math.round(ticketListWidth / firstTicketWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'MdPassToPassTest', 'ticket list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_ticket_reserve_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const firstTicket = await driver.waitForComponent(ON.id('ticket_list_0'), 2000);
++        await firstTicket.click();
++
++        const reserve = await driver.waitForComponent(ON.text('预订'), 2000);
++        await reserve.click();
++
++        const ticketReserve = await driver.waitForComponent(ON.id('ticket_reserve'), 2000);
++        const ticketReserveBounds = await ticketReserve.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const ticketReserveWidth = ticketReserveBounds.right - ticketReserveBounds.left;
++        expect(Math.round(screenWidth / ticketReserveWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'MdPassToPassTest', 'ticket reserve layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++        await driver.pressBack();
++      }
++    })
++
++    it('should_function_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const mine = await driver.waitForComponent(ON.text('我的'), 2000);
++        await mine.click();
++
++        const functionList = await driver.waitForComponent(ON.id('function_list'), 2000);
++        const firstFunction = await driver.waitForComponent(ON.id('function_list_0'), 2000);
++        const functionListBounds = await functionList.getBounds();
++        const firstFunctionBounds = await firstFunction.getBounds();
++
++        const functionListWidth = functionListBounds.right - functionListBounds.left;
++        const firstFunctionWidth = firstFunctionBounds.right - firstFunctionBounds.left;
++        expect(Math.round(functionListWidth / firstFunctionWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'function list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_personal_info_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const user = await driver.waitForComponent(ON.text('华为用户'), 2000);
++        await user.click();
++
++        const personalInfo = await driver.waitForComponent(ON.id('personal_info'), 2000);
++        const personalInfoBounds = await personalInfo.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const personalInfoWidth = personalInfoBounds.right - personalInfoBounds.left;
++        expect(Math.round(screenWidth / personalInfoWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'personal info layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_address_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const address = await driver.waitForComponent(ON.text('我的地址'), 2000);
++        await address.click();
++
++        const addressList = await driver.waitForComponent(ON.id('address_list'), 2000);
++        const firstAddress = await driver.waitForComponent(ON.id('address_list_0'), 2000);
++        const addressListBounds = await addressList.getBounds();
++        const firstAddressBounds = await firstAddress.getBounds();
++
++        const addressListWidth = addressListBounds.right - addressListBounds.left;
++        const firstAddressWidth = firstAddressBounds.right - firstAddressBounds.left;
++        expect(Math.round(addressListWidth / firstAddressWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'address list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_tourist_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const tourist = await driver.waitForComponent(ON.text('常用旅客'), 2000);
++        await tourist.click();
++
++        const touristList = await driver.waitForComponent(ON.id('tourist_list'), 2000);
++        const firstTourist = await driver.waitForComponent(ON.id('tourist_list_0'), 2000);
++        const touristListBounds = await touristList.getBounds();
++        const firstTouristBounds = await firstTourist.getBounds();
++
++        const touristListWidth = touristListBounds.right - touristListBounds.left;
++        const firstTouristWidth = firstTouristBounds.right - firstTouristBounds.left;
++        expect(Math.round(touristListWidth / firstTouristWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'tourist list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_hotline_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const hotlines = await driver.waitForComponent(ON.text('服务热线'), 2000);
++        await hotlines.click();
++
++        const hotline = await driver.waitForComponent(ON.id('hotline'), 2000);
++        const hotlineBounds = await hotline.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const hotlineWidth = hotlineBounds.right - hotlineBounds.left;
++        expect(Math.round(screenWidth / hotlineWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'hotline layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_ticket_order_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const ticket_order = await driver.waitForComponent(ON.text('门票订单'), 2000);
++        await ticket_order.click();
++
++        const ticketOrderList = await driver.waitForComponent(ON.id('ticket_order_list'), 2000);
++        const firstTicketOrder = await driver.waitForComponent(ON.id('ticket_order_list_0'), 2000);
++        const ticketOrderListBounds = await ticketOrderList.getBounds();
++        const firstTicketOrderBounds = await firstTicketOrder.getBounds();
++
++        const ticketOrderListWidth = ticketOrderListBounds.right - ticketOrderListBounds.left;
++        const firstTicketOrderWidth = firstTicketOrderBounds.right - firstTicketOrderBounds.left;
++        expect(Math.round(ticketOrderListWidth / firstTicketOrderWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'ticket order list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_order_detail_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const firstTicketOrder = await driver.waitForComponent(ON.id('ticket_order_list_0'), 2000);
++        await firstTicketOrder.click();
++
++        const orderDetail = await driver.waitForComponent(ON.id('order_detail'), 2000);
++        const orderDetailBounds = await orderDetail.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const orderDetailWidth = orderDetailBounds.right - orderDetailBounds.left;
++        expect(Math.round(screenWidth / orderDetailWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'order detail layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++  })
++}
+diff --git a/products/phone/src/ohosTest/ets/test/SmPassToPass.test.ets b/products/phone/src/ohosTest/ets/test/SmPassToPass.test.ets
+new file mode 100644
+index 0000000..d0b295a
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/SmPassToPass.test.ets
+@@ -0,0 +1,201 @@
++import { describe, beforeAll, it, expect } from '@ohos/hypium';
++import { abilityDelegatorRegistry, Driver, ON } from '@kit.TestKit';
++import { Want } from '@kit.AbilityKit';
++import { hilog } from '@kit.PerformanceAnalysisKit';
++import { TestHelper } from './TestHelper';
++
++const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++const helper = new TestHelper();
++
++export default function smPassToPass() {
++  let driver = Driver.create();
++
++  describe('SmPassToPassTest', () => {
++    beforeAll(async () => {
++      const bundleName = abilityDelegatorRegistry.getArguments().bundleName;
++      const want: Want = {
++        bundleName: bundleName,
++        abilityName: 'EntryAbility'
++      };
++      await delegator.startAbility(want);
++      await driver.waitForIdle(4000, 5000);
++    })
++
++    it('should_ticket_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const ticket = await driver.waitForComponent(ON.text('门票'), 2000);
++        await ticket.click();
++
++        const ticketList = await driver.waitForComponent(ON.id('ticket_list'), 2000);
++        const firstTicket = await driver.waitForComponent(ON.id('ticket_list_0'), 2000);
++        const ticketListBounds = await ticketList.getBounds();
++        const firstTicketBounds = await firstTicket.getBounds();
++
++        const ticketListWidth = ticketListBounds.right - ticketListBounds.left;
++        const firstTicketWidth = firstTicketBounds.right - firstTicketBounds.left;
++        expect(Math.round(ticketListWidth / firstTicketWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'ticket list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_ticket_reserve_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const firstTicket = await driver.waitForComponent(ON.id('ticket_list_0'), 2000);
++        await firstTicket.click();
++
++        const reserve = await driver.waitForComponent(ON.text('预订'), 2000);
++        await reserve.click();
++
++        const ticketReserve = await driver.waitForComponent(ON.id('ticket_reserve'), 2000);
++        const ticketReserveBounds = await ticketReserve.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const ticketReserveWidth = ticketReserveBounds.right - ticketReserveBounds.left;
++        expect(Math.round(screenWidth / ticketReserveWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'ticket reserve layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++        await driver.pressBack();
++      }
++    })
++
++    it('should_function_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const mine = await driver.waitForComponent(ON.text('我的'), 2000);
++        await mine.click();
++
++        const functionList = await driver.waitForComponent(ON.id('function_list'), 2000);
++        const firstFunction = await driver.waitForComponent(ON.id('function_list_0'), 2000);
++        const functionListBounds = await functionList.getBounds();
++        const firstFunctionBounds = await firstFunction.getBounds();
++
++        const functionListWidth = functionListBounds.right - functionListBounds.left;
++        const firstFunctionWidth = firstFunctionBounds.right - firstFunctionBounds.left;
++        expect(Math.round(functionListWidth / firstFunctionWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'function list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_personal_info_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const user = await driver.waitForComponent(ON.text('华为用户'), 2000);
++        await user.click();
++
++        const personalInfo = await driver.waitForComponent(ON.id('personal_info'), 2000);
++        const personalInfoBounds = await personalInfo.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const personalInfoWidth = personalInfoBounds.right - personalInfoBounds.left;
++        expect(Math.round(screenWidth / personalInfoWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'personal info layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_address_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const address = await driver.waitForComponent(ON.text('我的地址'), 2000);
++        await address.click();
++
++        const addressList = await driver.waitForComponent(ON.id('address_list'), 2000);
++        const firstAddress = await driver.waitForComponent(ON.id('address_list_0'), 2000);
++        const addressListBounds = await addressList.getBounds();
++        const firstAddressBounds = await firstAddress.getBounds();
++
++        const addressListWidth = addressListBounds.right - addressListBounds.left;
++        const firstAddressWidth = firstAddressBounds.right - firstAddressBounds.left;
++        expect(Math.round(addressListWidth / firstAddressWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'address list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_tourist_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const tourist = await driver.waitForComponent(ON.text('常用旅客'), 2000);
++        await tourist.click();
++
++        const touristList = await driver.waitForComponent(ON.id('tourist_list'), 2000);
++        const firstTourist = await driver.waitForComponent(ON.id('tourist_list_0'), 2000);
++        const touristListBounds = await touristList.getBounds();
++        const firstTouristBounds = await firstTourist.getBounds();
++
++        const touristListWidth = touristListBounds.right - touristListBounds.left;
++        const firstTouristWidth = firstTouristBounds.right - firstTouristBounds.left;
++        expect(Math.round(touristListWidth / firstTouristWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'tourist list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_hotline_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const hotlines = await driver.waitForComponent(ON.text('服务热线'), 2000);
++        await hotlines.click();
++
++        const hotline = await driver.waitForComponent(ON.id('hotline'), 2000);
++        const hotlineBounds = await hotline.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const hotlineWidth = hotlineBounds.right - hotlineBounds.left;
++        expect(Math.round(screenWidth / hotlineWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'hotline layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      } finally {
++        await driver.pressBack();
++      }
++    })
++
++    it('should_ticket_order_list_be_single_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const ticket_order = await driver.waitForComponent(ON.text('门票订单'), 2000);
++        await ticket_order.click();
++
++        const ticketOrderList = await driver.waitForComponent(ON.id('ticket_order_list'), 2000);
++        const firstTicketOrder = await driver.waitForComponent(ON.id('ticket_order_list_0'), 2000);
++        const ticketOrderListBounds = await ticketOrderList.getBounds();
++        const firstTicketOrderBounds = await firstTicketOrder.getBounds();
++
++        const ticketOrderListWidth = ticketOrderListBounds.right - ticketOrderListBounds.left;
++        const firstTicketOrderWidth = firstTicketOrderBounds.right - firstTicketOrderBounds.left;
++        expect(Math.round(ticketOrderListWidth / firstTicketOrderWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'ticket order list layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++
++    it('should_order_detail_be_full_width_on_SM_MD_breakpoint', 0, async () => {
++      try {
++        const firstTicketOrder = await driver.waitForComponent(ON.id('ticket_order_list_0'), 2000);
++        await firstTicketOrder.click();
++
++        const orderDetail = await driver.waitForComponent(ON.id('order_detail'), 2000);
++        const orderDetailBounds = await orderDetail.getBounds();
++        const screenWidth = await helper.getScreenWidthPx();
++
++        const orderDetailWidth = orderDetailBounds.right - orderDetailBounds.left;
++        expect(Math.round(screenWidth / orderDetailWidth)).assertEqual(1);
++      } catch (error) {
++        hilog.error(0x0000, 'SmPassToPassTest', 'order detail layout test failed: %{public}s', String(error));
++        expect().assertFail();
++      }
++    })
++  })
++}
+diff --git a/products/phone/src/ohosTest/ets/test/TestHelper.ets b/products/phone/src/ohosTest/ets/test/TestHelper.ets
+new file mode 100644
+index 0000000..653fc66
+--- /dev/null
++++ b/products/phone/src/ohosTest/ets/test/TestHelper.ets
+@@ -0,0 +1,75 @@
++import { display } from '@kit.ArkUI';
++
++export class TestHelper {
++  private static readonly instance: TestHelper = new TestHelper();
++
++  static getInstance(): TestHelper {
++    return TestHelper.instance;
++  }
++
++  getDisplayInfo(): display.Display {
++    return display.getDefaultDisplaySync();
++  }
++
++  getScreenWidthPx(): number {
++    let displayInfo: display.Display = this.getDisplayInfo();
++    return displayInfo.width;
++  }
++
++  getScreenHeightPx(): number {
++    let displayInfo: display.Display = this.getDisplayInfo();
++    return displayInfo.height;
++  }
++
++  getScreenDensity(): number {
++    let displayInfo: display.Display = this.getDisplayInfo();
++    return displayInfo.densityPixels;
++  }
++
++  px2vp(px: number): number {
++    let density: number = this.getScreenDensity();
++    if (density <= 0) {
++      return 0;
++    }
++    return px / density;
++  }
++
++  vp2px(vp: number): number {
++    let density: number = this.getScreenDensity();
++    return vp * density;
++  }
++
++  getScreenWidthVp(): number {
++    let widthPx: number = this.getScreenWidthPx();
++    return this.px2vp(widthPx);
++  }
++
++  getScreenHeightVp(): number {
++    let heightPx: number = this.getScreenHeightPx();
++    return this.px2vp(heightPx);
++  }
++
++  isSmallBreakpoint(vpThreshold?: number): boolean {
++    let widthVp: number = this.getScreenWidthVp();
++    let threshold: number = vpThreshold ?? 600;
++    return widthVp < threshold;
++  }
++
++  isMediumBreakpoint(vpThreshold?: number): boolean {
++    let widthVp: number = this.getScreenWidthVp();
++    let threshold: number = vpThreshold ?? 840;
++    return widthVp < threshold;
++  }
++
++  getBreakpoint(): string {
++    let widthVp: number = this.getScreenWidthVp();
++    if (widthVp < 600) {
++      return 'sm';
++    } else if (widthVp < 840) {
++      return 'md';
++    } else if (widthVp < 1440) {
++      return 'lg'
++    }
++    return 'xl';
++  }
++}

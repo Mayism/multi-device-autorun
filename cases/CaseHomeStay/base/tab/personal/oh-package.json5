@@ -1,0 +1,25 @@
+{
+  "name": "personal",
+  "version": "1.0.0",
+  "description": "Please describe the basic information.",
+  "main": "Index.ets",
+  "author": "",
+  "license": "Apache-2.0",
+  "packageType": "InterfaceHar",
+  "dependencies": {
+    "calendar_select": "file:../../components/calendar_select",
+    "util": "file:../../common/util",
+    "network": "file:../../common/network",
+    "constant": "file:../../common/constant",
+    "type": "file:../../common/type",
+    "component": "file:../../common/component",
+    "aggregated_login": "file:../../components/aggregated_login",
+    "feedback": "file:../../components/feedback",
+    "app_setting": "file:../../components/app_setting",
+    "collect_personal_info": "file:../../components/collect_personal_info",
+    "address_management": "file:../../components/address_management",
+    "dial_panel": "file:../../components/dial_panel",
+    "customer_service_chat": "file:../../components/customer_service_chat",
+    "aggregated_payment": "file:../../components/aggregated_payment"
+  }
+}
