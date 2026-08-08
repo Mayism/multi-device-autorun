@@ -1,5 +1,4 @@
 import process from "node:process";
-import { clearScreenDown, cursorTo, moveCursor } from "node:readline";
 
 const MODES = new Set(["dashboard", "summary", "verbose"]);
 const STATUS_LABELS = {
@@ -236,9 +235,11 @@ export class ConsoleReporter {
 
   clearDashboard() {
     if (this.mode !== "dashboard" || !this.renderedLineCount) return;
-    if (this.renderedLineCount > 1) moveCursor(process.stdout, 0, -(this.renderedLineCount - 1));
-    cursorTo(process.stdout, 0);
-    clearScreenDown(process.stdout);
+    // VT 序列：光标回到第一行第一列，然后清除光标到末尾所有内容
+    // Windows 10 1511+/11 的 CMD 和 PowerShell 均默认支持 VT 序列
+    process.stdout.write(`\x1B[${this.renderedLineCount}A`);  // 光标上移
+    process.stdout.write("\r");                                // 行首
+    process.stdout.write("\x1B[0J");                           // 清除光标到末尾
     this.renderedLineCount = 0;
   }
 
