@@ -364,8 +364,19 @@ child.on('error', (e) => {
   process.exit(1);
 });
 
+let shutdownRequested = false;
+
+function requestChildShutdown(signal = 'SIGTERM') {
+  if (shutdownRequested) return;
+  shutdownRequested = true;
+  if (!child.killed) child.kill(signal);
+}
+
 // 透传退出码：opencode 怎么退，本脚本就怎么退
 child.on('exit', (code, signal) => {
+  if (shutdownRequested) {
+    process.exit(code ?? 0);
+  }
   if (signal) {
     // Ctrl-C / kill：尊重信号，不强行改 exit code
     process.kill(process.pid, signal);
@@ -377,6 +388,12 @@ child.on('exit', (code, signal) => {
 // 父进程收到 Ctrl-C 时，转发给子进程，避免留下孤儿
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
-    if (!child.killed) child.kill(sig);
+    requestChildShutdown(sig);
   });
 }
+
+process.on('message', (message) => {
+  if (message?.type === 'autorun:shutdown') {
+    requestChildShutdown('SIGTERM');
+  }
+});

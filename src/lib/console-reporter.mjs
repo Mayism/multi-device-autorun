@@ -1,4 +1,5 @@
 import process from "node:process";
+import path from "node:path";
 import { clearScreenDown, cursorTo, moveCursor } from "node:readline";
 
 const MODES = new Set(["dashboard", "summary", "verbose"]);
@@ -310,15 +311,13 @@ export class ConsoleReporter {
       this.renderedLineCount = 0;
       this.lastRendered = "";
     }
-    this.write(`[batch:${this.batchId}] 结束：成功 ${summary.completed}/${summary.total}，失败 ${summary.failed}，Token 入/出/总 ${tokenText(summary.tokenUsage)}`);
-    this.write(`[batch:${this.batchId}] Agent \u7f16\u8bd1\u5c1d\u8bd5: ${compileText(summary.agentCompile)}`);
-    for (const item of summary.results) {
-      this.write(`  ${item.case} Agent \u7f16\u8bd1: ${compileText(item.agentCompile)}`);
-      this.write(`- ${item.case}: ${STATUS_LABELS[item.status] || item.status}（${item.elapsedSec ?? 0}s，Token ${tokenText(item.tokenUsage)}）`);
-      if (item.logs?.transcriptPath) this.write(`  Agent 完整输出: ${item.logs.transcriptPath}`);
-      if (item.ohosTest?.resultPath) this.write(`  ohosTest 结果: ${item.ohosTest.resultPath}`);
-      if (item.resultPath) this.write(`  结果: ${item.resultPath}`);
+    this.write(`[batch:${this.batchId}] 结束：成功 ${summary.completed}/${summary.total}，失败 ${summary.failed}`);
+    if (summary.reports?.markdownPath) {
+      this.write(`[batch:${this.batchId}] 报告：${summary.reports.markdownPath}`);
+    } else {
+      this.write(`[batch:${this.batchId}] 报告：生成失败${summary.reportError ? `（${summary.reportError}）` : ""}`);
     }
-    this.write(`[batch:${this.batchId}] 结果目录：${this.batchRoot}`);
+    const detailPath = summary.reports?.jsonPath || path.join(this.batchRoot, "summary.json");
+    this.write(`[batch:${this.batchId}] 详细结果：${detailPath}`);
   }
 }

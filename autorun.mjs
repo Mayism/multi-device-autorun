@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { createConnection, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { OpenCodeClient } from "./src/lib/opencode-client.mjs";
@@ -86,14 +87,57 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
   normalized.server ||= {};
   normalized.execution ||= {};
   normalized.server.vscodeExtensionsRoot = resolveFrom(baseDir, normalized.server.vscodeExtensionsRoot || "");
-  normalized.server.runtimeRoot = path.join(OUTPUT_ROOT, "_runtime", "opencode");
   normalized.execution.casesRoot = resolveFrom(baseDir, normalized.execution.casesRoot || "./cases");
-  normalized.execution.outputRoot = OUTPUT_ROOT;
+  normalized.execution.outputRoot = resolveFrom(
+    baseDir,
+    normalized.execution.outputRoot || OUTPUT_ROOT,
+  );
+  normalized.server.runtimeRoot = resolveFrom(
+    baseDir,
+    normalized.server.runtimeRoot || path.join(normalized.execution.outputRoot, "_runtime", "opencode"),
+  );
   return normalized;
 }
 
-async function stopServerProcessTree(child) {
-  if (!child?.pid || child.exitCode !== null) return;
+function waitForChildExit(child, timeoutMs) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (exited) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.removeListener("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
+async function requestGracefulServerStop(child) {
+  if (child.connected && typeof child.send === "function") {
+    try {
+      const delivered = await new Promise((resolve) => {
+        child.send({ type: "autorun:shutdown" }, (error) => resolve(!error));
+      });
+      if (delivered) return;
+    } catch {
+      // IPC 可能在状态检查后关闭，继续尝试发送普通终止信号。
+    }
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    // 强制结束阶段会处理已失效或拒绝信号的进程。
+  }
+}
+
+async function forceStopServerProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === "win32") {
     await new Promise((resolve) => {
       const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
@@ -105,12 +149,91 @@ async function stopServerProcessTree(child) {
     });
     return;
   }
-  child.kill("SIGTERM");
-  const deadline = Date.now() + 5000;
-  while (child.exitCode === null && Date.now() < deadline) {
-    await delay(100);
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    // 进程可能在强制信号发出前已经退出。
   }
-  if (child.exitCode === null) child.kill("SIGKILL");
+}
+
+async function stopServerProcessTree(child, { gracefulTimeoutMs = 5000 } = {}) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) {
+    return { forced: false };
+  }
+  await requestGracefulServerStop(child);
+  if (await waitForChildExit(child, gracefulTimeoutMs)) {
+    return { forced: false };
+  }
+  await forceStopServerProcessTree(child);
+  await waitForChildExit(child, 5000);
+  return { forced: true };
+}
+
+function canConnectToServer(serverUrl, timeoutMs = 500) {
+  let target;
+  try {
+    target = new URL(serverUrl);
+  } catch {
+    return Promise.resolve(false);
+  }
+  const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: target.hostname, port });
+    let settled = false;
+    const finish = (connected) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(connected);
+    };
+    socket.setTimeout(timeoutMs, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
+
+async function waitForServerPortReleased(serverUrl, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!await canConnectToServer(serverUrl)) return true;
+    await delay(200);
+  }
+  return !await canConnectToServer(serverUrl);
+}
+
+function canBindServerUrl(serverUrl) {
+  let target;
+  try {
+    target = new URL(serverUrl);
+  } catch {
+    return Promise.resolve(false);
+  }
+  const port = Number(target.port || (target.protocol === "https:" ? 443 : 80));
+  return new Promise((resolve) => {
+    const probe = createServer();
+    let settled = false;
+    const finish = (available) => {
+      if (settled) return;
+      settled = true;
+      resolve(available);
+    };
+    probe.once("error", () => finish(false));
+    probe.listen({ host: target.hostname, port, exclusive: true }, () => {
+      probe.close(() => finish(true));
+    });
+  });
+}
+
+async function selectAvailableServerUrl(configuredUrl, maxAttempts = 20) {
+  const target = new URL(configuredUrl);
+  const configuredPort = Number(target.port || (target.protocol === "https:" ? 443 : 80));
+  for (let offset = 0; offset < maxAttempts; offset += 1) {
+    const port = configuredPort + offset;
+    if (port > 65535) break;
+    target.port = String(port);
+    if (await canBindServerUrl(target.toString())) return target.toString().replace(/\/$/, "");
+  }
+  throw new Error(`OpenCode Server 端口不可用，已尝试 ${configuredPort}-${Math.min(65535, configuredPort + maxAttempts - 1)}`);
 }
 
 async function waitForServerConfig(client, {
@@ -138,14 +261,21 @@ async function waitForServerConfig(client, {
 
 async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) {
   if (signal?.aborted) throw interruptionError(signal.reason);
-  const serverUrl = String(config.server.url || "").trim();
-  if (!serverUrl) throw new Error("未配置 server.url");
-  const client = new OpenCodeClient(serverUrl);
+  const configuredServerUrl = String(config.server.url || "").trim();
+  if (!configuredServerUrl) throw new Error("未配置 server.url");
+  let serverUrl = configuredServerUrl;
+  let client = new OpenCodeClient(serverUrl);
   if (await client.health()) {
     log("[server] 健康检查通过，正在等待 Agent、Plugin、Skill 和 Provider 配置加载");
     const serverConfig = await waitForServerConfig(client, { signal });
     log(`[server] 复用已运行的 OpenCode Server: ${serverUrl}`);
     return { client, serverConfig, owned: false, child: null, logPath: "" };
+  }
+
+  serverUrl = await selectAvailableServerUrl(configuredServerUrl);
+  if (serverUrl !== configuredServerUrl.replace(/\/$/, "")) {
+    log(`[server] 配置端口不可用，自动改用: ${serverUrl}`);
+    client = new OpenCodeClient(serverUrl);
   }
 
   const serveScript = fileURLToPath(new URL("./src/run-opencode-serve.mjs", import.meta.url));
@@ -174,7 +304,7 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   try {
     child = spawn(process.execPath, args, {
       cwd: config.__baseDir,
-      stdio: ["ignore", logFile.fd, logFile.fd],
+      stdio: ["ignore", logFile.fd, logFile.fd, "ipc"],
       windowsHide: true,
     });
   } finally {
@@ -217,13 +347,22 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   }
   child.unref();
   log(`[server] OpenCode Server 已就绪: ${serverUrl}`);
-  return { client, serverConfig, owned: true, child, logPath };
+  return { client, serverConfig, owned: true, child, logPath, serverUrl };
 }
 
 async function stopOwnedServer(server, { log = console.log } = {}) {
-  if (!server?.owned || !server.child || server.child.exitCode !== null) return;
-  log("[server] 正在关闭本次自动启动的 OpenCode Server");
-  await stopServerProcessTree(server.child);
+  if (!server?.owned || !server.child) return;
+  if (server.child.exitCode === null && server.child.signalCode === null) {
+    log("[server] 正在优雅关闭本次自动启动的 OpenCode Server");
+    const { forced } = await stopServerProcessTree(server.child);
+    if (forced) log("[server] OpenCode Server 未在 5 秒内退出，已强制结束进程树");
+  }
+  const released = await waitForServerPortReleased(server.serverUrl, 5000);
+  if (released) {
+    log(`[server] OpenCode Server 端口已释放: ${new URL(server.serverUrl).port}`);
+  } else {
+    console.warn(`[warn] OpenCode Server 已结束，但端口仍未释放: ${server.serverUrl}`);
+  }
 }
 
 function batchId() {
@@ -1150,8 +1289,6 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   }
   await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
   await store.setBatch({ status: summary.status, finishedAt: summary.finishedAt });
-  if (summary.reports?.markdownPath) console.log(`[report] Markdown: ${summary.reports.markdownPath}`);
-  if (summary.reports?.jsonPath) console.log(`[report] JSON: ${summary.reports.jsonPath}`);
   reporter.finish(summary);
   return summary;
 }
@@ -1163,6 +1300,17 @@ let server;
 let exitCode = 0;
 let serverStopping = false;
 let batchSettled = false;
+let serverStopPromise;
+let shutdownFallbackTimer;
+
+function beginOwnedServerStop() {
+  if (!server?.owned || config.server.stopWhenFinished === false) {
+    return Promise.resolve();
+  }
+  serverStopping = true;
+  serverStopPromise ??= stopOwnedServer(server);
+  return serverStopPromise;
+}
 
 function requestShutdown(reason, cause) {
   if (shutdownController.signal.aborted) return;
@@ -1174,18 +1322,31 @@ function requestShutdown(reason, cause) {
   }
   console.error(`[interrupt] ${error.message}；正在收尾运行中的用例`);
   shutdownController.abort(error);
+  shutdownFallbackTimer = setTimeout(() => {
+    console.warn("[interrupt] 用例收尾超过 10 秒，开始关闭 OpenCode Server");
+    void beginOwnedServerStop();
+  }, 10_000);
   exitCode = 1;
 }
 
-const onSigint = () => requestShutdown("收到 SIGINT（Ctrl+C）");
-const onSigterm = () => requestShutdown("收到 SIGTERM");
+const onSigint = () => {
+  if (shutdownController.signal.aborted) {
+    console.warn("[interrupt] 正在清理进程和端口，请等待收尾完成");
+    return;
+  }
+  requestShutdown("收到 SIGINT（Ctrl+C）");
+};
+const onSigterm = () => {
+  if (shutdownController.signal.aborted) return;
+  requestShutdown("收到 SIGTERM");
+};
 const onUncaughtException = (error) => requestShutdown("Autorun 出现未捕获异常", error);
 const onUnhandledRejection = (reason) => requestShutdown(
   "Autorun 出现未处理的 Promise 拒绝",
   reason instanceof Error ? reason : new Error(String(reason)),
 );
-process.once("SIGINT", onSigint);
-process.once("SIGTERM", onSigterm);
+process.on("SIGINT", onSigint);
+process.on("SIGTERM", onSigterm);
 process.once("uncaughtException", onUncaughtException);
 process.once("unhandledRejection", onUnhandledRejection);
 
@@ -1212,10 +1373,8 @@ try {
   console.error(`[error] ${error.stack || error.message}`);
   exitCode = 1;
 } finally {
-  serverStopping = true;
-  if (server?.owned && config.server.stopWhenFinished !== false) {
-    await stopOwnedServer(server);
-  }
+  clearTimeout(shutdownFallbackTimer);
+  await beginOwnedServerStop();
   process.removeListener("SIGINT", onSigint);
   process.removeListener("SIGTERM", onSigterm);
   process.removeListener("uncaughtException", onUncaughtException);

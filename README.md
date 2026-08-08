@@ -85,6 +85,7 @@ cases/
   },
   "execution": {
     "casesRoot": "../cases",
+    "outputRoot": "../output",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
     "concurrency": 3,
@@ -109,6 +110,7 @@ cases/
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server。启动前已存在的 Server 不会被关闭。 |
 | `execution.casesRoot` | 用例根目录。 |
+| `execution.outputRoot` | 批次、工程副本、报告及 OpenCode 运行数据的输出根目录。Windows 下使用 Hvigor 时建议配置成 `D:/out`、`D:/ar` 等尽可能短的绝对路径，降低 259 字符路径上限导致的构建失败风险。默认是项目内的 `../output`。 |
 | `execution.agent` | OpenCode Agent 名称。 |
 | `execution.model` | 模型 ID。程序会从 Server `/config` 自动解析 Provider。 |
 | `execution.concurrency` | 同时运行的 Agent 数量。任意任务结束后立即补充下一个任务。 |
@@ -121,6 +123,21 @@ cases/
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，超时后终止 Runner 及其子进程。 |
 
 相对路径以 `config/autorun.config.json` 所在目录为基准解析。
+
+### Windows/Hvigor 输出路径建议
+
+Autorun 会在 `outputRoot/<batchId>/<caseName>/base` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
+
+```json
+{
+  "execution": {
+    "casesRoot": "D:/multi-device-autorun/cases",
+    "outputRoot": "D:/out"
+  }
+}
+```
+
+修改后，批次报告和详细结果也会写入 `D:/out/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
 ### macOS 配置示例
 
