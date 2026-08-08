@@ -1,4 +1,4 @@
-# Autorun
+# Muti-Device-Autorun
 
 Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自动启动或复用 OpenCode Server，扫描 `cases/` 下的用例，并通过固定并发的 Worker Pool 持续执行任务。
 
