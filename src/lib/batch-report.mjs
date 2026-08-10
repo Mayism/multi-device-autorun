@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { writeHtmlReport } from "./html-report.mjs";
 
 function number(value) {
   const parsed = Number(value);
@@ -214,5 +215,13 @@ export async function writeBatchReport({ batchRoot, summary }) {
   const markdownPath = path.join(batchRoot, "report.md");
   await fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   await fs.writeFile(markdownPath, renderMarkdown(report), "utf8");
-  return { jsonPath, markdownPath };
+  const html = { overviewPath: "", subpageDir: "" };
+  try {
+    const result = await writeHtmlReport({ batchRoot, summary });
+    html.overviewPath = result.overviewPath;
+    html.subpageDir = result.subpageDir;
+  } catch (error) {
+    html.error = error.message;
+  }
+  return { jsonPath, markdownPath, htmlOverviewPath: html.overviewPath, htmlError: html.error };
 }

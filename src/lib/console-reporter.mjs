@@ -315,12 +315,16 @@ export class ConsoleReporter {
       this.lastRendered = "";
     }
     this.write(`[batch:${this.batchId}] 结束：成功 ${summary.completed}/${summary.total}，失败 ${summary.failed}`);
-    if (summary.reports?.markdownPath) {
-      this.write(`[batch:${this.batchId}] 报告：${summary.reports.markdownPath}`);
+    const reports = summary.reports || {};
+    if (reports.htmlOverviewPath) {
+      this.write(`[batch:${this.batchId}] HTML 报告：${reports.htmlOverviewPath}`);
+    }
+    if (reports.markdownPath) {
+      this.write(`[batch:${this.batchId}] 报告：${reports.markdownPath}`);
     } else {
       this.write(`[batch:${this.batchId}] 报告：生成失败${summary.reportError ? `（${summary.reportError}）` : ""}`);
     }
-    const detailPath = summary.reports?.jsonPath || path.join(this.batchRoot, "summary.json");
+    const detailPath = reports.jsonPath || path.join(this.batchRoot, "summary.json");
     this.write(`[batch:${this.batchId}] 详细结果：${detailPath}`);
   }
 }
