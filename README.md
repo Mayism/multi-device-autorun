@@ -33,8 +33,9 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - Node.js 20 或更高版本，推荐使用当前 LTS 版本。
 - Git，需要能够从命令行执行 `git`。
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
-- VS Code 扩展目录下已安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；扩展内需包含当前平台对应的 OpenCode 二进制、配置、Agent、Plugin 和 Skill。
-- OpenCode 配置中存在可用的模型 Provider 和 API 凭据。
+- 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
+- 所选来源的 `resources/opencode` 中包含当前平台对应的 OpenCode 二进制、`opencode.json` 和该模式所需的 Agent、Plugin、Skill、Provider 配置。
+- `opencode.json` 中已配置可用的模型、API 凭据以及 Agent 执行所需的 allow/permission 权限。不要把真实 API Key 提交到 Git。
 
 ## 目录结构
 
@@ -79,7 +80,10 @@ cases/
 {
   "server": {
     "url": "http://127.0.0.1:61419",
-    "vscodeExtensionsRoot": "C:\\Users\\HW\\.vscode\\extensions",
+    "opencodeSource": {
+      "mode": "softwareEngineering",
+      "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
+    },
     "devecoHome": "D:\\deveco\\DevEco Studio",
     "stopWhenFinished": true
   },
@@ -106,7 +110,8 @@ cases/
 | 配置 | 说明 |
 | --- | --- |
 | `server.url` | OpenCode Server 地址。地址不可用时会自动启动 Server。 |
-| `server.vscodeExtensionsRoot` | VS Code 扩展根目录。程序按固定扩展名前缀匹配，并优先使用版本最高且资源完整的扩展。 |
+| `server.opencodeSource.mode` | OpenCode 来源模式，只支持 `harmonyBot` 或 `softwareEngineering`，二者互斥且不会合并、回退。 |
+| `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server。启动前已存在的 Server 不会被关闭。 |
 | `execution.casesRoot` | 用例根目录。 |
@@ -124,6 +129,21 @@ cases/
 
 相对路径以 `config/autorun.config.json` 所在目录为基准解析。
 
+`harmonyBot` 模式示例：
+
+```json
+{
+  "server": {
+    "opencodeSource": {
+      "mode": "harmonyBot",
+      "root": "C:\\Users\\HW\\.vscode\\extensions"
+    }
+  }
+}
+```
+
+该模式会在 `root` 下查找最高版本且资源完整的 HarmonyBot 扩展。`softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`。修改模式、模型或权限配置后，应先结束已有 OpenCode Server 再重新执行，否则 Autorun 会复用旧 Server。
+
 ### Windows/Hvigor 输出路径建议
 
 Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
@@ -139,6 +159,10 @@ Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参�
 
 修改后，批次报告和详细结果也会写入 `D:/out/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
+ohosTest 不会在 `.ohostest-runs/<timestamp>` 下编译工程，而是将 Agent 输出的 `base/task`
+复制到同一用例目录下的浅层 `work/`，应用隐藏测试 patch 后在该目录构建。报告仍写入
+`.ohostest-runs/<timestamp>`，测试完成、失败或中断后删除 `work/`，不会修改 Agent 输出工程。
+
 ### macOS 配置示例
 
 可以直接修改 `devecoHome`，也可以通过环境变量覆盖：
@@ -148,7 +172,7 @@ export DEVECO_HOME="/Applications/DevEco-Studio.app"
 node autorun.mjs
 ```
 
-macOS 还需把 `server.vscodeExtensionsRoot` 改为本机扩展目录，例如 `/Users/<用户名>/.vscode/extensions`；匹配到的扩展中需要存在当前 macOS 架构对应的 OpenCode 二进制。
+macOS 使用 `harmonyBot` 模式时，将 `server.opencodeSource.root` 配置为本机扩展目录，例如 `/Users/<用户名>/.vscode/extensions`；使用 `softwareEngineering` 模式时配置为对应资源包根目录。所选来源中需要存在当前 macOS 架构对应的 OpenCode 二进制。
 
 ## 使用方式
 
@@ -184,7 +208,23 @@ node autorun.mjs --config ./config/another.config.json
 
 执行过程中会显示 Worker 领取用例、Agent 输出进度、用例完成情况和最终批次汇总。
 
-### 3. 单任务调试
+### 3. 重试失败用例
+
+重试历史批次中所有失败、中断或未执行的用例：
+
+```bash
+node autorun.mjs --retry 20260810_095119_d87e1ad0
+```
+
+只重试该批次中的某一个用例：
+
+```bash
+node autorun.mjs --retry 20260810_095119_d87e1ad0 --case CaseAtomic
+```
+
+重试会创建一个新批次，不覆盖原批次。若历史结果中 Agent 已成功且工程、`changes.patch` 仍然存在，则复用 Agent 结果并只重新执行 ohosTest；Agent 未成功或历史产物已不存在时会重新执行 Agent，成功后再进入 ohosTest。显式指定 `--case` 时允许重试已成功用例，此时同样优先复用成功的 Agent 结果，只重新执行 ohosTest。
+
+### 4. 单任务调试
 
 确保 OpenCode Server 已运行，然后执行：
 
@@ -198,15 +238,15 @@ node src/ask-opencode.mjs "帮我把当前工程下的文件名列出来" --agen
 node src/ask-opencode.mjs --help
 ```
 
-### 4. 单独启动 OpenCode Server
+### 5. 单独启动 OpenCode Server
 
 通常不需要手工启动 Server。如果需要排查 Server 启动问题，可以执行：
 
 ```bash
-node src/run-opencode-serve.mjs --settings ./config/autorun.config.json --workspace .
+node src/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\software-multi-device\resources\opencode" --runtime-root ./output/_runtime/opencode --workspace .
 ```
 
-脚本会从配置的 VS Code 扩展目录定位 OpenCode 资源，并把运行数据统一写到 `output/_runtime/opencode/`。也可以用 `--source`、`--runtime-root`、`--port` 和 `--deveco-home` 分别覆盖资源、运行目录、端口和 DevEco Studio 路径。
+`--source` 直接指向最终选中的 `resources/opencode` 目录。也可以用 `--root` 传入资源包根目录，脚本会读取其 `resources/opencode`；`--runtime-root`、`--port` 和 `--deveco-home` 分别设置运行目录、端口和 DevEco Studio 路径。Autorun 正常启动时会根据 `server.opencodeSource` 解析来源并自动传入 `--source`。
 
 默认启动和 Autorun 自动启动都不会创建或写入旧的 `opencode/run/`。已有旧目录不会自动删除，以保留历史会话；确认不再需要后可手工归档或删除。
 
@@ -276,6 +316,9 @@ output/<batchId>/
         └── compile-attempts.json # Agent build attempt details; excludes ohosTest
 ```
 
+ohosTest 执行期间还会短暂创建 `<caseName>/work/` 作为实际编译工程；该目录正常不会保留在
+最终结果中，Autorun 在 Runner 被中断后也会兜底清理。
+
 `result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径，并直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、原始消息、SSE、轮询、执行日志和 Runner 控制台日志路径。`summary.json` 同时保存全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
 
 执行期间单独跟踪某个用例：
@@ -306,7 +349,8 @@ pending -> running/preparing -> session_creating -> agent_running
 
 检查：
 
-- `server.vscodeExtensionsRoot` 是否正确，以及匹配到的扩展内 `resources/opencode/` 是否完整；
+- `server.opencodeSource.mode` 是否为 `harmonyBot` 或 `softwareEngineering`；
+- `server.opencodeSource.root` 是否正确，以及选中来源的 `resources/opencode/` 是否完整；
 - 当前平台对应的 OpenCode 二进制是否存在；
 - `server.devecoHome` 或 `DEVECO_HOME` 是否正确；
 - 配置端口是否被其他程序占用；
@@ -322,7 +366,7 @@ Autorun 会先等待 `/global/health`，再等待 `/config` 完成 Agent、Plugi
 node autorun.mjs --check
 ```
 
-确认匹配到的 VS Code 扩展的 `resources/opencode/opencode.json` 中存在对应 Agent 和模型，并确认修改配置后已经重启 OpenCode Server。
+确认当前来源的 `resources/opencode/opencode.json` 中存在对应 Agent、模型、Provider 和 allow/permission 权限配置，并确认修改配置后已经重启 OpenCode Server。`harmonyBot` 模式检查匹配到的扩展目录；`softwareEngineering` 模式检查 `server.opencodeSource.root/resources/opencode`。
 
 ### 一多适配任务没有调用 Skill
 

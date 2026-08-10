@@ -1,15 +1,18 @@
 {
   "server": {
     "url": "http://127.0.0.1:61419",
-    "vscodeExtensionsRoot": "C:\\Users\\X-MAN\\.vscode\\extensions",
-    "devecoHome": "D:\\Program Files\\Huawei\\DevEco Studio",
+    "opencodeSource": {
+      "mode": "harmonyBot",
+      "root": "C:\\Users\\HW\\.vscode\\extensions"
+    },
+    "devecoHome": "D:\\deveco\\DevEco Studio",
     "stopWhenFinished": true
   },
   "execution": {
     "casesRoot": "E:\\harmony-tool\\multi-device-autorun\\cases",
     "outputRoot": "../output",
     "agent": "harmonyos-multi-device",
-    "model": "deepseek-v4-flash-0731",
+    "model": "deepseek-v4-flash",
     "concurrency": 3,
     "consoleMode": "dashboard",
     "idleTimeoutSec": 600,

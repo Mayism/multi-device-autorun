@@ -222,6 +222,8 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
   const startedAt = new Date();
   const stagedCase = await prepareGeneratedCase({ caseInfo, caseRunDir, patchPath });
   const { inputDir } = stagedCase;
+  const runnerWorkDir = path.join(inputDir, "work");
+  await fsp.rm(runnerWorkDir, { recursive: true, force: true });
   const consolePath = path.join(caseRunDir, "ohostest-runner-console.log");
   const npmArgs = [
     "run",
@@ -238,18 +240,28 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     "false",
   ];
   const invocation = npmInvocation(npmArgs);
-  const processResult = await withDeviceLease({
-    lockPath: deviceLeasePath,
-    owner: `ohosTest:${caseInfo.name}`,
-    timeoutSec: settings.timeoutSec,
-    signal,
-  }, () => runProcess({
-    ...invocation,
-    cwd: settings.runnerRoot,
-    consolePath,
-    timeoutSec: settings.timeoutSec,
-    signal,
-  }));
+  let processResult;
+  let workCleanupError = "";
+  try {
+    processResult = await withDeviceLease({
+      lockPath: deviceLeasePath,
+      owner: `ohosTest:${caseInfo.name}`,
+      timeoutSec: settings.timeoutSec,
+      signal,
+    }, () => runProcess({
+      ...invocation,
+      cwd: settings.runnerRoot,
+      consolePath,
+      timeoutSec: settings.timeoutSec,
+      signal,
+    }));
+  } finally {
+    try {
+      await fsp.rm(runnerWorkDir, { recursive: true, force: true });
+    } catch (error) {
+      workCleanupError = error instanceof Error ? error.message : String(error);
+    }
+  }
   const finishedAt = new Date();
   const generatedOutput = await findLatestRunnerOutput(inputDir, startedAt.getTime());
   const outputDir = generatedOutput?.outputDir || path.join(inputDir, ".ohostest-runs");
@@ -286,5 +298,6 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     resultPath: runnerResultPath,
     summaryPath: runnerSummaryPath,
     consolePath,
+    ...(workCleanupError ? { workCleanupError } : {}),
   };
 }

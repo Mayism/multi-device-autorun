@@ -7,29 +7,31 @@
 //   - spawn 透传 stdio，子进程 Ctrl-C 由父进程原样转发，与 .bat/.sh 行为一致。
 //
 // 用法：
-//   node src/run-opencode-serve.mjs                          # 默认读取 config/autorun.config.json
-//   node src/run-opencode-serve.mjs --port 62000             # 自定义端口
-//   node src/run-opencode-serve.mjs --settings D:\autorun\config\autorun.config.json
-//   node src/run-opencode-serve.mjs --root D:\shared-config --workspace D:\proj
+//   node src/run-opencode-serve.mjs --source D:\bundle\resources\opencode
+//   node src/run-opencode-serve.mjs --source D:\bundle\resources\opencode --port 62000
+//   node src/run-opencode-serve.mjs --root D:\bundle --workspace D:\proj
 //
-// 默认从 VS Code 扩展读取 bundled 资源，运行数据写入
-// output/_runtime/opencode/{data,state,cache,xdg-config,config,logs}。
-// --root 仅保留旧资源布局兼容：$ROOT/resources/opencode；运行数据不再写入 $ROOT/run。
+// --source 直接指向 resources/opencode；--root 保留为资源包根目录入口：
+//   bundled:   $ROOT/resources/opencode/{bin/<platform>/<arch>/opencode[.exe],
+//                                        opencode.json, plugin/, skills/}
+//   运行时:    ~/.harmonybot/opencode/vscode/{data,xdg-config,state,cache,config}
+//              ~/.harmonybot/logs/vscode/runs/<runId>
 //
+// 运行时路径对齐 src/shared/harmonybotOpencodeRuntimeEnv.ts（host=vscode，无
+// worker）与 src/shared/harmonybotRunLog.ts。
 // opencode 启动用 bundled config（含 agent/plugin/skills/provider）。
 // OPENCODE_BUNDLED_CONFIG_DIR 指向 bundled 来源（resources/opencode），作为配置
 // 单一来源（user-level 不再独立生效）；OPENCODE_CONFIG_DIR 指向运行时目录
-// （run/opencode/config），与 BUNDLED 为不同路径，仅用于满足 opencode 的
-// isolation invariant（设了 BUNDLED 就必须设 CONFIG_DIR）。auth / DB 仍落
-// XDG_DATA_HOME/opencode/。
+// （~/.harmonybot/opencode/vscode/config），与 BUNDLED 为不同路径，仅用于满足
+// opencode 的 isolation invariant（设了 BUNDLED 就必须设 CONFIG_DIR）。
+// auth / DB 仍落 XDG_DATA_HOME/opencode/。
 //
 // 可调参数（CLI 优先于环境变量）：
 //   --port, -p N           监听端口 (env: PORT, 默认 61417)
-//   --settings PATH        Autorun JSON 配置
-//   --source PATH          resources/opencode 资源目录
-//   --runtime-root PATH    OpenCode 运行数据目录
-//   --root, -r PATH        旧布局兼容根目录
-//   --config, -c PATH      JSON 文件时等同 --settings，否则等同 --root
+//   --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)
+//   --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)
+//   --root, -r PATH        资源包根目录，读取其 resources/opencode
+//   --config, -c PATH      --root 的别名
 //   --workspace, -w PATH   工作目录 (env: WORKSPACE, 默认 $PWD)
 //   --deveco-home, -d PATH DevEco Studio 安装根
 //                           Windows: C:\Program Files\Huawei\DevEco Studio
@@ -39,24 +41,23 @@
 
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { findHarmonyDevAssistantExtension, prepareOpenCodeRuntime } from './lib/opencode-installation.mjs';
 
 const HELP = [
-  '用法: node src/run-opencode-serve.mjs [--port N] [--settings FILE]',
-  '                                  [--source PATH] [--runtime-root PATH]',
+  '用法: node src/run-opencode-serve.mjs [--port N] [--source PATH]',
+  '                                  [--runtime-root PATH] [--root PATH]',
   '                                  [--workspace PATH] [--deveco-home PATH]',
   '                                  [--help]',
   '',
   '启动 opencode serve。CLI 优先于环境变量。',
   '  --port, -p N           监听端口 (默认 61417, env: PORT)',
-  '  --settings PATH        Autorun JSON 配置 (默认 config/autorun.config.json)',
-  '  --source PATH          resources/opencode 资源目录',
-  '  --runtime-root PATH    OpenCode 运行数据目录',
-  '  --root, -r PATH        旧资源布局兼容根目录（不会在其中生成 run/）',
-  '  --config, -c PATH      JSON 文件等同 --settings；目录等同 --root',
+  '  --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)',
+  '  --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)',
+  '  --root, -r PATH        资源包根目录，读取其 resources/opencode (env: ROOT)',
+  '  --config, -c PATH      --root 的别名',
   '  --workspace, -w PATH   工作目录 (默认 $PWD, env: WORKSPACE)',
   '  --deveco-home, -d PATH DevEco Studio 安装根',
   '                          (Windows 默认 "C:\\Program Files\\Huawei\\DevEco Studio",',
@@ -64,9 +65,8 @@ const HELP = [
   '  --help, -h             显示此帮助',
   '',
   '示例:',
-  '  node src/run-opencode-serve.mjs --port 62000',
-  '  node src/run-opencode-serve.mjs --settings D:\\autorun\\config\\autorun.config.json --port 62000',
-  '  node src/run-opencode-serve.mjs --root D:\\shared-config --workspace D:\\proj',
+  '  node src/run-opencode-serve.mjs --source D:\\bundle\\resources\\opencode --port 62000',
+  '  node src/run-opencode-serve.mjs --root D:\\bundle --workspace D:\\proj',
 ].join('\n');
 
 const out = (s) => process.stdout.write(s + '\n');
@@ -123,7 +123,6 @@ function parseArgs(argv) {
   const opts = {
     port: process.env.PORT || '',
     root: process.env.ROOT || '',
-    settings: process.env.AUTORUN_CONFIG || '',
     source: process.env.OPENCODE_SOURCE || '',
     runtimeRoot: process.env.OPENCODE_RUNTIME_ROOT || '',
     workspace: process.env.WORKSPACE || '',
@@ -155,17 +154,9 @@ function parseArgs(argv) {
         break;
       case '--root':
       case '-r':
-        opts.root = takeTwo(i, v); i++;
-        break;
       case '--config':
-      case '-c': {
-        const value = takeTwo(i, v); i++;
-        if (path.extname(value).toLowerCase() === '.json') opts.settings = value;
-        else opts.root = value;
-        break;
-      }
-      case '--settings':
-        opts.settings = takeTwo(i, v); i++;
+      case '-c':
+        opts.root = takeTwo(i, v); i++;
         break;
       case '--source':
         opts.source = takeTwo(i, v); i++;
@@ -213,47 +204,35 @@ const opts = parseArgs(process.argv);
 const defaults = platformDefaults();
 
 const cwd = process.cwd();
-const scriptRoot = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.dirname(scriptRoot);
 const workspace = opts.workspace || cwd;
-const legacyRoot = opts.root || process.env.CONFIG_DIR || '';
-let settings = {};
-let settingsPath = '';
-let installation = null;
+const configDir = process.env.CONFIG_DIR || path.join(cwd, 'config');
+const root = opts.root || configDir;
+const port = opts.port || '61417';
 
-if (!legacyRoot && !opts.source) {
-  settingsPath = path.resolve(opts.settings || path.join(projectRoot, 'config', 'autorun.config.json'));
-  try {
-    settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
-  } catch (error) {
-    err(`[error] 无法读取 Autorun 配置: ${settingsPath}: ${error.message}`);
-    process.exit(1);
-  }
-  const configuredRoot = String(settings.server?.vscodeExtensionsRoot || '');
-  const extensionsRoot = path.isAbsolute(configuredRoot)
-    ? configuredRoot
-    : path.resolve(path.dirname(settingsPath), configuredRoot);
-  installation = await findHarmonyDevAssistantExtension(extensionsRoot);
-}
-
-const bundledConfigDir = path.resolve(opts.source || (legacyRoot
-  ? path.join(legacyRoot, 'resources', 'opencode')
-  : installation.resourcesDir));
-const runHome = path.resolve(opts.runtimeRoot || path.join(projectRoot, 'output', '_runtime', 'opencode'));
-const runtime = await prepareOpenCodeRuntime(bundledConfigDir, runHome);
-const configuredPort = (() => {
-  try { return new URL(String(settings.server?.url || '')).port; } catch { return ''; }
-})();
-const port = opts.port || configuredPort || '61417';
+const bundledConfigDir = path.resolve(opts.source || path.join(root, 'resources', 'opencode'));
 const opencodeBin = path.join(bundledConfigDir, 'bin', defaults.binDir, 'opencode' + defaults.binaryExt);
-const devecoHome = opts.devecoHome || settings.server?.devecoHome || defaults.devecoHome;
-const logDir = path.join(runHome, 'logs', 'runs', `${timestamp()}-opencode-serve`);
+const devecoHome = opts.devecoHome || defaults.devecoHome;
+const sourceKeyInput = process.platform === 'win32' ? bundledConfigDir.toLowerCase() : bundledConfigDir;
+const sourceKey = createHash('sha256').update(sourceKeyInput).digest('hex').slice(0, 12);
+
+// 运行时路径与 vscode 扩展一致，落在 ~/.harmonybot 下（host=vscode，无 worker）：
+//   ~/.harmonybot/opencode/vscode/{data,xdg-config,state,cache,config}
+//   ~/.harmonybot/logs/vscode/runs/<runId>
+// 对齐 src/shared/harmonybotOpencodeRuntimeEnv.ts、harmonybotRunLog.ts。
+const harmonybotHome = path.join(os.homedir(), '.harmonybot');
+const opencodeHostRoot = path.resolve(opts.runtimeRoot || path.join(harmonybotHome, 'opencode', 'vscode'));
+const logRoot = opts.runtimeRoot ? path.join(opencodeHostRoot, 'logs') : path.join(harmonybotHome, 'logs');
+const runId = `${timestamp()}-${randomBytes(3).toString('hex')}`;
+const logDir = opts.runtimeRoot
+  ? path.join(logRoot, 'runs', runId)
+  : path.join(logRoot, 'vscode', 'runs', runId);
+const runtimeConfigDir = path.join(opencodeHostRoot, 'config', sourceKey);
 
 // ─── 前置检查 ──────────────────────────────────────────────────
 if (!existsSync(opencodeBin)) {
   err(`[error] 找不到 opencode 二进制: ${opencodeBin}`);
   err(`        期望路径: <source>/bin/${defaults.binDir}/opencode${defaults.binaryExt}`);
-  err('        可通过 --source 或 --settings 覆盖');
+  err('        可通过 --source 或 --root 覆盖');
   process.exit(1);
 }
 if (!existsSync(workspace)) {
@@ -295,20 +274,29 @@ const agentPath = existsSync(pluginBinDir)
   : [devecoPath, process.env.PATH || ''].join(PATH_SEP);
 
 // ─── 创建运行期目录（mkdir -p，错误即吞，与 .bat 的 2>nul 一致）──
-for (const d of [logDir, path.join(runHome, 'data'), path.join(runHome, 'state'), path.join(runHome, 'cache'), path.join(runHome, 'xdg-config')]) {
+// 与 vscode 扩展 ensureRuntimeDirs + createRunContext 对齐：data/xdg-config/
+// state/cache/config 五个运行时目录 + 本次 runDir。
+for (const d of [
+  logDir,
+  path.join(opencodeHostRoot, 'data'),
+  path.join(opencodeHostRoot, 'xdg-config'),
+  path.join(opencodeHostRoot, 'state'),
+  path.join(opencodeHostRoot, 'cache'),
+  runtimeConfigDir,
+]) {
   mkdirSync(d, { recursive: true });
 }
 
 // ─── 打印启动摘要 ──────────────────────────────────────────────
-const runId = path.basename(logDir);
-if (installation) out('[run] extension:        ' + installation.extensionDir + ' (' + installation.version + ')');
+out('[run] source:           ' + bundledConfigDir);
 out('[run] opencode binary:  ' + opencodeBin);
 out('[run] workspace:        ' + workspace);
 out('[run] bundled config:   ' + bundledConfigDir);
-out('[run] config dir:       ' + runtime.configDir + '  (OPENCODE_CONFIG_DIR, runtime)');
-out('[run] run home:         ' + runHome);
+out('[run] opencode host:    ' + opencodeHostRoot);
+out('[run] config dir:       ' + runtimeConfigDir + '  (OPENCODE_CONFIG_DIR, runtime)');
 out('[run] deveco home:      ' + devecoContents);
 out('[run] port:             ' + port);
+out('[run] log root:         ' + logRoot);
 out('[run] log dir:          ' + logDir);
 out('');
 
@@ -323,12 +311,12 @@ delete env.OPENCODE_AUTH_CONTENT;
 Object.assign(env, {
   OPENCODE_CLIENT: 'harmonybot-vscode',
   OPENCODE_ENABLE_QUESTION_TOOL: 'true',
-  XDG_DATA_HOME: path.join(runHome, 'data'),
-  XDG_CONFIG_HOME: path.join(runHome, 'xdg-config'),
-  XDG_STATE_HOME: path.join(runHome, 'state'),
-  XDG_CACHE_HOME: path.join(runHome, 'cache'),
+  XDG_DATA_HOME: path.join(opencodeHostRoot, 'data'),
+  XDG_CONFIG_HOME: path.join(opencodeHostRoot, 'xdg-config'),
+  XDG_STATE_HOME: path.join(opencodeHostRoot, 'state'),
+  XDG_CACHE_HOME: path.join(opencodeHostRoot, 'cache'),
   OPENCODE_DB: 'opencode-harmonybot.db',
-  OPENCODE_CONFIG_DIR: runtime.configDir,
+  OPENCODE_CONFIG_DIR: runtimeConfigDir,
   OPENCODE_BUNDLED_CONFIG_DIR: bundledConfigDir,
   OPENCODE_DISABLE_PROJECT_CONFIG: '1',
   OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
@@ -341,7 +329,7 @@ Object.assign(env, {
   HOS_SDK_HOME: hosSdkHome,
   OHOS_SDK_HOME: ohosSdkHome,
   HARMONYBOT_DEVECO_INSTALL_PATH: devecoContents,
-  HARMONYBOT_LOG_ROOT: path.join(runHome, 'logs'),
+  HARMONYBOT_LOG_ROOT: logRoot,
   HARMONYBOT_IDE_HOST: 'vscode',
   HARMONYBOT_RUN_ID: runId,
   HARMONYBOT_IDE_LOG_DIR: logDir,

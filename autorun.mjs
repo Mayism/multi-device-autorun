@@ -15,7 +15,7 @@ import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/
 import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/lib/compile-usage.mjs";
 import { loadOhosTestConfig, runOhosTest } from "./src/lib/ohostest-orchestrator.mjs";
 import { writeBatchReport } from "./src/lib/batch-report.mjs";
-import { findHarmonyDevAssistantExtension } from "./src/lib/opencode-installation.mjs";
+import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
@@ -44,7 +44,12 @@ function agentDeviceLeasePolicy(caseName, deviceLeasePath) {
 }
 
 function parseArgs(argv) {
-  const result = { configPath: "./config/autorun.config.json", checkOnly: false };
+  const result = {
+    configPath: "./config/autorun.config.json",
+    checkOnly: false,
+    retryBatchId: "",
+    retryCaseName: "",
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--config" || value === "-c") {
@@ -52,13 +57,25 @@ function parseArgs(argv) {
       result.configPath = argv[++index];
     } else if (value === "--check") {
       result.checkOnly = true;
+    } else if (value === "--retry") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--retry 需要历史批次 ID");
+      result.retryBatchId = argv[++index];
+    } else if (value === "--case") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--case 需要用例名称");
+      result.retryCaseName = argv[++index];
     } else if (value === "--help" || value === "-h") {
-      console.log("用法: node autorun.mjs [--config config/autorun.config.json] [--check]");
+      console.log([
+        "用法:",
+        "  node autorun.mjs [--config config/autorun.config.json] [--check]",
+        "  node autorun.mjs --retry <batchId> [--case <caseName>] [--config config/autorun.config.json]",
+      ].join("\n"));
       process.exit(0);
     } else {
       throw new Error(`未知参数: ${value}`);
     }
   }
+  if (result.retryCaseName && !result.retryBatchId) throw new Error("--case 只能和 --retry 一起使用");
+  if (result.checkOnly && result.retryBatchId) throw new Error("--check 不能和 --retry 一起使用");
   return result;
 }
 
@@ -86,7 +103,14 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
   normalized.__baseDir = baseDir;
   normalized.server ||= {};
   normalized.execution ||= {};
-  normalized.server.vscodeExtensionsRoot = resolveFrom(baseDir, normalized.server.vscodeExtensionsRoot || "");
+  const source = normalized.server.opencodeSource;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    throw new Error("缺少 server.opencodeSource 配置");
+  }
+  normalized.server.opencodeSource = {
+    mode: String(source.mode || "").trim(),
+    root: resolveFrom(baseDir, source.root || ""),
+  };
   normalized.execution.casesRoot = resolveFrom(baseDir, normalized.execution.casesRoot || "./cases");
   normalized.execution.outputRoot = resolveFrom(
     baseDir,
@@ -261,6 +285,8 @@ async function waitForServerConfig(client, {
 
 async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) {
   if (signal?.aborted) throw interruptionError(signal.reason);
+  const source = await resolveOpenCodeSource(config.server.opencodeSource);
+  log(`[server] OpenCode 来源模式: ${source.mode}`);
   const configuredServerUrl = String(config.server.url || "").trim();
   if (!configuredServerUrl) throw new Error("未配置 server.url");
   let serverUrl = configuredServerUrl;
@@ -280,7 +306,6 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
 
   const serveScript = fileURLToPath(new URL("./src/run-opencode-serve.mjs", import.meta.url));
   if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
-  const installation = await findHarmonyDevAssistantExtension(config.server.vscodeExtensionsRoot);
   const runtimeRoot = config.server.runtimeRoot;
   const port = new URL(serverUrl).port || "61417";
   const runId = `${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}-autorun-serve`;
@@ -290,14 +315,19 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   const logFile = await fs.open(logPath, "a");
   const args = [
     serveScript,
-    "--source", installation.resourcesDir,
+    "--source", source.resourcesDir,
     "--runtime-root", runtimeRoot,
     "--workspace", AUTORUN_ROOT,
     "--port", port,
   ];
   if (config.server.devecoHome) args.push("--deveco-home", config.server.devecoHome);
 
-  log(`[server] 使用 VS Code 扩展 ${installation.version}: ${installation.extensionDir}`);
+  if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    log(`[server] 使用 HarmonyBot 扩展 ${source.installation.version}: ${source.installation.extensionDir}`);
+  } else {
+    log(`[server] 使用 Software Engineering 资源: ${source.root}`);
+  }
+  log(`[server] OpenCode 资源目录: ${source.resourcesDir}`);
   log(`[server] OpenCode 运行数据: ${runtimeRoot}`);
   log(`[server] 自动调用 run-opencode-serve.mjs: ${process.execPath} ${args.slice(0, 1).concat(args.slice(1)).join(" ")}`);
   let child;
@@ -434,6 +464,79 @@ async function readJson(filePath) {
   } catch {
     return null;
   }
+}
+
+async function loadRetryPlan(outputRoot, batchId, requestedCaseName = "") {
+  const normalizedBatchId = String(batchId || "").trim();
+  const resolvedOutputRoot = path.resolve(outputRoot);
+  const sourceBatchRoot = path.resolve(resolvedOutputRoot, normalizedBatchId);
+  const relativeBatchPath = path.relative(resolvedOutputRoot, sourceBatchRoot);
+  if (
+    !normalizedBatchId
+    || path.basename(normalizedBatchId) !== normalizedBatchId
+    || !relativeBatchPath
+    || path.isAbsolute(relativeBatchPath)
+    || relativeBatchPath === ".."
+    || relativeBatchPath.startsWith(`..${path.sep}`)
+  ) {
+    throw new Error(`无效的重试批次 ID: ${batchId || "<empty>"}`);
+  }
+
+  const batch = await readJson(path.join(sourceBatchRoot, "batch.json"));
+  const summary = await readJson(path.join(sourceBatchRoot, "summary.json"));
+  if (!batch?.cases || typeof batch.cases !== "object") {
+    throw new Error(`重试批次不存在或 batch.json 无效: ${sourceBatchRoot}`);
+  }
+
+  const summaryResults = new Map(
+    (Array.isArray(summary?.results) ? summary.results : [])
+      .filter((item) => item?.case)
+      .map((item) => [String(item.case), item]),
+  );
+  const previousResults = new Map();
+  for (const [caseName, caseState] of Object.entries(batch.cases)) {
+    const resultPath = caseState?.resultPath || path.join(sourceBatchRoot, caseName, "result.json");
+    const result = await readJson(resultPath);
+    previousResults.set(caseName, result || summaryResults.get(caseName) || {
+      case: caseName,
+      status: caseState?.status || "failed",
+      agentStatus: caseState?.agentStatus || "",
+      error: caseState?.error || "",
+      projectName: caseState?.projectName || "",
+      projectDir: caseState?.projectDir || "",
+      patchPath: caseState?.patchPath || "",
+      resultPath,
+    });
+  }
+
+  const caseNames = [...previousResults.keys()];
+  let selectedCaseNames;
+  if (requestedCaseName) {
+    const requested = String(requestedCaseName).trim();
+    const exact = caseNames.find((name) => name === requested);
+    const insensitive = caseNames.filter((name) => name.toLowerCase() === requested.toLowerCase());
+    const matched = exact || (insensitive.length === 1 ? insensitive[0] : "");
+    if (!matched) {
+      throw new Error(`批次 ${normalizedBatchId} 中不存在用例 ${requested}；可选用例: ${caseNames.join(", ")}`);
+    }
+    selectedCaseNames = [matched];
+  } else {
+    selectedCaseNames = caseNames.filter((caseName) => {
+      const status = previousResults.get(caseName)?.status || batch.cases[caseName]?.status || "";
+      return status !== "completed" && status !== "skipped";
+    });
+    if (!selectedCaseNames.length) {
+      throw new Error(`批次 ${normalizedBatchId} 没有可重试的失败或中断用例`);
+    }
+  }
+
+  return {
+    sourceBatchId: normalizedBatchId,
+    sourceBatchRoot,
+    requestedCaseName: requestedCaseName ? selectedCaseNames[0] : "",
+    selectedCaseNames,
+    previousResults,
+  };
 }
 
 function elapsedSeconds(startedAt, finishedAt) {
@@ -1004,6 +1107,93 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
   }
 }
 
+async function canReuseSuccessfulAgent(previousResult, caseInfo) {
+  if (!previousResult || previousResult.agentStatus !== "completed") return false;
+  const previousProjectName = String(previousResult.projectName || path.basename(previousResult.projectDir || "")).trim();
+  return previousProjectName === caseInfo.projectName
+    && Boolean(previousResult.projectDir)
+    && Boolean(previousResult.patchPath)
+    && await exists(previousResult.projectDir)
+    && await exists(previousResult.patchPath);
+}
+
+async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, sourceBatchId, store }) {
+  if (!await exists(previousResult.projectDir)) {
+    throw new Error(`历史 Agent 工程不存在，无法仅重试 ohosTest: ${previousResult.projectDir}`);
+  }
+  if (!await exists(previousResult.patchPath)) {
+    throw new Error(`历史 Agent patch 不存在，无法仅重试 ohosTest: ${previousResult.patchPath}`);
+  }
+
+  const caseRunDir = path.join(batchRoot, safeName(caseInfo.name));
+  const projectDir = path.join(caseRunDir, caseInfo.projectName);
+  const generateDir = path.join(caseRunDir, "generate");
+  const diffDir = path.join(caseRunDir, "diff");
+  const patchPath = path.join(diffDir, "changes.patch");
+  const resultPath = path.join(caseRunDir, "result.json");
+  const statePath = path.join(caseRunDir, "state.json");
+  const executionPath = path.join(caseRunDir, "execution.jsonl");
+  const startedAt = new Date().toISOString();
+
+  await fs.mkdir(generateDir, { recursive: true });
+  await fs.mkdir(diffDir, { recursive: true });
+  await copyProject(previousResult.projectDir, projectDir);
+  await fs.copyFile(previousResult.patchPath, patchPath);
+
+  const result = {
+    case: caseInfo.name,
+    status: "running",
+    agentStatus: "completed",
+    agentReused: true,
+    agentError: "",
+    output: previousResult.output || "",
+    startedAt,
+    agentFinishedAt: startedAt,
+    projectName: caseInfo.projectName,
+    projectDir,
+    runDir: caseRunDir,
+    patchPath,
+    resultPath,
+    tokenUsage: emptyTokenUsage(),
+    agentCompile: emptyCompileUsage(),
+    retry: {
+      sourceBatchId,
+      sourceResultPath: previousResult.resultPath || "",
+      mode: "ohostest_only",
+    },
+    reusedAgentTokenUsage: previousResult.tokenUsage || emptyTokenUsage(),
+    reusedAgentCompile: previousResult.agentCompile || emptyCompileUsage(),
+    logs: {
+      transcriptPath: previousResult.logs?.transcriptPath || "",
+      messagesPath: previousResult.logs?.messagesPath || "",
+      executionPath,
+      consolePath: previousResult.logs?.consolePath || "",
+      sourceResultPath: previousResult.resultPath || "",
+    },
+    ohosTest: { status: "queued" },
+  };
+  await atomicWriteJson(resultPath, result);
+  await atomicWriteJson(statePath, {
+    ...result,
+    stage: "ohostest_queued",
+    updatedAt: startedAt,
+  });
+  await appendCaseLog(executionPath, "info", "retry_reused_agent", result.retry);
+  await store.setCase(caseInfo.name, {
+    status: "running",
+    stage: "ohostest_queued",
+    agentStatus: "completed",
+    agentReused: true,
+    runDir: caseRunDir,
+    projectName: caseInfo.projectName,
+    projectDir,
+    patchPath,
+    resultPath,
+    retry: result.retry,
+  });
+  return result;
+}
+
 async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceLeasePath, store, reporter, signal }) {
   const caseName = caseInfo.name;
   const caseRunDir = path.dirname(agentResult.resultPath);
@@ -1134,7 +1324,7 @@ async function validateServerConfig(client, execution, loadedConfig) {
   throw new Error(`Server 未配置模型: ${execution.model}`);
 }
 
-async function runBatch(config, client, serverConfig, checkOnly = false, { signal } = {}) {
+async function runBatch(config, client, serverConfig, checkOnly = false, { signal, retryPlan } = {}) {
   throwIfInterrupted(signal);
   const execution = {
     ...config.execution,
@@ -1146,8 +1336,24 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   };
   const ohosTest = await loadOhosTestConfig(config);
   const discovered = await discoverCases(execution.casesRoot, { requireOhosTest: ohosTest.enabled });
-  const cases = discovered.runnable;
-  const skippedCases = discovered.skipped;
+  let cases = discovered.runnable;
+  let skippedCases = discovered.skipped;
+  if (retryPlan) {
+    const runnableByName = new Map(cases.map((item) => [item.name, item]));
+    const skippedByName = new Map(skippedCases.map((item) => [item.name, item]));
+    const missing = retryPlan.selectedCaseNames.filter((name) => !runnableByName.has(name) && !skippedByName.has(name));
+    if (missing.length) {
+      throw new Error(`重试用例在当前 casesRoot 中不存在: ${missing.join(", ")}`);
+    }
+    const invalid = retryPlan.selectedCaseNames
+      .map((name) => skippedByName.get(name))
+      .filter(Boolean);
+    if (invalid.length) {
+      throw new Error(`重试用例当前不可执行: ${invalid.map((item) => `${item.name}（${item.skipReason}）`).join("；")}`);
+    }
+    cases = retryPlan.selectedCaseNames.map((name) => runnableByName.get(name));
+    skippedCases = [];
+  }
   const displayCases = [...cases, ...skippedCases];
   const model = await validateServerConfig(client, execution, serverConfig);
   throwIfInterrupted(signal);
@@ -1155,6 +1361,9 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     ? `已启用（串行，Runner=${ohosTest.runnerRoot}）`
     : "未启用";
   console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}`);
+  if (retryPlan) {
+    console.log(`[retry] 来源批次 ${retryPlan.sourceBatchId}；重试用例: ${retryPlan.selectedCaseNames.join(", ")}`);
+  }
   if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest };
 
   const id = batchId();
@@ -1171,6 +1380,12 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       concurrency: ohosTest.enabled ? 1 : 0,
       runnerRoot: ohosTest.runnerRoot,
     },
+    ...(retryPlan ? {
+      retry: {
+        sourceBatchId: retryPlan.sourceBatchId,
+        requestedCaseName: retryPlan.requestedCaseName,
+      },
+    } : {}),
     cases: Object.fromEntries(displayCases.map((item) => [item.name, {
       status: item.skipReason ? "skipped" : "pending",
       stage: item.skipReason ? "skipped" : "queued",
@@ -1242,6 +1457,22 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       if (!next) return;
       reporter.caseStarted(next.name, workerIndex);
       try {
+        const previousResult = retryPlan?.previousResults.get(next.name);
+        if (await canReuseSuccessfulAgent(previousResult, next)) {
+          if (!ohosTest.enabled) {
+            throw new Error(`用例 ${next.name} 的 Agent 已成功，只需重试 ohosTest，但当前 ohosTest.enabled=false`);
+          }
+          const agentResult = await prepareReusedAgentResult({
+            caseInfo: next,
+            batchRoot,
+            previousResult,
+            sourceBatchId: retryPlan.sourceBatchId,
+            store,
+          });
+          reporter.caseOhosTestQueued(next.name);
+          scheduleOhosTest(next, agentResult);
+          continue;
+        }
         const agentResult = await runCase({
           caseInfo: next,
           batchRoot,
@@ -1308,6 +1539,12 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     tokenUsage,
     agentCompile,
     results,
+    ...(retryPlan ? {
+      retry: {
+        sourceBatchId: retryPlan.sourceBatchId,
+        requestedCaseName: retryPlan.requestedCaseName,
+      },
+    } : {}),
   };
   try {
     summary.reports = await writeBatchReport({ batchRoot, summary });
@@ -1325,6 +1562,7 @@ const args = parseArgs(process.argv.slice(2));
 const config = await loadAutorunConfig(args.configPath);
 const shutdownController = new AbortController();
 let server;
+let retryPlan;
 let exitCode = 0;
 let serverStopping = false;
 let batchSettled = false;
@@ -1383,6 +1621,9 @@ try {
   for (const item of recovered) {
     console.warn(`[recovery] 已收尾上次未正常完成的批次: ${item.batchId}`);
   }
+  if (args.retryBatchId) {
+    retryPlan = await loadRetryPlan(config.execution.outputRoot, args.retryBatchId, args.retryCaseName);
+  }
   server = await ensureOpenCodeServer(config, { signal: shutdownController.signal });
   if (server?.owned && server.child) {
     server.child.once("exit", (code, signal) => {
@@ -1394,7 +1635,10 @@ try {
       requestShutdown("OpenCode Server 子进程错误", error);
     });
   }
-  const summary = await runBatch(config, server.client, server.serverConfig, args.checkOnly, { signal: shutdownController.signal });
+  const summary = await runBatch(config, server.client, server.serverConfig, args.checkOnly, {
+    signal: shutdownController.signal,
+    retryPlan,
+  });
   batchSettled = true;
   if (!args.checkOnly && summary.failed) exitCode = 1;
 } catch (error) {

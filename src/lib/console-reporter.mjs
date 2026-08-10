@@ -54,6 +54,13 @@ function cell(value, targetWidth) {
   return `${text}${" ".repeat(Math.max(0, targetWidth - displayWidth(text)))}`;
 }
 
+function renderedRows(lines, terminalColumns) {
+  const columns = Math.max(1, Number(terminalColumns) || 1);
+  return lines.reduce((total, line) => (
+    total + Math.max(1, Math.ceil(displayWidth(line) / columns))
+  ), 0);
+}
+
 function elapsed(startedAt, finishedAt = Date.now()) {
   if (!startedAt) return "--:--";
   const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 1000));
@@ -246,30 +253,36 @@ export class ConsoleReporter {
 
   render(force = false) {
     if (this.mode !== "dashboard") return;
-    const terminalWidth = Math.max(80, process.stdout.columns || 120);
-    const caseWidth = terminalWidth >= 140 ? 40 : 28;
-    const agentStatusWidth = 10;
-    const ohosTestStatusWidth = 10;
-    const elapsedWidth = 9;
-    const tokenColumns = terminalWidth >= 160
+    const terminalColumns = Math.max(1, Number(process.stdout.columns) || 120);
+    // 预留最后一列，避免 Windows 终端写满整行后触发自动换行。
+    const terminalWidth = Math.max(40, terminalColumns - 1);
+    const caseWidth = terminalColumns >= 140
+      ? 40
+      : terminalColumns >= 100
+        ? 28
+        : Math.max(16, Math.min(24, Math.floor(terminalWidth * 0.28)));
+    const agentStatusWidth = terminalColumns >= 70 ? 10 : 8;
+    const ohosTestStatusWidth = terminalColumns >= 70 ? 10 : 8;
+    const elapsedWidth = terminalColumns >= 70 ? 9 : 7;
+    const tokenColumns = terminalColumns >= 160
       ? [
         { title: "输入Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.input) },
         { title: "输出Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.output) },
         { title: "总Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.total) },
       ]
-      : terminalWidth >= 120
+      : terminalColumns >= 120
         ? [{ title: "Token(入/出/总)", width: 22, value: (item) => tokenText(item.tokenUsage) }]
-        : terminalWidth >= 100
+        : terminalColumns >= 100
           ? [{ title: "总Token", width: 10, value: (item) => formatTokenCount(item.tokenUsage.total) }]
           : [];
-    const compileColumns = terminalWidth >= 160
+    const compileColumns = terminalColumns >= 160
       ? [{ title: "\u7f16\u8bd1", width: 18, value: (item) => compileText(item.compileUsage) }]
       : [];
     const fixedWidth = caseWidth + agentStatusWidth + ohosTestStatusWidth + elapsedWidth
       + tokenColumns.reduce((sum, column) => sum + column.width, 0)
       + compileColumns.reduce((sum, column) => sum + column.width, 0);
     const separatorWidth = 2 * (4 + tokenColumns.length + compileColumns.length);
-    const activityWidth = Math.max(25, terminalWidth - fixedWidth - separatorWidth);
+    const activityWidth = Math.max(10, terminalWidth - fixedWidth - separatorWidth);
     const columns = [
       { title: "用例", width: caseWidth, value: (item) => item.name },
       { title: "生成状态", width: agentStatusWidth, value: (item) => statusText(item.agentStatus) },
@@ -280,15 +293,7 @@ export class ConsoleReporter {
       { title: "当前操作", width: activityWidth, value: (item) => item.activity },
     ];
     const values = [...this.cases.values()];
-    const skipped = values.filter((item) => item.status === "skipped").length;
-    const executableTotal = values.length - skipped;
-    const completed = values.filter((item) => item.status === "completed").length;
-    const failed = values.filter((item) => ["failed", "timed_out", "interrupted"].includes(item.status)).length;
-    const activeAgents = values.filter((item) => item.phase === "agent" && ["preparing", "running"].includes(item.status)).length;
-    const activeOhosTest = values.filter((item) => item.status === "ohostest_running").length;
     const lines = [
-      `Autorun 批次: ${this.batchId}   Agent: ${activeAgents}/${this.concurrency}   ohosTest: ${activeOhosTest}/1   完成: ${completed}/${executableTotal}   失败: ${failed}   跳过: ${skipped}`,
-      "",
       columns.map((column) => cell(column.title, column.width)).join("  "),
       columns.map((column) => "-".repeat(column.width)).join("  "),
     ];
@@ -303,7 +308,7 @@ export class ConsoleReporter {
     // refresh moves up exactly renderedLineCount lines; without this trailing
     // newline it moves one line above the dashboard and erases earlier logs.
     process.stdout.write(`${output}\n`);
-    this.renderedLineCount = lines.length;
+    this.renderedLineCount = renderedRows(lines, terminalColumns);
   }
 
   finish(summary) {

@@ -2,20 +2,20 @@
 // ask-opencode.mjs
 // 向已启动的 opencode serve 发送消息，把 assistant 回复正文打到 stdout。
 // 用法（与 plugin-cli/ask-opencode.{bat,ps1,sh} 功能、参数一致）：
-//   node src/ask-opencode.mjs "你好"                          # 发送一条消息
-//   echo "你好" | node src/ask-opencode.mjs                   # 从 stdin 读取
-//   node src/ask-opencode.mjs "你好" --think                  # 保留 think 推理块
-//   node src/ask-opencode.mjs "你好" --raw                    # 打印原始 JSON 响应
-//   node src/ask-opencode.mjs "你好" -a harmonyos-ascf -m MiniMax-M3
-//   node src/ask-opencode.mjs "你好" --port 62000             # 自定义端口
-//   node src/ask-opencode.mjs "你好" --port 62000 --timeout 60
-//   node src/ask-opencode.mjs "fix login" --cwd D:\workspace\projA   # 工作目录
+//   node ask-opencode.mjs "你好"                          # 发送一条消息
+//   echo "你好" | node ask-opencode.mjs                   # 从 stdin 读取
+//   node ask-opencode.mjs "你好" --think                  # 保留 think 推理块
+//   node ask-opencode.mjs "你好" --raw                    # 打印原始 JSON 响应
+//   node ask-opencode.mjs "你好" -a harmonyos-ascf -m MiniMax-M3
+//   node ask-opencode.mjs "你好" --port 62000             # 自定义端口
+//   node ask-opencode.mjs "你好" --port 62000 --timeout 60
+//   node ask-opencode.mjs "fix login" --cwd D:\workspace\projA   # 工作目录
 //
 // 终端（TTY）运行时默认进入「对话模式」：发完首问后，每轮回复结束会在 stderr
 // 打出 `> ` 提示符，继续输入即可多轮对话；输入 :q 或 EOF/Ctrl+C 退出。
 // 管道（非 TTY）运行时为单发：收完一个回复即退出（兼容老用法）。
 //
-// 前置：需先启动 node src/run-opencode-serve.mjs。
+// 前置：需先启动 ./run-opencode-serve.sh（或 .bat）。
 // 一个 opencode 实例可同时服务多个项目：用 --cwd 切换每个请求的工作目录。
 // CLI 参数优先于环境变量。可调：
 //   --port, -p N        端口 (env: PORT, 默认 61417)
@@ -40,7 +40,7 @@ import readline from 'node:readline';
 const DEFAULTS = Object.freeze({ HOST: '127.0.0.1', PORT: 61417, TIMEOUT: 120 });
 
 const HELP = [
-  '用法: node src/ask-opencode.mjs "question" [--think] [--raw] [--stream]',
+  '用法: node ask-opencode.mjs "question" [--think] [--raw] [--stream]',
   '                            [--agent NAME] [--model NAME]',
   '                            [--port N] [--host H] [--timeout S] [--cwd PATH]',
   '',
@@ -52,7 +52,7 @@ const HELP = [
   '  --raw                 打印原始 JSON 响应',
   '  --stream              非交互下强制流式单发（交互下恒为流式对话）',
   '  --agent,  -a   NAME   agent 名 (如 harmonyos-ascf)',
-  '  --model,  -m   MODEL  model 名 (如 MiniMax-M3, deepseek-chat)',
+  '  --model,  -m   MODEL  model/名，支持 provider/model (如 deepseek-v4-flash, deepseek/deepseek-v4-flash)',
   '  --port,   -p   N      端口 (默认 61417, env: PORT)',
   '  --host,   -H   HOST   主机 (默认 127.0.0.1, env: HOST)',
   '  --timeout, -t   S     单轮空闲超时秒数 (默认 120, env: TIMEOUT)',
@@ -63,10 +63,10 @@ const HELP = [
   '  回复结束后 stderr 出现 `> `，输入下一轮即可；:q / EOF / Ctrl+C 退出。',
   '',
   '示例:',
-  '  node src/ask-opencode.mjs "hello" --port 62000',
-  '  node src/ask-opencode.mjs "hello" -m MiniMax-M3 -p 62000',
-  '  node src/ask-opencode.mjs "hello" --agent harmonyos-multi-device --model deepseek-chat',
-  '  node src/ask-opencode.mjs "fix login" --cwd D:\\workspace\\projA --port 62000',
+  '  node ask-opencode.mjs "hello" --port 62000',
+  '  node ask-opencode.mjs "hello" -m MiniMax-M3 -p 62000',
+  '  node ask-opencode.mjs "hello" --agent harmonyos-multi-device --model deepseek-chat',
+  '  node ask-opencode.mjs "fix login" --cwd D:\\workspace\\projA --port 62000',
 ].join('\n');
 
 const out = (s) => process.stdout.write(s);
@@ -495,13 +495,22 @@ const req = (method, url, opts2 = {}) =>
   const h = await req('GET', `${baseUrl}/global/health`, { timeout: 3 });
   if (!h.ok) {
     err(`[error] opencode serve 未运行于 ${baseUrl}`);
-    err('        请先启动 node src/run-opencode-serve.mjs，或用 PORT= 覆盖端口');
+    err('        请先启动 run-opencode-serve(.bat/.sh)，或用 PORT= 覆盖端口');
     process.exit(1);
   }
 }
 
-// ─── 把 --model 解析成 { providerID, modelID }（schema 拒绝裸字符串）───
+// ─── 把 --model 解析成 { providerID, modelID } ─────────────────
+// 接受两种写法：
+//   --model MODEL                    裸 model id：先在 /config provider.models
+//                                    里查；查不到则当 server 只有一个 provider 时
+//                                    假定属于它（provider 未静态声明 models 也能
+//                                    透传，与扩展行为一致）
+//   --model PROVIDER/MODEL           provider/model：只校验 provider 存在，不要求
+//                                    model 在 provider.models 中被声明
+// 环境变量 MODEL 同义，只是无法通过 CLI 插入 /。
 let providerId = '';
+let modelId = '';
 if (opts.model) {
   const cfgRes = await req('GET', `${baseUrl}/config`, { timeout: 10 });
   if (!cfgRes.ok) {
@@ -516,21 +525,46 @@ if (opts.model) {
     process.exit(1);
   }
   const providers = cfg.provider || {};
-  for (const [pid, p] of Object.entries(providers)) {
-    const models = p && p.models;
-    if (models && Object.prototype.hasOwnProperty.call(models, opts.model)) {
-      providerId = pid;
-      break;
+  const providerIds = Object.keys(providers);
+
+  const slashIdx = opts.model.indexOf('/');
+  if (slashIdx > 0) {
+    // provider/model 形式：只校验 provider 存在
+    providerId = opts.model.slice(0, slashIdx).trim();
+    modelId = opts.model.slice(slashIdx + 1).trim();
+    if (!providers[providerId]) {
+      err(`[error] provider '${providerId}' 未在 server 找到。可用 provider:`);
+      for (const pid of providerIds) {
+        err(`  ${pid}`);
+      }
+      process.exit(1);
     }
-  }
-  if (!providerId) {
-    err(`[error] model '${opts.model}' 未在 server 找到。可用 model:`);
+  } else {
+    // 裸 model id：在 provider.models 里查；单 provider 兜底
+    modelId = opts.model;
     for (const [pid, p] of Object.entries(providers)) {
-      for (const mid of Object.keys((p && p.models) || {})) {
-        err(`  ${mid}  (providerID=${pid})`);
+      const models = p && p.models;
+      if (models && Object.prototype.hasOwnProperty.call(models, opts.model)) {
+        providerId = pid;
+        break;
       }
     }
-    process.exit(1);
+    if (!providerId && providerIds.length === 1) {
+      providerId = providerIds[0];
+      err(`[info] model '${opts.model}' 未在 provider.models 声明，假定属于唯一 provider '${providerId}'`);
+    }
+    if (!providerId) {
+      err(`[error] model '${opts.model}' 未在 server 找到。可用 provider:`);
+      for (const pid of providerIds) {
+        const declared = Object.keys((providers[pid] && providers[pid].models) || {});
+        if (declared.length) {
+          err(`  ${pid}  (已声明 model: ${declared.join(', ')})`);
+        } else {
+          err(`  ${pid}  (未声明 model，可用 --model <provider>/<model> 指定)`);
+        }
+      }
+      process.exit(1);
+    }
   }
 }
 
@@ -558,7 +592,7 @@ if (opts.model) {
   const baseBody = {};
   if (opts.agent) baseBody.agent = opts.agent;
   if (opts.model && providerId) {
-    baseBody.model = { providerID: providerId, modelID: opts.model };
+    baseBody.model = { providerID: providerId, modelID: modelId };
   }
 
   const interactive = process.stdin.isTTY;
@@ -630,7 +664,7 @@ if (opts.model) {
     } else {
       // ── 非交互 --stream 单发 ──
       if (!opts.question) {
-        err('[error] 未提供问题。用法: node src/ask-opencode.mjs "你的问题"');
+        err('[error] 未提供问题。用法: node ask-opencode.mjs "你的问题"');
         process.exit(1);
       }
       const r = await convo.sendTurn(opts.question);
@@ -646,13 +680,13 @@ if (opts.model) {
 
   // ─── 非流式缓冲路径（管道单发，原有逻辑） ─────────────────
   if (!opts.question) {
-    err('[error] 未提供问题。用法: node src/ask-opencode.mjs "你的问题"');
+    err('[error] 未提供问题。用法: node ask-opencode.mjs "你的问题"');
     process.exit(1);
   }
   const body = { parts: [{ type: 'text', text: opts.question }] };
   if (opts.agent) body.agent = opts.agent;
   if (opts.model && providerId) {
-    body.model = { providerID: providerId, modelID: opts.model };
+    body.model = { providerID: providerId, modelID: modelId };
   }
 
   const m = await req('POST', `${baseUrl}/session/${sid}/message`, {

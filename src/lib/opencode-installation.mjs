@@ -3,6 +3,10 @@ import path from "node:path";
 import process from "node:process";
 
 export const HARMONY_VSCODE_EXTENSION_PREFIX = "huaweideveloperserviceplatform.harmonyosdevassistantforvscode";
+export const OPENCODE_SOURCE_MODES = Object.freeze({
+  HARMONY_BOT: "harmonyBot",
+  SOFTWARE_ENGINEERING: "softwareEngineering",
+});
 
 function compareVersions(left, right) {
   const parse = (value) => {
@@ -62,6 +66,45 @@ export async function findHarmonyDevAssistantExtension(extensionsRoot) {
   }
   candidates.sort((a, b) => compareVersions(b.version, a.version));
   return candidates[0];
+}
+
+export async function resolveOpenCodeSource(source) {
+  const mode = String(source?.mode || "").trim();
+  const configuredRoot = String(source?.root || "").trim();
+  if (!Object.values(OPENCODE_SOURCE_MODES).includes(mode)) {
+    throw new Error(
+      `server.opencodeSource.mode 仅支持 ${Object.values(OPENCODE_SOURCE_MODES).join(" 或 ")}: ${mode || "<empty>"}`,
+    );
+  }
+  if (!configuredRoot) {
+    throw new Error(`server.opencodeSource.root 不能为空（当前模式: ${mode}）`);
+  }
+
+  if (mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    const installation = await findHarmonyDevAssistantExtension(configuredRoot);
+    return {
+      mode,
+      root: path.resolve(configuredRoot),
+      resourcesDir: installation.resourcesDir,
+      installation,
+    };
+  }
+
+  const root = path.resolve(configuredRoot);
+  if (!await exists(root)) {
+    throw new Error(`softwareEngineering 资源根目录不存在: ${root}`);
+  }
+  const resourcesDir = path.join(root, "resources", "opencode");
+  const missing = [];
+  for (const required of ["opencode.json", "bin", "skills"]) {
+    if (!await exists(path.join(resourcesDir, required))) missing.push(required);
+  }
+  if (missing.length) {
+    throw new Error(
+      `softwareEngineering 资源不完整: ${resourcesDir}（缺少 ${missing.join("、")}）`,
+    );
+  }
+  return { mode, root, resourcesDir, installation: null };
 }
 
 async function linkDirectory(source, target) {
