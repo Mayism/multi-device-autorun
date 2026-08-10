@@ -299,7 +299,10 @@ export class ConsoleReporter {
     if (!force && output === this.lastRendered) return;
     this.clearDashboard();
     this.lastRendered = output;
-    process.stdout.write(output);
+    // Keep the cursor on the line immediately after the dashboard. The next
+    // refresh moves up exactly renderedLineCount lines; without this trailing
+    // newline it moves one line above the dashboard and erases earlier logs.
+    process.stdout.write(`${output}\n`);
     this.renderedLineCount = lines.length;
   }
 
@@ -308,7 +311,6 @@ export class ConsoleReporter {
     if (this.mode === "dashboard") {
       // 最后一次刷新后将表格留在终端中；后续摘要从下一行开始，不再回退清屏。
       this.render(true);
-      process.stdout.write("\n");
       this.renderedLineCount = 0;
       this.lastRendered = "";
     }
