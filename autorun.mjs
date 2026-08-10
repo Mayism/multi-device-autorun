@@ -570,14 +570,31 @@ async function discoverCases(casesRoot, { requireOhosTest = false } = {}) {
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory()) continue;
     const caseRoot = path.join(casesRoot, entry.name);
-    const baseDir = path.join(caseRoot, "base");
     const promptPath = path.join(caseRoot, "PROMPT.md");
     const issues = [];
-    try {
-      const baseStat = await fs.stat(baseDir);
-      if (!baseStat.isDirectory()) issues.push("base 不是目录");
-    } catch {
-      issues.push("缺少 base/ 工程目录");
+    let projectName = "";
+    let projectDir = "";
+    const invalidProjectNames = [];
+    for (const candidate of ["base", "task"]) {
+      const candidateDir = path.join(caseRoot, candidate);
+      try {
+        const stat = await fs.stat(candidateDir);
+        if (stat.isDirectory()) {
+          if (!projectName) {
+            projectName = candidate;
+            projectDir = candidateDir;
+          }
+        } else {
+          invalidProjectNames.push(`${candidate} 不是目录`);
+        }
+      } catch (error) {
+        if (error?.code !== "ENOENT") invalidProjectNames.push(`${candidate} 无法访问`);
+      }
+    }
+    if (!projectName) {
+      issues.push(invalidProjectNames.length
+        ? invalidProjectNames.join("；")
+        : "缺少 base/ 或 task/ 工程目录");
     }
     try {
       const prompt = await fs.readFile(promptPath, "utf8");
@@ -603,9 +620,15 @@ async function discoverCases(casesRoot, { requireOhosTest = false } = {}) {
             issues.push(`缺少 ${relative}`);
           }
         }
+        if (projectDir && metadata.base_project) {
+          const configuredProject = path.resolve(caseRoot, String(metadata.base_project));
+          if (configuredProject !== path.resolve(projectDir)) {
+            issues.push(`metadata.base_project 必须指向实际工程 ${projectName}`);
+          }
+        }
       }
     }
-    const item = { name: entry.name, caseRoot, baseDir, promptPath };
+    const item = { name: entry.name, caseRoot, projectName, projectDir, promptPath };
     if (issues.length) skipped.push({ ...item, skipReason: issues.join("；") });
     else runnable.push(item);
   }
@@ -753,9 +776,8 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
   const deviceLeasePath = path.join(batchRoot, ".device-validation.lock");
   const caseRunDir = path.join(batchRoot, safeName(caseName));
   const originalDir = path.join(caseRunDir, "original");
-  // Agent 从一开始就在 base/ 中工作，使完成后的工程可以直接作为
-  // ohostest:case --run swe 的 base_project，避免结束后重命名导致路径失效。
-  const projectDir = path.join(caseRunDir, "base");
+  // 保留源用例的工程目录名（base 或 task），使输出工程与 metadata.base_project 一致。
+  const projectDir = path.join(caseRunDir, caseInfo.projectName);
   const generateDir = path.join(caseRunDir, "generate");
   const patchPath = path.join(caseRunDir, "diff", "changes.patch");
   const resultPath = path.join(caseRunDir, "result.json");
@@ -781,6 +803,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     stage: "preparing",
     startedAt: startedAt.toISOString(),
     runDir: caseRunDir,
+    projectName: caseInfo.projectName,
     projectDir,
   });
   await writeAgentConsole("start", `开始执行；project=${projectDir}`);
@@ -797,7 +820,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     if (!sourcePrompt.trim()) throw new Error(`PROMPT.md 内容为空: ${caseInfo.promptPath}`);
     const prompt = `${sourcePrompt.trim()}\n\n${AGENT_SANDBOX_POLICY}\n\n${agentDeviceLeasePolicy(caseName, deviceLeasePath)}\n`;
     await fs.writeFile(path.join(generateDir, "input.txt"), prompt, "utf8");
-    await copyProject(caseInfo.baseDir, originalDir);
+    await copyProject(caseInfo.projectDir, originalDir);
     await copyProject(originalDir, projectDir);
     baseline = await initializeGitBaseline(projectDir);
     throwIfInterrupted(signal);
@@ -809,6 +832,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     if (!sessionId) throw new Error("OpenCode 创建 session 后未返回 session id");
     await atomicWriteJson(path.join(caseRunDir, "session.json"), {
       sessionId,
+      projectName: caseInfo.projectName,
       projectDir,
       agent: execution.agent,
       providerId: model.providerId,
@@ -885,6 +909,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       tokenUsage,
       agentCompile,
       originalDir,
+      projectName: caseInfo.projectName,
       projectDir,
       patchPath,
       resultPath,
@@ -956,6 +981,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       elapsedSec: Math.round((Date.now() - startedAt.getTime()) / 1000),
       tokenUsage,
       agentCompile,
+      projectName: caseInfo.projectName,
       projectDir,
       resultPath,
       patchPath: await exists(patchPath) ? patchPath : "",
@@ -1033,7 +1059,7 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
 
   const finishedAt = ohosTest.finishedAt || new Date().toISOString();
   const status = ohosTest.status === "completed" ? "completed" : ohosTest.status;
-  // Agent 超时后仍允许 ohostest 验证已经保存在 base/ 的工程。最终状态由
+  // Agent 超时后仍允许 ohostest 验证已经保存在 base/ 或 task/ 的工程。最终状态由
   // ohostest 决定，但始终保留 Agent 的超时信息，避免测试通过后丢失诊断线索。
   const agentStatus = agentResult.agentStatus || "completed";
   const agentError = agentResult.agentError
@@ -1149,6 +1175,8 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       status: item.skipReason ? "skipped" : "pending",
       stage: item.skipReason ? "skipped" : "queued",
       caseRoot: item.caseRoot,
+      projectName: item.projectName,
+      projectDir: item.projectDir,
       ...(item.skipReason ? { skipReason: item.skipReason } : {}),
       updatedAt: new Date().toISOString(),
     }])),
@@ -1229,7 +1257,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
         else results.push(agentResult);
       } catch (error) {
         const agentResult = error.caseResult || { case: next.name, status: "failed", error: error.message };
-        // Agent 空闲/总时长超时不代表已生成工程不能编译。此时仍把现有 base/
+        // Agent 空闲/总时长超时不代表已生成工程不能编译。此时仍把现有 base/ 或 task/
         // 交给串行 ohostest 队列验证；用户中断时不再启动新的模拟器任务。
         const shouldRunOhosTestAfterAgentTimeout = (
           ohosTest.enabled

@@ -74,14 +74,18 @@ async function prepareGeneratedCase({ caseInfo, caseRunDir, patchPath }) {
 
   const inputDir = caseRunDir;
   await fsp.mkdir(inputDir, { recursive: true });
-  const expectedBase = path.resolve(inputDir, "base");
-  const configuredBase = path.resolve(inputDir, String(sourceMetadata.base_project));
-  if (configuredBase !== expectedBase) {
+  const projectName = String(caseInfo.projectName || "").trim();
+  if (!new Set(["base", "task"]).has(projectName)) {
+    throw new Error(`Agent 工程目录名必须是 base 或 task: ${projectName || "<empty>"}`);
+  }
+  const expectedProject = path.resolve(inputDir, projectName);
+  const configuredProject = path.resolve(inputDir, String(sourceMetadata.base_project));
+  if (configuredProject !== expectedProject) {
     throw new Error(
-      `metadata.base_project 必须指向 base，才能原样复制并验证 Agent 工程: ${sourceMetadata.base_project}`,
+      `metadata.base_project 必须指向实际工程 ${projectName}: ${sourceMetadata.base_project}`,
     );
   }
-  if (!await exists(expectedBase)) throw new Error(`Agent base 工程不存在: ${expectedBase}`);
+  if (!await exists(expectedProject)) throw new Error(`Agent ${projectName} 工程不存在: ${expectedProject}`);
 
   const copyRelativeCaseFile = async (metadataValue, label) => {
     const relative = String(metadataValue || "").trim();

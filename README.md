@@ -2,7 +2,7 @@
 
 Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自动启动或复用 OpenCode Server，扫描 `cases/` 下的用例，并通过固定并发的 Worker Pool 持续执行任务。
 
-每个用例都使用独立的 OpenCode session、工程副本和结果目录。Agent 不会直接修改 `cases/<case>/base/` 中的原始工程。
+每个用例都使用独立的 OpenCode session、工程副本和结果目录。Agent 不会直接修改 `cases/<case>/base/` 或 `cases/<case>/task/` 中的原始工程。
 
 ## 主要功能
 
@@ -12,7 +12,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - 从每个用例的 `PROMPT.md` 读取任务提示词。
 - 通过可配置的 Worker Pool 并行执行多个用例。
 - 任意用例完成后立即领取下一个待执行用例，不等待同批其他用例结束。
-- 每个用例创建独立的 OpenCode session、`original/` 和 `base/`；Agent 从开始到结束都在运行目录的 `base/` 中工作。
+- 每个用例创建独立的 OpenCode session、`original/` 和工程目录；Agent 从开始到结束都在运行目录对应的 `base/` 或 `task/` 中工作。
 - 使用 `prompt_async` 下发任务，并参考 SkillTest 的机制监听 Agent：
   - SSE 实时事件监听；
   - HTTP 消息轮询兜底；
@@ -62,14 +62,14 @@ autorun/
 ```text
 cases/
 └── CaseHomeStay/
-    ├── base/                   # 原始工程，Autorun 不会直接修改
+    ├── base/ 或 task/          # 原始工程，Autorun 不会直接修改
     ├── PROMPT.md               # Agent 任务提示词
     ├── metadata.json           # ohosTest case 元数据
     ├── test_patch.patch        # 测试补丁
     └── golden_patch.patch      # swe 模式不应用，但 Runner 加载配置时要求存在
 ```
 
-缺少 `base/` 或 `PROMPT.md` 的目录不会进入 Agent 执行队列。启用 ohosTest 后，还必须存在合法的 `metadata.json` 及其引用的两个 patch。`PROMPT.md` 应使用 UTF-8 编码且内容不能为空。
+缺少 `base/`、`task/` 中任意一个工程目录或缺少 `PROMPT.md` 的用例不会进入 Agent 执行队列。工程目录名只支持 `base` 和 `task`；若两者同时存在则优先使用 `base`。启用 ohosTest 后，还必须存在合法的 `metadata.json` 及其引用的两个 patch，并且 `metadata.base_project` 必须与实际使用的工程目录名一致。`PROMPT.md` 应使用 UTF-8 编码且内容不能为空。
 
 ## 配置
 
@@ -126,7 +126,7 @@ cases/
 
 ### Windows/Hvigor 输出路径建议
 
-Autorun 会在 `outputRoot/<batchId>/<caseName>/base` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
+Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
 
 ```json
 {
@@ -232,7 +232,7 @@ Worker 3 -> Case 3
 
 启用 `ohosTest` 后，Agent Worker 和测试队列相互独立：Agent 每完成一个用例，就立即将该用例放入 ohosTest 队列，然后继续领取下一个 Agent 用例。ohosTest 队列固定并发数为 1，前一个用例完成模拟器启动、设备测试和清理后，才会执行下一个用例，避免多个用例争抢模拟器和端口。
 
-Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata 和两个 patch 原样复制到 `output/<batchId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`。Autorun 不传 `--out` 和 `--machine-config`：结果目录由 Runner 默认创建，设备配置由 Runner 工作目录下的 `config/machine.json` 提供。
+Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata 和两个 patch 原样复制到 `output/<batchId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 或 `task/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`。Autorun 不传 `--out` 和 `--machine-config`：结果目录由 Runner 默认创建，设备配置由 Runner 工作目录下的 `config/machine.json` 提供。
 
 Agent 的实际提示词会追加工作目录隔离要求，禁止枚举或读取当前工程以外的用例和评测文件。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。OpenCode Server 同时保持 `external_directory=deny`。
 
@@ -248,7 +248,7 @@ output/<batchId>/
 ├── summary.json               # 批次最终汇总
 └── <caseName>/
     ├── original/              # 原始工程副本
-    ├── base/                  # Agent 修改后的工程，也是 ohosTest 的 base_project
+    ├── base/ 或 task/         # Agent 修改后的工程，也是 ohosTest 的 base_project
     ├── state.json             # 单用例状态
     ├── session.json           # OpenCode session 信息
     ├── metadata.json          # Agent 完成后从源 case 原样复制
@@ -263,7 +263,7 @@ output/<batchId>/
     │       ├── summary.md
     │       └── commands.jsonl
     ├── diff/
-    │   └── changes.patch      # 相对于 base 工程初始 Git 基线的 Agent 变更
+    │   └── changes.patch      # 相对于原始工程初始 Git 基线的 Agent 变更
     └── generate/
         ├── input.txt          # 实际发送的提示词
         ├── output.txt         # Agent 最终文本输出
@@ -276,7 +276,7 @@ output/<batchId>/
         └── compile-attempts.json # Agent build attempt details; excludes ohosTest
 ```
 
-`result.json` 使用 `projectDir` 记录 Agent 最终工程的 `base/` 绝对路径，并直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、原始消息、SSE、轮询、执行日志和 Runner 控制台日志路径。`summary.json` 同时保存全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
+`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径，并直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、原始消息、SSE、轮询、执行日志和 Runner 控制台日志路径。`summary.json` 同时保存全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
 
 执行期间单独跟踪某个用例：
 
@@ -339,7 +339,7 @@ node autorun.mjs --check
 确认每个用例是 `casesRoot` 的直接子目录，并同时包含：
 
 ```text
-base/
+base/ 或 task/
 PROMPT.md
 ```
 
@@ -361,9 +361,9 @@ generate/opencode-polling.jsonl
 execution.jsonl
 ```
 
-可以适当调整 `idleTimeoutSec` 和 `maxRuntimeSec`。超时后 Autorun 会尝试中止主 session 和子 session，并保留最后消息和 `base/` 工程。
+可以适当调整 `idleTimeoutSec` 和 `maxRuntimeSec`。超时后 Autorun 会尝试中止主 session 和子 session，并保留最后消息和 `base/` 或 `task/` 工程。
 
-当 Agent 发生空闲或总时长超时时，Autorun 仍会把已生成的 `base/` 工程和 `changes.patch` 放入串行 ohostest 队列。最终用例状态由 ohostest 决定：其编译或执行失败会显示为失败/超时；若测试通过，则显示完成，并在 `result.json` 中保留 `agentStatus: "timed_out"` 与 `agentError` 供追溯。用户主动中断批次时不会再启动 ohostest。
+当 Agent 发生空闲或总时长超时时，Autorun 仍会把已生成的 `base/` 或 `task/` 工程和 `changes.patch` 放入串行 ohostest 队列。最终用例状态由 ohostest 决定：其编译或执行失败会显示为失败/超时；若测试通过，则显示完成，并在 `result.json` 中保留 `agentStatus: "timed_out"` 与 `agentError` 供追溯。用户主动中断批次时不会再启动 ohostest。
 
 所有 `hvigorw` 命令（包括 `tasks`）都应使用 `--no-daemon`，例如：
 

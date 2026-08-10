@@ -18,7 +18,7 @@
   },
   "ohosTest": {
     "enabled": true,
-    "runnerRoot": "D:\\tool\\harmonyos-ohostest\\harmonyos-ohostest-runner",
+    "runnerRoot": "D://tool//harmonyos-ohostest-auto//harmonyos-ohostest-runner",
     "timeoutSec": 7200
   }
 }

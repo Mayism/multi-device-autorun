@@ -66,7 +66,7 @@ function elapsed(startedAt, finishedAt = Date.now()) {
 
 function formatTokenCount(value) {
   const count = Math.max(0, Number(value) || 0);
-  if (count < 1000) return String(Math.round(count));
+  if (count < 1000) return `${(Math.round(count / 100) / 10).toFixed(1)}k`;
   if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10_000 ? 1 : 0)}k`;
   return `${(count / 1_000_000).toFixed(count < 10_000_000 ? 1 : 0)}m`;
 }
