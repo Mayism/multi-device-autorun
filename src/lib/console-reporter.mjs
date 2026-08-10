@@ -117,6 +117,7 @@ export class ConsoleReporter {
     this.timer = null;
     this.lastRendered = "";
     this.renderedLineCount = 0;
+    this.dashboardPaused = false;
     this.cases = new Map(cases.map((item) => [item.name, {
       name: item.name,
       status: item.skipReason ? "skipped" : "queued",
@@ -260,8 +261,19 @@ export class ConsoleReporter {
     this.renderedLineCount = 0;
   }
 
+  pauseDashboard() {
+    if (this.mode !== "dashboard" || this.dashboardPaused) return;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.clearDashboard();
+    this.lastRendered = "";
+    this.dashboardPaused = true;
+  }
+
   render(force = false) {
-    if (this.mode !== "dashboard") return;
+    if (this.mode !== "dashboard" || this.dashboardPaused) return;
     const terminalColumns = Math.max(1, Number(process.stdout.columns) || 120);
     // 预留最后一列，避免 Windows 终端写满整行后触发自动换行。
     const terminalWidth = Math.max(40, terminalColumns - 1);
@@ -321,8 +333,13 @@ export class ConsoleReporter {
   }
 
   finish(summary) {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
     if (this.mode === "dashboard") {
+      this.dashboardPaused = false;
+      this.lastRendered = "";
       // 最后一次刷新后将表格留在终端中；后续摘要从下一行开始，不再回退清屏。
       this.render(true);
       this.renderedLineCount = 0;

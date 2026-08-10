@@ -19,6 +19,7 @@ import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
+let activeReporter = null;
 
 const AGENT_SANDBOX_POLICY = `# 工作目录隔离要求（强制）
 
@@ -1295,12 +1296,13 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
   return finalResult;
 }
 
-async function validateServerConfig(client, execution, loadedConfig) {
+async function validateServerConfig(client, execution, loadedConfig, sourceMode) {
   const config = loadedConfig || await client.getConfig(120);
   if (config?.permission?.external_directory !== "deny") {
     console.warn("[warn] 当前运行中的 Server 未启用 external_directory=deny；若刚修改配置，请重启该 Server");
   }
-  if (!Object.hasOwn(config?.agent || {}, execution.agent)) {
+  const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
+  if (!usesBuiltInAgent && !Object.hasOwn(config?.agent || {}, execution.agent)) {
     throw new Error(`Server 未配置 Agent: ${execution.agent}`);
   }
   if (execution.agent === "harmonyos-multi-device") {
@@ -1326,14 +1328,18 @@ async function validateServerConfig(client, execution, loadedConfig) {
 
 async function runBatch(config, client, serverConfig, checkOnly = false, { signal, retryPlan } = {}) {
   throwIfInterrupted(signal);
+  const sourceMode = config.server.opencodeSource.mode;
+  const configuredAgent = String(config.execution.agent || "").trim();
   const execution = {
     ...config.execution,
+    agent: sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING ? "build" : configuredAgent,
     concurrency: Math.max(1, Number(config.execution.concurrency) || 1),
     consoleMode: String(config.execution.consoleMode || "dashboard").toLowerCase(),
     idleTimeoutSec: Math.max(1, Number(config.execution.idleTimeoutSec) || 600),
     maxRuntimeSec: Math.max(1, Number(config.execution.maxRuntimeSec) || 6000),
     continueOnError: config.execution.continueOnError !== false,
   };
+  if (!execution.agent) throw new Error("未配置 execution.agent");
   const ohosTest = await loadOhosTestConfig(config);
   const discovered = await discoverCases(execution.casesRoot, { requireOhosTest: ohosTest.enabled });
   let cases = discovered.runnable;
@@ -1355,11 +1361,18 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     skippedCases = [];
   }
   const displayCases = [...cases, ...skippedCases];
-  const model = await validateServerConfig(client, execution, serverConfig);
+  const model = await validateServerConfig(client, execution, serverConfig, sourceMode);
   throwIfInterrupted(signal);
   const ohosTestLabel = ohosTest.enabled
     ? `已启用（串行，Runner=${ohosTest.runnerRoot}）`
     : "未启用";
+  if (
+    sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+    && configuredAgent
+    && configuredAgent !== execution.agent
+  ) {
+    console.log(`[check] softwareEngineering 仅加载 Skills，使用 OpenCode 内置 Agent=${execution.agent}（忽略 execution.agent=${configuredAgent}）`);
+  }
   console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}`);
   if (retryPlan) {
     console.log(`[retry] 来源批次 ${retryPlan.sourceBatchId}；重试用例: ${retryPlan.selectedCaseNames.join(", ")}`);
@@ -1406,6 +1419,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     concurrency: workerCount,
     batchRoot,
   });
+  activeReporter = reporter;
   reporter.start();
   const queue = [...cases];
   const results = [];
@@ -1555,6 +1569,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
   await store.setBatch({ status: summary.status, finishedAt: summary.finishedAt });
   reporter.finish(summary);
+  if (activeReporter === reporter) activeReporter = null;
   return summary;
 }
 
@@ -1586,6 +1601,7 @@ function requestShutdown(reason, cause) {
   } else if (!(cause instanceof Error)) {
     error.message = String(reason);
   }
+  activeReporter?.pauseDashboard();
   console.error(`[interrupt] ${error.message}；正在收尾运行中的用例`);
   shutdownController.abort(error);
   shutdownFallbackTimer = setTimeout(() => {
@@ -1642,6 +1658,7 @@ try {
   batchSettled = true;
   if (!args.checkOnly && summary.failed) exitCode = 1;
 } catch (error) {
+  activeReporter?.pauseDashboard();
   console.error(`[error] ${error.stack || error.message}`);
   exitCode = 1;
 } finally {

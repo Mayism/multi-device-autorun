@@ -19,12 +19,9 @@
 //
 // 运行时路径对齐 src/shared/harmonybotOpencodeRuntimeEnv.ts（host=vscode，无
 // worker）与 src/shared/harmonybotRunLog.ts。
-// opencode 启动用 bundled config（含 agent/plugin/skills/provider）。
-// OPENCODE_BUNDLED_CONFIG_DIR 指向 bundled 来源（resources/opencode），作为配置
-// 单一来源（user-level 不再独立生效）；OPENCODE_CONFIG_DIR 指向运行时目录
-// （~/.harmonybot/opencode/vscode/config），与 BUNDLED 为不同路径，仅用于满足
-// opencode 的 isolation invariant（设了 BUNDLED 就必须设 CONFIG_DIR）。
-// auth / DB 仍落 XDG_DATA_HOME/opencode/。
+// OPENCODE_CONFIG_DIR 直接指向选中来源的 resources/opencode，不复制配置和资源。
+// harmonyBot 可包含 agent/plugin/skills/provider；softwareEngineering 允许只配置
+// skills（以及启动所需的 bin/opencode.json）。auth / DB、状态和缓存仍落运行时目录。
 //
 // 可调参数（CLI 优先于环境变量）：
 //   --port, -p N           监听端口 (env: PORT, 默认 61417)
@@ -42,7 +39,7 @@
 import process from 'node:process';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -212,8 +209,6 @@ const port = opts.port || '61417';
 const bundledConfigDir = path.resolve(opts.source || path.join(root, 'resources', 'opencode'));
 const opencodeBin = path.join(bundledConfigDir, 'bin', defaults.binDir, 'opencode' + defaults.binaryExt);
 const devecoHome = opts.devecoHome || defaults.devecoHome;
-const sourceKeyInput = process.platform === 'win32' ? bundledConfigDir.toLowerCase() : bundledConfigDir;
-const sourceKey = createHash('sha256').update(sourceKeyInput).digest('hex').slice(0, 12);
 
 // 运行时路径与 vscode 扩展一致，落在 ~/.harmonybot 下（host=vscode，无 worker）：
 //   ~/.harmonybot/opencode/vscode/{data,xdg-config,state,cache,config}
@@ -226,7 +221,6 @@ const runId = `${timestamp()}-${randomBytes(3).toString('hex')}`;
 const logDir = opts.runtimeRoot
   ? path.join(logRoot, 'runs', runId)
   : path.join(logRoot, 'vscode', 'runs', runId);
-const runtimeConfigDir = path.join(opencodeHostRoot, 'config', sourceKey);
 
 // ─── 前置检查 ──────────────────────────────────────────────────
 if (!existsSync(opencodeBin)) {
@@ -274,15 +268,13 @@ const agentPath = existsSync(pluginBinDir)
   : [devecoPath, process.env.PATH || ''].join(PATH_SEP);
 
 // ─── 创建运行期目录（mkdir -p，错误即吞，与 .bat 的 2>nul 一致）──
-// 与 vscode 扩展 ensureRuntimeDirs + createRunContext 对齐：data/xdg-config/
-// state/cache/config 五个运行时目录 + 本次 runDir。
+// 与 vscode 扩展 ensureRuntimeDirs + createRunContext 对齐：运行数据与来源配置分离。
 for (const d of [
   logDir,
   path.join(opencodeHostRoot, 'data'),
   path.join(opencodeHostRoot, 'xdg-config'),
   path.join(opencodeHostRoot, 'state'),
   path.join(opencodeHostRoot, 'cache'),
-  runtimeConfigDir,
 ]) {
   mkdirSync(d, { recursive: true });
 }
@@ -291,9 +283,9 @@ for (const d of [
 out('[run] source:           ' + bundledConfigDir);
 out('[run] opencode binary:  ' + opencodeBin);
 out('[run] workspace:        ' + workspace);
-out('[run] bundled config:   ' + bundledConfigDir);
+out('[run] config source:    ' + bundledConfigDir);
 out('[run] opencode host:    ' + opencodeHostRoot);
-out('[run] config dir:       ' + runtimeConfigDir + '  (OPENCODE_CONFIG_DIR, runtime)');
+out('[run] config dir:       ' + bundledConfigDir + '  (OPENCODE_CONFIG_DIR, direct)');
 out('[run] deveco home:      ' + devecoContents);
 out('[run] port:             ' + port);
 out('[run] log root:         ' + logRoot);
@@ -307,6 +299,7 @@ const env = { ...process.env };
 delete env.OPENCODE_CONFIG;
 delete env.OPENCODE_CONFIG_CONTENT;
 delete env.OPENCODE_AUTH_CONTENT;
+delete env.OPENCODE_BUNDLED_CONFIG_DIR;
 
 Object.assign(env, {
   OPENCODE_CLIENT: 'harmonybot-vscode',
@@ -316,8 +309,7 @@ Object.assign(env, {
   XDG_STATE_HOME: path.join(opencodeHostRoot, 'state'),
   XDG_CACHE_HOME: path.join(opencodeHostRoot, 'cache'),
   OPENCODE_DB: 'opencode-harmonybot.db',
-  OPENCODE_CONFIG_DIR: runtimeConfigDir,
-  OPENCODE_BUNDLED_CONFIG_DIR: bundledConfigDir,
+  OPENCODE_CONFIG_DIR: bundledConfigDir,
   OPENCODE_DISABLE_PROJECT_CONFIG: '1',
   OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
   OPENCODE_DISABLE_AUTOUPDATE: 'true',

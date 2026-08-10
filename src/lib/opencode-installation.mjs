@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import process from "node:process";
 
 export const HARMONY_VSCODE_EXTENSION_PREFIX = "huaweideveloperserviceplatform.harmonyosdevassistantforvscode";
 export const OPENCODE_SOURCE_MODES = Object.freeze({
@@ -24,7 +23,6 @@ function compareVersions(left, right) {
   if (a.prerelease && !b.prerelease) return -1;
   return a.prerelease.localeCompare(b.prerelease, "en", { numeric: true });
 }
-
 async function exists(target) {
   try {
     await fs.access(target);
@@ -105,22 +103,4 @@ export async function resolveOpenCodeSource(source) {
     );
   }
   return { mode, root, resourcesDir, installation: null };
-}
-
-async function linkDirectory(source, target) {
-  await fs.rm(target, { recursive: true, force: true });
-  await fs.symlink(source, target, process.platform === "win32" ? "junction" : "dir");
-}
-
-export async function prepareOpenCodeRuntime(resourcesDir, runtimeRoot) {
-  const absoluteResources = path.resolve(resourcesDir);
-  const absoluteRuntime = path.resolve(runtimeRoot);
-  const configDir = path.join(absoluteRuntime, "config");
-  await fs.mkdir(configDir, { recursive: true });
-  await fs.copyFile(path.join(absoluteResources, "opencode.json"), path.join(configDir, "opencode.json"));
-  for (const name of ["plugin", "plugins", "skills", "provider"]) {
-    const source = path.join(absoluteResources, name);
-    if (await exists(source)) await linkDirectory(source, path.join(configDir, name));
-  }
-  return { resourcesDir: absoluteResources, runtimeRoot: absoluteRuntime, configDir };
 }

@@ -34,8 +34,8 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - Git，需要能够从命令行执行 `git`。
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
 - 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
-- 所选来源的 `resources/opencode` 中包含当前平台对应的 OpenCode 二进制、`opencode.json` 和该模式所需的 Agent、Plugin、Skill、Provider 配置。
-- `opencode.json` 中已配置可用的模型、API 凭据以及 Agent 执行所需的 allow/permission 权限。不要把真实 API Key 提交到 Git。
+- 所选来源的 `resources/opencode` 中需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。`harmonyBot` 还需包含任务使用的自定义 Agent、Plugin 和 Provider；`softwareEngineering` 允许只有 Skills，不要求自定义 Agent 或 Plugin。
+- `opencode.json` 中需存在可用的模型配置和 API 凭据。`harmonyBot` 还应配置 Agent 执行所需的 allow/permission 权限。不要把真实 API Key 提交到 Git。
 
 ## 目录结构
 
@@ -116,7 +116,7 @@ cases/
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server。启动前已存在的 Server 不会被关闭。 |
 | `execution.casesRoot` | 用例根目录。 |
 | `execution.outputRoot` | 批次、工程副本、报告及 OpenCode 运行数据的输出根目录。Windows 下使用 Hvigor 时建议配置成 `D:/out`、`D:/ar` 等尽可能短的绝对路径，降低 259 字符路径上限导致的构建失败风险。默认是项目内的 `../output`。 |
-| `execution.agent` | OpenCode Agent 名称。 |
+| `execution.agent` | `harmonyBot` 模式使用的 OpenCode Agent 名称。`softwareEngineering` 只有 Skills，固定使用 OpenCode 内置 `build` Agent，该字段在该模式下会被忽略。 |
 | `execution.model` | 模型 ID。程序会从 Server `/config` 自动解析 Provider。 |
 | `execution.concurrency` | 同时运行的 Agent 数量。任意任务结束后立即补充下一个任务。 |
 | `execution.consoleMode` | 控制台模式：`dashboard`（默认动态看板）、`summary`（仅开始/结束）或 `verbose`（逐条进度）。非交互输出会自动退化为 `summary`。 |
@@ -142,7 +142,7 @@ cases/
 }
 ```
 
-该模式会在 `root` 下查找最高版本且资源完整的 HarmonyBot 扩展。`softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`。修改模式、模型或权限配置后，应先结束已有 OpenCode Server 再重新执行，否则 Autorun 会复用旧 Server。
+该模式会在 `root` 下查找最高版本且资源完整的 HarmonyBot 扩展。`softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`，只加载其中的模型配置和 Skills，并使用 OpenCode 内置 `build` Agent。两种模式都将所选 `resources/opencode` 直接设置为 `OPENCODE_CONFIG_DIR`，不会复制、合并或回退到另一来源。修改模式、模型或权限配置后，应先结束已有 OpenCode Server 再重新执行，否则 Autorun 会复用旧 Server。
 
 ### Windows/Hvigor 输出路径建议
 
@@ -366,13 +366,13 @@ Autorun 会先等待 `/global/health`，再等待 `/config` 完成 Agent、Plugi
 node autorun.mjs --check
 ```
 
-确认当前来源的 `resources/opencode/opencode.json` 中存在对应 Agent、模型、Provider 和 allow/permission 权限配置，并确认修改配置后已经重启 OpenCode Server。`harmonyBot` 模式检查匹配到的扩展目录；`softwareEngineering` 模式检查 `server.opencodeSource.root/resources/opencode`。
+确认当前来源的 `resources/opencode/opencode.json` 中存在对应模型配置，并确认修改后已经重启 OpenCode Server。`harmonyBot` 模式还需确认对应 Agent、Plugin 和 allow/permission 权限配置完整；`softwareEngineering` 不要求自定义 Agent 或 Plugin，使用内置 `build` Agent。
 
 ### 一多适配任务没有调用 Skill
 
 `harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-adaptation-workflow`、`harmonyos-responsive-layout` 等 Skill。Autorun 会在执行用例前检查这两项；如果插件或 Skill 的运行时路径失效，会直接报错而不再静默执行。
 
-自动启动 Server 时，Autorun 会把 bundled `plugin/`、`skills/` 映射到运行配置目录。若复用了修复前启动的旧 Server，请先停止旧 Server，再重新执行 `node autorun.mjs`。
+自动启动 Server 时，Autorun 会把当前模式选中的 `resources/opencode` 直接设置为 `OPENCODE_CONFIG_DIR`，不会复制或映射资源。若复用了修复前启动的旧 Server，请先停止旧 Server，再重新执行 `node autorun.mjs`。
 
 ### 提示 `external_directory=deny` 未生效
 
