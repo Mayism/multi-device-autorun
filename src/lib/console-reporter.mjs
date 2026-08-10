@@ -61,6 +61,15 @@ function renderedRows(lines, terminalColumns) {
   ), 0);
 }
 
+function supportsDashboard(stream) {
+  return Boolean(
+    stream?.isTTY
+    && typeof stream.moveCursor === "function"
+    && typeof stream.cursorTo === "function"
+    && typeof stream.clearScreenDown === "function"
+  );
+}
+
 function elapsed(startedAt, finishedAt = Date.now()) {
   if (!startedAt) return "--:--";
   const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 1000));
@@ -99,7 +108,7 @@ function statusText(status) {
 export class ConsoleReporter {
   constructor({ mode = "dashboard", batchId, cases, concurrency, batchRoot }) {
     const requested = MODES.has(mode) ? mode : "dashboard";
-    this.mode = requested === "dashboard" && !process.stdout.isTTY ? "summary" : requested;
+    this.mode = requested === "dashboard" && !supportsDashboard(process.stdout) ? "summary" : requested;
     this.requestedMode = requested;
     this.batchId = batchId;
     this.batchRoot = batchRoot;
@@ -137,7 +146,7 @@ export class ConsoleReporter {
     }
     this.write(`[batch:${this.batchId}] 启动 ${this.concurrency} 个 Worker，控制台模式=${this.mode}`);
     if (this.requestedMode === "dashboard" && this.mode !== "dashboard") {
-      this.write("[console] 当前输出不是交互式终端，dashboard 已自动切换为 summary");
+      this.write("[console] 当前终端不支持可靠的光标重绘，dashboard 已自动切换为 summary");
     }
   }
 
@@ -243,11 +252,11 @@ export class ConsoleReporter {
 
   clearDashboard() {
     if (this.mode !== "dashboard" || !this.renderedLineCount) return;
-    // VT 序列：光标回到第一行第一列，然后清除光标到末尾所有内容
-    // Windows 10 1511+/11 的 CMD 和 PowerShell 均默认支持 VT 序列
-    process.stdout.write(`\x1B[${this.renderedLineCount}A`);  // 光标上移
-    process.stdout.write("\r");                                // 行首
-    process.stdout.write("\x1B[0J");                           // 清除光标到末尾
+    // 使用 Node 的 TTY 光标 API，让 Windows Console、Windows Terminal 和
+    // VS Code Terminal 分别走其支持的控制方式，避免原始 VT 序列被当成普通输出。
+    process.stdout.moveCursor(0, -this.renderedLineCount);
+    process.stdout.cursorTo(0);
+    process.stdout.clearScreenDown();
     this.renderedLineCount = 0;
   }
 
