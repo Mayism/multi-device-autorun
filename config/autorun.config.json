@@ -1,0 +1,27 @@
+{
+  "server": {
+    "url": "http://127.0.0.1:61419",
+    "opencodeSource": {
+      "mode": "harmonyBot",
+      "root": "C:\\Users\\HW\\.vscode\\extensions"
+    },
+    "devecoHome": "D:\\deveco\\DevEco Studio",
+    "stopWhenFinished": true
+  },
+  "execution": {
+    "casesRoot": "D:\\cases",
+    "outputRoot": "../output",
+    "agent": "harmonyos-multi-device",
+    "model": "deepseek-v4-flash-0731",
+    "concurrency": 3,
+    "consoleMode": "dashboard",
+    "idleTimeoutSec": 600,
+    "maxRuntimeSec": 6000,
+    "continueOnError": true
+  },
+  "ohosTest": {
+    "enabled": true,
+    "runnerRoot": "D:\\tool\\harmonyos-ohostest-auto\\harmonyos-ohostest-runner",
+    "timeoutSec": 7200
+  }
+}
