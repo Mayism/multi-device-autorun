@@ -3,8 +3,13 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { withDeviceLease } from "./device-lease.mjs";
+
+const RESULT_POLL_INTERVAL_MS = 500;
+const RESULT_EXIT_GRACE_MS = 10_000;
+const FINAL_RESULT_STATUSES = new Set(["completed", "failed"]);
 
 async function exists(target) {
   try {
@@ -116,22 +121,15 @@ async function prepareGeneratedCase({ caseInfo, caseRunDir, patchPath }) {
   return { inputDir, metadataPath, testPatchPath, goldenPatchPath };
 }
 
-async function findLatestRunnerOutput(caseDir, startedAtMs) {
-  const runsRoot = path.join(caseDir, ".ohostest-runs");
-  if (!await exists(runsRoot)) return null;
-  const entries = await fsp.readdir(runsRoot, { withFileTypes: true });
-  const candidates = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const outputDir = path.join(runsRoot, entry.name);
-    const resultPath = path.join(outputDir, "result.json");
-    if (!await exists(resultPath)) continue;
-    const stat = await fsp.stat(resultPath);
-    if (stat.mtimeMs + 2000 < startedAtMs) continue;
-    candidates.push({ outputDir, resultPath, mtimeMs: stat.mtimeMs });
-  }
-  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
-  return candidates[0] || null;
+function runnerOutputDir(caseDir, startedAt) {
+  const timestamp = startedAt.toISOString().replace(/[:.]/g, "-");
+  return path.join(caseDir, ".ohostest-runs", `${timestamp}-${randomUUID().slice(0, 8)}`);
+}
+
+async function readFinalRunnerResult(resultPath) {
+  const result = await readJson(resultPath);
+  if (result?.schemaVersion !== "ohostest-case-v1") return null;
+  return FINAL_RESULT_STATUSES.has(String(result.status || "")) ? result : null;
 }
 
 function npmInvocation(args) {
@@ -157,7 +155,16 @@ async function terminateProcessTree(child) {
   child.kill("SIGTERM");
 }
 
-async function runProcess({ command, args, cwd, consolePath, timeoutSec, signal }) {
+async function runProcess({
+  command,
+  args,
+  cwd,
+  consolePath,
+  timeoutSec,
+  signal,
+  resultWatchPath,
+  resultExitGraceMs = RESULT_EXIT_GRACE_MS,
+}) {
   await fsp.mkdir(path.dirname(consolePath), { recursive: true });
   return new Promise((resolve, reject) => {
     const log = fs.createWriteStream(consolePath, { flags: "a", encoding: "utf8" });
@@ -166,7 +173,39 @@ async function runProcess({ command, args, cwd, consolePath, timeoutSec, signal 
     let settled = false;
     let stopReason = "";
     let timer;
+    let resultPollTimer;
+    let resultExitTimer;
+    let checkingResult = false;
+    let detectedResultStatus = "";
     let child;
+    const clearTimers = () => {
+      clearTimeout(timer);
+      clearInterval(resultPollTimer);
+      clearTimeout(resultExitTimer);
+    };
+    const finish = async (code, childSignal) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      signal?.removeEventListener("abort", onAbort);
+      log.end();
+      await once(log, "finish").catch(() => {});
+      resolve({
+        code,
+        signal: childSignal || "",
+        stopReason,
+        resultDetected: Boolean(detectedResultStatus),
+        resultStatus: detectedResultStatus,
+      });
+    };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      signal?.removeEventListener("abort", onAbort);
+      log.end();
+      reject(error);
+    };
     const stop = async (reason) => {
       if (settled || stopReason) return;
       stopReason = reason;
@@ -174,6 +213,42 @@ async function runProcess({ command, args, cwd, consolePath, timeoutSec, signal 
       await terminateProcessTree(child);
     };
     const onAbort = () => stop("Autorun 中断，正在终止 ohosTest 进程树").catch(() => {});
+    const stopAfterFinalResult = async () => {
+      if (settled || stopReason) return;
+      stopReason = `ohosTest 已生成最终 result.json（status=${detectedResultStatus}），但进程在 ${Math.round(resultExitGraceMs / 1000)} 秒内未退出，正在终止进程树`;
+      log.write(`[${new Date().toISOString()}] ${stopReason}\n`);
+      await terminateProcessTree(child);
+      if (settled) return;
+
+      // cmd/npm 可能已经退出，但某个后代仍持有 stdout/stderr 管道，导致 Node 的
+      // close 事件永远不触发。最终结果已写出且 Runner 已完成设备清理后，主动关闭
+      // 本地管道并结算本次运行，避免阻塞串行队列。
+      child.stdout?.unpipe(log);
+      child.stderr?.unpipe(log);
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      await finish(child.exitCode, child.signalCode);
+    };
+    const checkFinalResult = async () => {
+      if (settled || stopReason || checkingResult || detectedResultStatus || !resultWatchPath) return;
+      checkingResult = true;
+      try {
+        const result = await readFinalRunnerResult(resultWatchPath);
+        if (settled || !result) return;
+        detectedResultStatus = String(result.status);
+        clearInterval(resultPollTimer);
+        log.write(
+          `[${new Date().toISOString()}] 已检测到最终 result.json（status=${detectedResultStatus}），等待进程正常退出\n`,
+        );
+        resultExitTimer = setTimeout(
+          () => stopAfterFinalResult().catch(() => {}),
+          resultExitGraceMs,
+        );
+        resultExitTimer.unref?.();
+      } finally {
+        checkingResult = false;
+      }
+    };
 
     try {
       child = spawn(command, args, {
@@ -188,23 +263,8 @@ async function runProcess({ command, args, cwd, consolePath, timeoutSec, signal 
     }
     child.stdout.pipe(log, { end: false });
     child.stderr.pipe(log, { end: false });
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      log.end();
-      reject(error);
-    });
-    child.once("close", async (code, childSignal) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-      log.end();
-      await once(log, "finish").catch(() => {});
-      resolve({ code, signal: childSignal || "", stopReason });
-    });
+    child.once("error", fail);
+    child.once("close", (code, childSignal) => finish(code, childSignal).catch(fail));
     if (signal?.aborted) {
       onAbort();
     } else {
@@ -215,6 +275,14 @@ async function runProcess({ command, args, cwd, consolePath, timeoutSec, signal 
       timeoutSec * 1000,
     );
     timer.unref?.();
+    if (resultWatchPath) {
+      resultPollTimer = setInterval(
+        () => checkFinalResult().catch(() => {}),
+        RESULT_POLL_INTERVAL_MS,
+      );
+      resultPollTimer.unref?.();
+      void checkFinalResult();
+    }
   });
 }
 
@@ -225,6 +293,8 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
   const runnerWorkDir = path.join(inputDir, "work");
   await fsp.rm(runnerWorkDir, { recursive: true, force: true });
   const consolePath = path.join(caseRunDir, "ohostest-runner-console.log");
+  const outputDir = runnerOutputDir(inputDir, startedAt);
+  const resultWatchPath = path.join(outputDir, "result.json");
   const npmArgs = [
     "run",
     "--silent",
@@ -232,6 +302,8 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     "--",
     "--case",
     inputDir,
+    "--out",
+    outputDir,
     "--run",
     settings.runMode,
     "--keep-emulators",
@@ -254,6 +326,7 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
       consolePath,
       timeoutSec: settings.timeoutSec,
       signal,
+      resultWatchPath,
     }));
   } finally {
     try {
@@ -263,14 +336,13 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     }
   }
   const finishedAt = new Date();
-  const generatedOutput = await findLatestRunnerOutput(inputDir, startedAt.getTime());
-  const outputDir = generatedOutput?.outputDir || path.join(inputDir, ".ohostest-runs");
-  const runnerResultPath = generatedOutput?.resultPath || "";
-  const runnerSummaryPath = generatedOutput ? path.join(outputDir, "summary.md") : "";
+  const runnerResultPath = await exists(resultWatchPath) ? resultWatchPath : "";
+  const summaryCandidate = path.join(outputDir, "summary.md");
+  const runnerSummaryPath = await exists(summaryCandidate) ? summaryCandidate : "";
   const runnerResult = await readJson(runnerResultPath);
   const timedOut = processResult.stopReason.includes("总运行时间超过");
   const interrupted = processResult.stopReason.includes("Autorun 中断");
-  const completed = processResult.code === 0 && runnerResult?.status === "completed";
+  const completed = runnerResult?.status === "completed";
   const status = completed ? "completed" : timedOut ? "timed_out" : interrupted ? "interrupted" : "failed";
   const diagnostic = runnerResult?.diagnostics?.[0]
     || processResult.stopReason

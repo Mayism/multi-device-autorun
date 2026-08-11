@@ -161,9 +161,11 @@ Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参�
 
 修改后，批次报告和详细结果也会写入 `D:/out/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
-ohosTest 不会在 `.ohostest-runs/<timestamp>` 下编译工程，而是将 Agent 输出的 `base/task`
+ohosTest 不会在 `.ohostest-runs/<runId>` 下编译工程，而是将 Agent 输出的 `base/task`
 复制到同一用例目录下的浅层 `work/`，应用隐藏测试 patch 后在该目录构建。报告仍写入
-`.ohostest-runs/<timestamp>`，测试完成、失败或中断后删除 `work/`，不会修改 Agent 输出工程。
+`.ohostest-runs/<runId>`，测试完成、失败或中断后删除 `work/`，不会修改 Agent 输出工程。
+Autorun 会通过 Runner 的 `--out` 参数指定唯一输出目录并监视其中的最终 `result.json`；
+结果生成后若 npm 进程在 10 秒内仍未退出，会结束本次进程树并继续下一个 ohosTest。
 
 ### macOS 配置示例
 
@@ -300,7 +302,7 @@ output/<batchId>/
     ├── execution.jsonl        # 任务执行事件
     ├── ohostest-runner-console.log # Runner 标准输出和错误输出
     ├── .ohostest-runs/        # harmonyos-ohostest-runner 自动生成
-    │   └── <timestamp>/
+    │   └── <runId>/
     │       ├── result.json
     │       ├── summary.md
     │       └── commands.jsonl
