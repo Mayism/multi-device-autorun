@@ -38,7 +38,7 @@
 
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -124,6 +124,7 @@ function parseArgs(argv) {
     runtimeRoot: process.env.OPENCODE_RUNTIME_ROOT || '',
     workspace: process.env.WORKSPACE || '',
     devecoHome: process.env.DEVECO_HOME || '',
+    loadAgents: process.env.LOAD_AGENTS || '',
   };
 
   const needValue = (flag) => {
@@ -168,6 +169,9 @@ function parseArgs(argv) {
       case '--deveco-home':
       case '-d':
         opts.devecoHome = takeTwo(i, v); i++;
+        break;
+      case '--load-agents':
+        opts.loadAgents = takeTwo(i, v); i++;
         break;
       default:
         if (v.startsWith('-')) {
@@ -279,13 +283,65 @@ for (const d of [
   mkdirSync(d, { recursive: true });
 }
 
+// ─── 按需过滤 agent（loadAgents 非空时生效） ───────────────────
+// 默认 OPENCODE_CONFIG_DIR 直接指向源 resources/opencode（加载全部 agent）。
+// 配置了 loadAgents 时，创建一个过滤后的运行时配置目录：只保留指定 agent 的
+// opencode.json，并把 skills / plugin / provider 软链过去，保证相对路径可用。
+let effectiveConfigDir = bundledConfigDir;
+const loadAgents = opts.loadAgents
+  ? opts.loadAgents.split(',').map((s) => s.trim()).filter(Boolean)
+  : [];
+if (loadAgents.length) {
+  const filteredDir = path.join(opencodeHostRoot, 'config-filtered');
+  mkdirSync(filteredDir, { recursive: true });
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(path.join(bundledConfigDir, 'opencode.json'), 'utf8'));
+  } catch (e) {
+    err(`[error] 无法解析 opencode.json 以过滤 agent: ${e.message}`);
+    process.exit(1);
+  }
+  if (raw && typeof raw.agent === 'object' && raw.agent) {
+    const kept = {};
+    const missing = [];
+    for (const name of loadAgents) {
+      if (Object.prototype.hasOwnProperty.call(raw.agent, name)) {
+        kept[name] = raw.agent[name];
+      } else {
+        missing.push(name);
+      }
+    }
+    raw.agent = kept;
+    writeFileSync(path.join(filteredDir, 'opencode.json'), JSON.stringify(raw, null, 2) + '\n', 'utf8');
+    if (missing.length) {
+      err(`[warn] loadAgents 中以下 agent 在 opencode.json 不存在，已忽略: ${missing.join(', ')}`);
+    }
+  } else {
+    writeFileSync(path.join(filteredDir, 'opencode.json'), JSON.stringify(raw, null, 2) + '\n', 'utf8');
+  }
+  // 软链 skills / plugin / provider，保证 opencode.json 内的相对路径可用
+  for (const name of ['skills', 'plugin', 'provider']) {
+    const src = path.join(bundledConfigDir, name);
+    const dst = path.join(filteredDir, name);
+    if (existsSync(src) && !existsSync(dst)) {
+      try {
+        symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch {
+        // 链接失败不阻断；opencode 会按缺省策略处理。
+      }
+    }
+  }
+  effectiveConfigDir = filteredDir;
+}
+
 // ─── 打印启动摘要 ──────────────────────────────────────────────
 out('[run] source:           ' + bundledConfigDir);
 out('[run] opencode binary:  ' + opencodeBin);
 out('[run] workspace:        ' + workspace);
 out('[run] config source:    ' + bundledConfigDir);
 out('[run] opencode host:    ' + opencodeHostRoot);
-out('[run] config dir:       ' + bundledConfigDir + '  (OPENCODE_CONFIG_DIR, direct)');
+out('[run] config dir:       ' + effectiveConfigDir + (effectiveConfigDir === bundledConfigDir ? '  (OPENCODE_CONFIG_DIR, direct)' : '  (OPENCODE_CONFIG_DIR, filtered agents)'));
+if (loadAgents.length) out('[run] load agents:      ' + loadAgents.join(', ') + ' (仅加载这些 Agent)');
 out('[run] deveco home:      ' + devecoContents);
 out('[run] port:             ' + port);
 out('[run] log root:         ' + logRoot);
@@ -309,7 +365,7 @@ Object.assign(env, {
   XDG_STATE_HOME: path.join(opencodeHostRoot, 'state'),
   XDG_CACHE_HOME: path.join(opencodeHostRoot, 'cache'),
   OPENCODE_DB: 'opencode-harmonybot.db',
-  OPENCODE_CONFIG_DIR: bundledConfigDir,
+  OPENCODE_CONFIG_DIR: effectiveConfigDir,
   OPENCODE_DISABLE_PROJECT_CONFIG: '1',
   OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
   OPENCODE_DISABLE_AUTOUPDATE: 'true',

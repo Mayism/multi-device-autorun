@@ -85,7 +85,8 @@ cases/
       "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
     },
     "devecoHome": "D:\\deveco\\DevEco Studio",
-    "stopWhenFinished": true
+    "stopWhenFinished": true,
+    "loadAgents": []
   },
   "execution": {
     "casesRoot": "../cases",
@@ -114,6 +115,7 @@ cases/
 | `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server。启动前已存在的 Server 不会被关闭。 |
+| `server.loadAgents` | 指定自动启动的 Server 只加载这些 Agent（字符串数组）。留空（默认）加载 `opencode.json` 中的全部 Agent；配置后仅加载列出的 Agent，且 `execution.agent` 必须在列表中，否则启动即报错中止并提示修改配置。仅对 Autorun 自动启动的 Server 生效；复用已运行的 Server 时不重新过滤。 |
 | `execution.casesRoot` | 用例根目录。 |
 | `execution.outputRoot` | 批次、工程副本、报告及 OpenCode 运行数据的输出根目录。Windows 下使用 Hvigor 时建议配置成 `D:/out`、`D:/ar` 等尽可能短的绝对路径，降低 259 字符路径上限导致的构建失败风险。默认是项目内的 `../output`。 |
 | `execution.agent` | `harmonyBot` 模式使用的 OpenCode Agent 名称。`softwareEngineering` 只有 Skills，固定使用 OpenCode 内置 `build` Agent，该字段在该模式下会被忽略。 |

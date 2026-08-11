@@ -6,7 +6,8 @@
       "root": "C:\\Users\\HW\\.vscode\\extensions"
     },
     "devecoHome": "D:\\deveco\\DevEco Studio",
-    "stopWhenFinished": true
+    "stopWhenFinished": true,
+    "loadAgents": []
   },
   "execution": {
     "casesRoot": "D:\\cases",

@@ -116,6 +116,9 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
     mode: String(source.mode || "").trim(),
     root: resolveFrom(baseDir, source.root || ""),
   };
+  normalized.server.loadAgents = Array.isArray(normalized.server.loadAgents)
+    ? normalized.server.loadAgents.map((a) => String(a).trim()).filter(Boolean)
+    : [];
   normalized.execution.casesRoot = resolveFrom(baseDir, normalized.execution.casesRoot || "./cases");
   normalized.execution.outputRoot = resolveFrom(
     baseDir,
@@ -126,6 +129,20 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
     normalized.server.runtimeRoot || path.join(normalized.execution.outputRoot, "_runtime", "opencode"),
   );
   return normalized;
+}
+
+// 健康检查：loadAgents 非空时，校验 execution.agent 必须在其列表中。
+// 校验不通过直接抛错中断，提示用户修改配置。
+function checkLoadAgents(config) {
+  const loadAgents = Array.isArray(config?.server?.loadAgents) ? config.server.loadAgents : [];
+  if (!loadAgents.length) return;
+  const agent = String(config?.execution?.agent || "").trim();
+  if (agent && !loadAgents.includes(agent)) {
+    throw new Error(
+      `execution.agent "${agent}" 不在 server.loadAgents [${loadAgents.join(", ")}] 中。` +
+      `请修改 config/autorun.config.json：将 "${agent}" 加入 server.loadAgents，或清空 loadAgents 数组以加载全部 Agent。`,
+    );
+  }
 }
 
 function waitForChildExit(child, timeoutMs) {
@@ -360,6 +377,9 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
     "--port", port,
   ];
   if (config.server.devecoHome) args.push("--deveco-home", config.server.devecoHome);
+  if (Array.isArray(config.server.loadAgents) && config.server.loadAgents.length) {
+    args.push("--load-agents", config.server.loadAgents.join(","));
+  }
 
   if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
     log(`[server] 使用 HarmonyBot 扩展 ${source.installation.version}: ${source.installation.extensionDir}`);
@@ -1671,6 +1691,7 @@ process.once("uncaughtException", onUncaughtException);
 process.once("unhandledRejection", onUnhandledRejection);
 
 try {
+  checkLoadAgents(config);
   const recovered = await recoverInterruptedRuns(config.execution.outputRoot);
   for (const item of recovered) {
     console.warn(`[recovery] 已收尾上次未正常完成的批次: ${item.batchId}`);
