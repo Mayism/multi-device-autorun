@@ -93,6 +93,7 @@ cases/
     "outputRoot": "../output",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
+    "additionalPrompt": "",
     "concurrency": 3,
     "idleTimeoutSec": 600,
     "maxRuntimeSec": 6000,
@@ -120,6 +121,7 @@ cases/
 | `execution.outputRoot` | 批次、工程副本、报告及 OpenCode 运行数据的输出根目录。Windows 下使用 Hvigor 时建议配置成 `D:/out`、`D:/ar` 等尽可能短的绝对路径，降低 259 字符路径上限导致的构建失败风险。默认是项目内的 `../output`。 |
 | `execution.agent` | `harmonyBot` 模式使用的 OpenCode Agent 名称。`softwareEngineering` 只有 Skills，固定使用 OpenCode 内置 `build` Agent，该字段在该模式下会被忽略。 |
 | `execution.model` | 模型 ID。程序会从 Server `/config` 自动解析 Provider。 |
+| `execution.additionalPrompt` | 统一追加到每个用例 `PROMPT.md` 内容后的提示词。未配置、空字符串或仅包含空白时不追加；不会修改源用例文件，实际发送内容可在用例输出的 `generate/input.txt` 中核对。 |
 | `execution.concurrency` | 同时运行的 Agent 数量。任意任务结束后立即补充下一个任务。 |
 | `execution.consoleMode` | 控制台模式：`dashboard`（默认动态看板）、`summary`（仅开始/结束）或 `verbose`（逐条进度）。非交互输出会自动退化为 `summary`。 |
 | `execution.idleTimeoutSec` | Agent 连续无活动的超时时间。 |

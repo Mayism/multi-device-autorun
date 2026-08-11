@@ -980,7 +980,13 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     throwIfInterrupted(signal);
     const sourcePrompt = await fs.readFile(caseInfo.promptPath, "utf8");
     if (!sourcePrompt.trim()) throw new Error(`PROMPT.md 内容为空: ${caseInfo.promptPath}`);
-    const prompt = `${sourcePrompt.trim()}\n\n${AGENT_SANDBOX_POLICY}\n\n${agentDeviceLeasePolicy(caseName, deviceLeasePath)}\n`;
+    const additionalPrompt = String(execution.additionalPrompt || "").trim();
+    const prompt = `${[
+      sourcePrompt.trim(),
+      additionalPrompt,
+      AGENT_SANDBOX_POLICY,
+      agentDeviceLeasePolicy(caseName, deviceLeasePath),
+    ].filter(Boolean).join("\n\n")}\n`;
     await fs.writeFile(path.join(generateDir, "input.txt"), prompt, "utf8");
     await copyProject(caseInfo.projectDir, originalDir);
     await copyProject(originalDir, projectDir);
