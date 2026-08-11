@@ -19,6 +19,10 @@ import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
+const SKILL_REQUEST_TIMEOUT_SEC = 30;
+const SKILL_READY_TIMEOUT_SEC = 180;
+const SKILL_RETRY_INTERVAL_MS = 2_000;
+const SESSION_CREATE_TIMEOUT_SEC = 120;
 let activeReporter = null;
 
 const AGENT_SANDBOX_POLICY = `# 工作目录隔离要求（强制）
@@ -282,6 +286,40 @@ async function waitForServerConfig(client, {
   }
   const detail = lastError?.message ? `；最后一次错误: ${lastError.message}` : "";
   throw new Error(`OpenCode Server 配置加载超时（${timeoutSec} 秒）${detail}`);
+}
+
+async function waitForSkills(client, directory, {
+  timeoutSec = SKILL_READY_TIMEOUT_SEC,
+  requestTimeoutSec = SKILL_REQUEST_TIMEOUT_SEC,
+  retryIntervalMs = SKILL_RETRY_INTERVAL_MS,
+  signal,
+} = {}) {
+  const deadline = Date.now() + timeoutSec * 1000;
+  let lastError = null;
+  let attempts = 0;
+
+  while (Date.now() < deadline) {
+    throwIfInterrupted(signal);
+    attempts += 1;
+    const remainingSec = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
+    try {
+      return await client.listSkills(directory, Math.min(requestTimeoutSec, remainingSec), signal);
+    } catch (error) {
+      if (signal?.aborted) throw interruptionError(signal.reason);
+      lastError = error;
+      const status = Number(error?.status) || 0;
+      if (status && status !== 408 && status !== 429 && status < 500) throw error;
+    }
+
+    if (Date.now() < deadline) {
+      const waitedSec = Math.min(timeoutSec, Math.round((timeoutSec * 1000 - (deadline - Date.now())) / 1000));
+      console.warn(`[server] Skill 列表加载未完成，${retryIntervalMs / 1000} 秒后重试（第 ${attempts} 次，已等待 ${waitedSec}/${timeoutSec} 秒）`);
+      await delay(Math.min(retryIntervalMs, deadline - Date.now()));
+    }
+  }
+
+  const detail = lastError?.message ? `；最后一次错误: ${lastError.message}` : "";
+  throw new Error(`OpenCode Server Skill 加载超时（${timeoutSec} 秒）${detail}`, { cause: lastError });
 }
 
 async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) {
@@ -931,7 +969,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     reporter.caseProgress(caseName, "工程沙箱已就绪，正在创建 Agent 会话");
     await updateState({ stage: "session_creating", baseline });
 
-    const session = await client.createSession(projectDir, 30);
+    const session = await client.createSession(projectDir, SESSION_CREATE_TIMEOUT_SEC);
     sessionId = String(session?.id || "");
     if (!sessionId) throw new Error("OpenCode 创建 session 后未返回 session id");
     await atomicWriteJson(path.join(caseRunDir, "session.json"), {
@@ -1296,7 +1334,7 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
   return finalResult;
 }
 
-async function validateServerConfig(client, execution, loadedConfig, sourceMode) {
+async function validateServerConfig(client, execution, loadedConfig, sourceMode, signal) {
   const config = loadedConfig || await client.getConfig(120);
   if (config?.permission?.external_directory !== "deny") {
     console.warn("[warn] 当前运行中的 Server 未启用 external_directory=deny；若刚修改配置，请重启该 Server");
@@ -1310,7 +1348,7 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode)
     if (!agentPrompt.includes("harmonyos-multi-device-adaptation/harmonyos-adaptation-workflow/SKILL.md")) {
       throw new Error("harmonyos-multi-device 插件未正确加载：运行时 Agent prompt 缺少一多适配工作流指令");
     }
-    const skills = await client.listSkills(execution.casesRoot, 30);
+    const skills = await waitForSkills(client, execution.casesRoot, { signal });
     const skillNames = new Set((Array.isArray(skills) ? skills : []).map((item) => String(item?.name || item?.id || "")));
     for (const required of ["harmonyos-adaptation-workflow", "harmonyos-responsive-layout"]) {
       if (!skillNames.has(required)) {
@@ -1361,7 +1399,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     skippedCases = [];
   }
   const displayCases = [...cases, ...skippedCases];
-  const model = await validateServerConfig(client, execution, serverConfig, sourceMode);
+  const model = await validateServerConfig(client, execution, serverConfig, sourceMode, signal);
   throwIfInterrupted(signal);
   const ohosTestLabel = ohosTest.enabled
     ? `已启用（串行，Runner=${ohosTest.runnerRoot}）`

@@ -158,8 +158,8 @@ export class OpenCodeClient {
     return this.request(`/session/${encodeURIComponent(sessionId)}/todo`, { timeoutSec });
   }
 
-  listSkills(directory, timeoutSec = 30) {
-    return this.request("/skill", { directory, timeoutSec });
+  listSkills(directory, timeoutSec = 30, signal) {
+    return this.request("/skill", { directory, timeoutSec, signal });
   }
 
   listQuestions(directory, timeoutSec = 10) {
