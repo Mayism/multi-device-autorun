@@ -692,11 +692,15 @@ async function recoverInterruptedRuns(outputRoot) {
     const failed = results.filter((item) => item.status !== "completed").length;
     const tokenUsage = addTokenUsage(...results.map((item) => item.tokenUsage));
     const agentCompile = addCompileUsage(...results.map((item) => item.agentCompile));
+    const representativeResult = results.find((item) => item?.agent || item?.modelId || item?.providerId);
     const summary = {
       batchId: batch.batchId || entry.name,
       status: "interrupted",
       finishedAt: recoveredAt,
       recoveredAt,
+      agent: batch.agent || representativeResult?.agent || "",
+      providerId: batch.providerId || representativeResult?.providerId || "",
+      modelId: batch.modelId || representativeResult?.modelId || "",
       total: results.length,
       completed: results.filter((item) => item.status === "completed").length,
       failed,
@@ -1451,6 +1455,9 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     status: "running",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    agent: execution.agent,
+    providerId: model.providerId,
+    modelId: model.modelId,
     concurrency: execution.concurrency,
     ohosTest: {
       enabled: ohosTest.enabled,
@@ -1610,6 +1617,9 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     batchId: id,
     status: interrupted ? "interrupted" : failedCount ? "completed_with_failures" : "completed",
     finishedAt: new Date().toISOString(),
+    agent: execution.agent,
+    providerId: model.providerId,
+    modelId: model.modelId,
     total: cases.length,
     completed: results.filter((item) => item.status === "completed").length,
     failed: failedCount,

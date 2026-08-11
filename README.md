@@ -164,8 +164,9 @@ Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参�
 修改后，批次报告和详细结果也会写入 `D:/out/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
 ohosTest 不会在 `.ohostest-runs/<runId>` 下编译工程，而是将 Agent 输出的 `base/task`
-复制到同一用例目录下的浅层 `work/`，应用隐藏测试 patch 后在该目录构建。报告仍写入
-`.ohostest-runs/<runId>`，测试完成、失败或中断后删除 `work/`，不会修改 Agent 输出工程。
+复制到同一用例目录下的浅层临时目录，应用隐藏测试 patch 后在该目录构建。报告仍写入
+`.ohostest-runs/<runId>`。测试完成、失败、超时或中断后，Autorun 会将实际编译工程保留为
+`<caseName>/ohostest-workdir/`，用于复现构建结果和定位问题，不会修改 Agent 输出工程。
 Autorun 会通过 Runner 的 `--out` 参数指定唯一输出目录并监视其中的最终 `result.json`；
 结果生成后若 npm 进程在 10 秒内仍未退出，会结束本次进程树并继续下一个 ohosTest。
 
@@ -322,10 +323,11 @@ output/<batchId>/
         └── compile-attempts.json # Agent build attempt details; excludes ohosTest
 ```
 
-ohosTest 执行期间还会短暂创建 `<caseName>/work/` 作为实际编译工程；该目录正常不会保留在
-最终结果中，Autorun 在 Runner 被中断后也会兜底清理。
+ohosTest 执行期间会先创建 `<caseName>/work/` 作为实际编译工程；执行结束后统一重命名并保留为
+`<caseName>/ohostest-workdir/`。用例 `result.json` 的 `ohosTest.workDir` 会记录其绝对路径。
+该目录包含完整工程和构建缓存，便于定位问题，但会明显增加批次结果占用的磁盘空间，可在排查结束后手动删除。
 
-`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径，并直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、原始消息、SSE、轮询、执行日志和 Runner 控制台日志路径。`summary.json` 同时保存全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
+`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径，并直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、原始消息、SSE、轮询、执行日志和 Runner 控制台日志路径。`summary.json` 同时保存批次使用的 `agent`、`providerId`、`modelId`、全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
 
 执行期间单独跟踪某个用例：
 

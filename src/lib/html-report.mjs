@@ -250,6 +250,7 @@ function pageShell({ title, body, extraHead = "" }) {
   .fail { color: var(--fail); font-weight: 600; }
   .error { color: var(--error); font-weight: 600; }
   .muted { color: var(--muted); }
+  .mono { font-family: Consolas, "Courier New", monospace; word-break: break-all; }
   .tbl-wrap { overflow-x: auto; }
   a.link { color: var(--accent); text-decoration: none; }
   a.link:hover { text-decoration: none; opacity: 0.85; }
@@ -323,14 +324,20 @@ function reasonModalMarkup() {
 
 // ============ 总览页 ============
 
-function buildOverview({ summary, report, caseRows }) {
+function buildOverview({ summary, report, caseRows, executionInfo }) {
   const batch = summary || {};
   const agentTotals = report?.agent || {};
   const ohosTotals = report?.ohosTest || {};
+  const agentType = text(batch.agent || agentTotals.type || executionInfo?.agent);
+  const providerId = text(batch.providerId || agentTotals.providerId || executionInfo?.providerId);
+  const modelId = text(batch.modelId || agentTotals.modelId || executionInfo?.modelId);
+  const model = [providerId, modelId].filter(Boolean).join("/");
 
   const statCards = [
     { k: "用例总数", v: batch.total ?? caseRows.length ?? "--" },
     { k: "完成 / 失败", v: `${batch.completed ?? 0} / ${batch.failed ?? 0}` },
+    { k: "Agent 类型", v: agentType || "--" },
+    { k: "模型", v: model || "--" },
     { k: "总 Token", v: fmtToken(batch.tokenUsage?.total) },
     { k: "模型调用", v: agentTotals.modelCalls ?? "--" },
     { k: "工具调用", v: agentTotals.toolCalls ?? "--" },
@@ -366,7 +373,7 @@ function buildOverview({ summary, report, caseRows }) {
           <th>测试用例名称</th>
           <th>开始时间</th>
           <th class="num">总耗时</th>
-          <th class="num">一多适配耗时</th>
+          <th class="num">Agent执行耗时</th>
           <th class="num">用例执行耗时</th>
           <th class="num">交互(模型/工具)</th>
           <th class="num">Token 消耗</th>
@@ -377,16 +384,20 @@ function buildOverview({ summary, report, caseRows }) {
         <tbody>${rowsHtml || `<tr><td colspan="10" class="empty">暂无用例数据</td></tr>`}</tbody>
       </table>
     </div>
-    <p class="legend">说明：「一多适配耗时」为 Agent 改造代码阶段；「用例执行耗时」为 ohosTest 设备测试阶段；「总耗时」≈「一多适配耗时」+「用例执行耗时」（相差不超过 1 秒为时间取整）；「交互(模型/工具)」为模型调用次数 / 工具调用次数。</p>`;
+    <p class="legend">说明：「Agent执行耗时」为 Agent 改造代码阶段；「用例执行耗时」为 ohosTest 设备测试阶段；「总耗时」≈「Agent执行耗时」+「用例执行耗时」（相差不超过 1 秒为时间取整）；「交互(模型/工具)」为模型调用次数 / 工具调用次数。</p>`;
 
   return pageShell({ title: `批次总览 · ${batch.batchId || ""}`, body: head + table });
 }
 
 // ============ 详情页 ============
 
-function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testRows }) {
+function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testRows, executionInfo }) {
   const r = caseResult || {};
   const am = agentMetrics || {};
+  const agentType = text(r.agent || executionInfo?.agent);
+  const providerId = text(r.providerId || executionInfo?.providerId);
+  const modelId = text(r.modelId || executionInfo?.modelId);
+  const model = [providerId, modelId].filter(Boolean).join("/");
   const overview = summarizeTestRows(testRows);
 
   const back = `<div class="back"><a class="link" href="../overview.html">← 返回总览</a></div>`;
@@ -399,11 +410,14 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
     <div class="card" style="padding:16px 18px;">
       <div class="kv">
         <div class="row"><span class="k">Agent 状态</span><span>${badge(r.agentStatus || am.status)}</span></div>
+        <div class="row"><span class="k">Agent 类型</span><span>${esc(agentType || "--")}</span></div>
+        <div class="row"><span class="k">模型</span><span>${esc(model || "--")}</span></div>
         <div class="row"><span class="k">开始时间</span><span>${fmtDateTime(r.startedAt)}</span></div>
         <div class="row"><span class="k">结束时间</span><span>${fmtDateTime(r.finishedAt)}</span></div>
         <div class="row"><span class="k">总耗时</span><span>${fmtDuration(r.elapsedSec)}</span></div>
-        <div class="row"><span class="k">一多适配耗时</span><span>${fmtDuration(deriveAgentElapsedSec(r) ?? am.elapsedSec)}</span></div>
+        <div class="row"><span class="k">Agent执行耗时</span><span>${fmtDuration(deriveAgentElapsedSec(r) ?? am.elapsedSec)}</span></div>
         <div class="row"><span class="k">用例执行耗时</span><span>${fmtDuration(r.ohosTest?.elapsedSec)}</span></div>
+        ${r.ohosTest?.workDir ? `<div class="row" style="grid-column:1/-1"><span class="k">ohosTest 工作目录</span><span class="mono">${esc(r.ohosTest.workDir)}</span></div>` : ""}
         <div class="row"><span class="k">模型/工具调用</span><span>${am.modelCalls ?? "--"} / ${am.toolCalls ?? "--"}</span></div>
         <div class="row"><span class="k">输入 Token</span><span>${fmtToken(r.tokenUsage?.input)}</span></div>
         <div class="row"><span class="k">输出 Token</span><span>${fmtToken(r.tokenUsage?.output)}</span></div>
@@ -485,6 +499,12 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
 export async function writeHtmlReport({ batchRoot, summary }) {
   const report = await readJson(path.join(batchRoot, "report.json"));
   const results = Array.isArray(summary?.results) ? summary.results : [];
+  const representativeResult = results.find((item) => item?.agent || item?.providerId || item?.modelId) || {};
+  const executionInfo = {
+    agent: text(summary?.agent || report?.agent?.type || representativeResult.agent),
+    providerId: text(summary?.providerId || report?.agent?.providerId || representativeResult.providerId),
+    modelId: text(summary?.modelId || report?.agent?.modelId || representativeResult.modelId),
+  };
 
   // report.json 中按用例名的 agent 指标索引
   const agentByCase = new Map(
@@ -522,7 +542,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
   }
 
   // 写 overview.html
-  const overviewHtml = buildOverview({ summary, report, caseRows });
+  const overviewHtml = buildOverview({ summary, report, caseRows, executionInfo });
   await fs.writeFile(path.join(batchRoot, "overview.html"), overviewHtml, "utf8");
 
   // 写 subpage/<case>.html
@@ -540,6 +560,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       agentMetrics: am,
       runnerResult,
       testRows,
+      executionInfo,
     });
     const filePath = path.join(subpageDir, `${caseName}.html`);
     await fs.writeFile(filePath, html, "utf8");

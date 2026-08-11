@@ -169,7 +169,7 @@ function buildOhosTestSummary(cases) {
 function renderMarkdown(report) {
   const lines = [
     "# Autorun 批次执行报告", "", "## 批次概览", "",
-    table(["项目", "值"], [["批次 ID", report.batchId], ["批次状态", report.status], ["生成时间", report.generatedAt], ["可执行用例", report.batch.executableCases], ["完成 / 失败 / 跳过", `${report.batch.completed} / ${report.batch.failed} / ${report.batch.skipped}`]]),
+    table(["项目", "值"], [["批次 ID", report.batchId], ["批次状态", report.status], ["Agent 类型", report.agent.type || "--"], ["模型", [report.agent.providerId, report.agent.modelId].filter(Boolean).join("/") || "--"], ["生成时间", report.generatedAt], ["可执行用例", report.batch.executableCases], ["完成 / 失败 / 跳过", `${report.batch.completed} / ${report.batch.failed} / ${report.batch.skipped}`]]),
     "", "## Agent 输出汇总", "",
     table(["指标", "值"], [["输入 Token", report.agent.inputTokens], ["输出 Token", report.agent.outputTokens], ["总 Token", report.agent.totalTokens], ["模型调用次数", report.agent.modelCalls], ["工具调用次数", report.agent.toolCalls], ["编译尝试次数", report.agent.compileAttempts]]),
     "",
@@ -206,10 +206,18 @@ export async function writeBatchReport({ batchRoot, summary }) {
   const results = Array.isArray(summary?.results) ? summary.results : [];
   const agentCases = await Promise.all(results.map(collectAgentCase));
   const ohosTestCases = await Promise.all(results.filter((item) => item?.ohosTest).map(collectOhosTestCase));
+  const agentSummary = buildAgentSummary(agentCases);
+  const representativeResult = results.find((item) => item?.agent || item?.providerId || item?.modelId) || {};
   const report = {
     schemaVersion: "autorun-batch-report-v1", batchId: text(summary?.batchId), status: status(summary?.status), generatedAt: new Date().toISOString(),
     batch: { executableCases: number(summary?.total), completed: number(summary?.completed), failed: number(summary?.failed), skipped: Array.isArray(summary?.skipped) ? summary.skipped.length : 0, skippedCases: Array.isArray(summary?.skipped) ? summary.skipped : [] },
-    agent: buildAgentSummary(agentCases), ohosTest: buildOhosTestSummary(ohosTestCases),
+    agent: {
+      type: text(summary?.agent || representativeResult.agent),
+      providerId: text(summary?.providerId || representativeResult.providerId),
+      modelId: text(summary?.modelId || representativeResult.modelId),
+      ...agentSummary,
+    },
+    ohosTest: buildOhosTestSummary(ohosTestCases),
   };
   const jsonPath = path.join(batchRoot, "report.json");
   const markdownPath = path.join(batchRoot, "report.md");

@@ -10,6 +10,7 @@ import { withDeviceLease } from "./device-lease.mjs";
 const RESULT_POLL_INTERVAL_MS = 500;
 const RESULT_EXIT_GRACE_MS = 10_000;
 const FINAL_RESULT_STATUSES = new Set(["completed", "failed"]);
+const RETAINED_WORKDIR_NAME = "ohostest-workdir";
 
 async function exists(target) {
   try {
@@ -26,6 +27,23 @@ async function readJson(filePath) {
   } catch {
     return null;
   }
+}
+
+async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs = 500) {
+  if (!await exists(source)) return "";
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await fsp.rename(source, destination);
+      return destination;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError;
 }
 
 export async function loadOhosTestConfig(config) {
@@ -291,7 +309,11 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
   const stagedCase = await prepareGeneratedCase({ caseInfo, caseRunDir, patchPath });
   const { inputDir } = stagedCase;
   const runnerWorkDir = path.join(inputDir, "work");
-  await fsp.rm(runnerWorkDir, { recursive: true, force: true });
+  const retainedWorkDir = path.join(inputDir, RETAINED_WORKDIR_NAME);
+  await Promise.all([
+    fsp.rm(runnerWorkDir, { recursive: true, force: true }),
+    fsp.rm(retainedWorkDir, { recursive: true, force: true }),
+  ]);
   const consolePath = path.join(caseRunDir, "ohostest-runner-console.log");
   const outputDir = runnerOutputDir(inputDir, startedAt);
   const resultWatchPath = path.join(outputDir, "result.json");
@@ -309,11 +331,11 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     "--keep-emulators",
     "false",
     "--keep-workdir",
-    "false",
+    "true",
   ];
   const invocation = npmInvocation(npmArgs);
   let processResult;
-  let workCleanupError = "";
+  let workPreserveError = "";
   try {
     processResult = await withDeviceLease({
       lockPath: deviceLeasePath,
@@ -330,9 +352,9 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     }));
   } finally {
     try {
-      await fsp.rm(runnerWorkDir, { recursive: true, force: true });
+      await retainRunnerWorkdir(runnerWorkDir, retainedWorkDir);
     } catch (error) {
-      workCleanupError = error instanceof Error ? error.message : String(error);
+      workPreserveError = error instanceof Error ? error.message : String(error);
     }
   }
   const finishedAt = new Date();
@@ -340,6 +362,11 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
   const summaryCandidate = path.join(outputDir, "summary.md");
   const runnerSummaryPath = await exists(summaryCandidate) ? summaryCandidate : "";
   const runnerResult = await readJson(runnerResultPath);
+  const workDir = await exists(retainedWorkDir)
+    ? retainedWorkDir
+    : await exists(runnerWorkDir)
+      ? runnerWorkDir
+      : "";
   const timedOut = processResult.stopReason.includes("总运行时间超过");
   const interrupted = processResult.stopReason.includes("Autorun 中断");
   const completed = runnerResult?.status === "completed";
@@ -370,6 +397,7 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     resultPath: runnerResultPath,
     summaryPath: runnerSummaryPath,
     consolePath,
-    ...(workCleanupError ? { workCleanupError } : {}),
+    workDir,
+    ...(workPreserveError ? { workPreserveError } : {}),
   };
 }
