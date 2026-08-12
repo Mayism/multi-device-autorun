@@ -1,8 +1,1 @@
 output/
-.DS_Store
-**/.DS_Store
-
-# 工程内资源包的本机 OpenCode 运行时与私密配置
-resource/**/resources/opencode/bin/
-resource/**/resources/opencode/node_modules/
-resource/**/resources/opencode/opencode.json

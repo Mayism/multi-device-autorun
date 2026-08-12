@@ -14,7 +14,7 @@
     "outputRoot": "../output",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
-    "additionalPrompt": "",
+    "additionalPrompt": "严格按照harmonyros-ui-multi中的六步流程来执行适配，不允许跳过",
     "concurrency": 3,
     "consoleMode": "dashboard",
     "idleTimeoutSec": 600,
