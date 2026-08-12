@@ -111,12 +111,12 @@ function badge(value) {
   return `<span class="badge badge-${statusClass(value)}">${esc(statusLabel(value))}</span>`;
 }
 
-// 测试结果带图标渲染：通过 ✅ / 失败 ❌ / 错误 ⛔
+// 测试结果带图标渲染（符号继承 CSS 颜色）：通过 ✓ / 失败 ✗ / 错误 ⊗
 function testStatusHtml(value) {
   const s = text(value).trim().toLowerCase();
-  if (s === "passed") return `<span class="pass">✅ 通过</span>`;
-  if (s === "failed") return `<span class="fail">❌ 失败</span>`;
-  if (s === "error") return `<span class="error">⛔ 错误</span>`;
+  if (s === "passed") return `<span class="pass">✓ 通过</span>`;
+  if (s === "failed") return `<span class="fail">✗ 失败</span>`;
+  if (s === "error") return `<span class="error">⊗ 错误</span>`;
   if (s === "ignored") return `<span class="muted">忽略</span>`;
   return `<span class="muted">${esc(statusLabel(s))}</span>`;
 }
@@ -235,11 +235,12 @@ function pageShell({ title, body, extraHead = "" }) {
   .stat .k { color: var(--muted); font-size: 12px; }
   .stat .v { font-size: 20px; font-weight: 600; margin-top: 4px; }
   table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th, td { text-align: center; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
   th { background: #fafbfc; font-weight: 600; color: #445; white-space: nowrap; }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: #fafcff; }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.num, th.num { font-variant-numeric: tabular-nums; }
+  .ctr { text-align: center; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
   .badge-ok { background: var(--ok-soft); color: var(--ok); }
   .badge-fail { background: var(--fail-soft); color: var(--fail); }
@@ -261,8 +262,9 @@ function pageShell({ title, body, extraHead = "" }) {
   .back { margin-bottom: 16px; }
   .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 24px; margin-bottom: 8px; }
   .kv .row { display: flex; gap: 8px; }
-  .kv .row .k { color: var(--muted); min-width: 92px; }
+  .kv .row .k { color: var(--muted); flex: 0 1 112px; min-width: 0; text-align: right; white-space: normal; word-break: keep-all; overflow-wrap: break-word; }
   .kv .row .k::after { content: "："; }
+  .kv .row > span:last-child { white-space: nowrap; }
   .modal-mask { display: none; position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 100; padding: 30px 16px; overflow: auto; }
   .modal-mask.open { display: flex; align-items: flex-start; justify-content: center; }
   .modal { background: #fff; border-radius: 12px; max-width: 920px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,.2); }
@@ -336,24 +338,32 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
   const statCards = [
     { k: "用例总数", v: batch.total ?? caseRows.length ?? "--" },
     { k: "完成 / 失败", v: `${batch.completed ?? 0} / ${batch.failed ?? 0}` },
-    { k: "Agent 类型", v: agentType || "--" },
-    { k: "模型", v: model || "--" },
     { k: "总 Token", v: fmtToken(batch.tokenUsage?.total) },
     { k: "模型调用", v: agentTotals.modelCalls ?? "--" },
     { k: "工具调用", v: agentTotals.toolCalls ?? "--" },
     { k: "执行用例个数", v: ohosTotals.testsRun ?? "--" },
-    { k: "通过 / 失败 / 错误", v: `${ohosTotals.passes ?? 0} / ${ohosTotals.failures ?? 0} / ${ohosTotals.errors ?? 0}` },
+    { k: "通过 / 失败 / 错误", v: `<span class="pass">${ohosTotals.passes ?? 0}</span> / <span class="fail">${ohosTotals.failures ?? 0}</span> / <span class="error">${ohosTotals.errors ?? 0}</span>`, html: true },
   ];
+
+  const agentName = text(executionInfo?.agent || batch.agent);
+  const modelName = text(executionInfo?.modelId || batch.modelId);
 
   const head = `
     <h1>Autorun 批次执行总览</h1>
-    <div class="stats">${statCards.map((s) => `<div class="stat"><div class="k">${esc(s.k)}</div><div class="v">${s.raw != null ? `<span class="badge badge-${statusClass(s.raw)}">${esc(s.v)}</span>` : esc(s.v)}</div></div>`).join("")}</div>`;
+    <h2>配置总览</h2>
+    <div class="stats">
+      <div class="stat"><div class="k">Agent</div><div class="v">${esc(agentName || "--")}</div></div>
+      <div class="stat"><div class="k">模型</div><div class="v">${esc(modelName || "--")}</div></div>
+    </div>
+    <h2>结果总览</h2>
+    <div class="stats">${statCards.map((s) => `<div class="stat"><div class="k">${esc(s.k)}</div><div class="v">${s.html ? s.v : esc(s.v)}</div></div>`).join("")}</div>`;
 
   const rowsHtml = caseRows.map((c) => {
     const testName = encodeURIComponent(`${c.case}.html`);
     return `<tr>
       <td><a class="link" href="subpage/${testName}">${esc(c.case)}</a></td>
       <td>${fmtDateTime(c.startedAt)}</td>
+      <td>${fmtDateTime(c.finishedAt)}</td>
       <td class="num">${fmtDuration(c.elapsedSec)}</td>
       <td class="num">${fmtDuration(c.agentElapsedSec)}</td>
       <td class="num">${fmtDuration(c.ohosTestElapsedSec)}</td>
@@ -372,6 +382,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
         <thead><tr>
           <th>测试用例名称</th>
           <th>开始时间</th>
+          <th>结束时间</th>
           <th class="num">总耗时</th>
           <th class="num">Agent执行耗时</th>
           <th class="num">用例执行耗时</th>
@@ -381,7 +392,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
           <th>执行结果</th>
           <th>操作</th>
         </tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="10" class="empty">暂无用例数据</td></tr>`}</tbody>
+        <tbody>${rowsHtml || `<tr><td colspan="11" class="empty">暂无用例数据</td></tr>`}</tbody>
       </table>
     </div>
     <p class="legend">说明：「Agent执行耗时」为 Agent 改造代码阶段；「用例执行耗时」为 ohosTest 设备测试阶段；「总耗时」≈「Agent执行耗时」+「用例执行耗时」（相差不超过 1 秒为时间取整）；「交互(模型/工具)」为模型调用次数 / 工具调用次数。</p>`;
@@ -402,16 +413,13 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
 
   const back = `<div class="back"><a class="link" href="../overview.html">← 返回总览</a></div>`;
   const head = `
-    <h1>${esc(caseName)}</h1>
-    <div class="sub">用例设备测试详情 ｜ 总体结果：${badge(overview.status)} ｜ 最终状态：${badge(r.status)}</div>`;
+    <h1>${esc(caseName)}</h1>`;
 
   const agentCard = `
     <h2>执行信息</h2>
     <div class="card" style="padding:16px 18px;">
       <div class="kv">
         <div class="row"><span class="k">Agent 状态</span><span>${badge(r.agentStatus || am.status)}</span></div>
-        <div class="row"><span class="k">Agent 类型</span><span>${esc(agentType || "--")}</span></div>
-        <div class="row"><span class="k">模型</span><span>${esc(model || "--")}</span></div>
         <div class="row"><span class="k">开始时间</span><span>${fmtDateTime(r.startedAt)}</span></div>
         <div class="row"><span class="k">结束时间</span><span>${fmtDateTime(r.finishedAt)}</span></div>
         <div class="row"><span class="k">总耗时</span><span>${fmtDuration(r.elapsedSec)}</span></div>
@@ -424,7 +432,6 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
         <div class="row"><span class="k">推理 Token</span><span>${fmtToken(r.tokenUsage?.reasoning)}</span></div>
         <div class="row"><span class="k">缓存读取</span><span>${fmtToken(r.tokenUsage?.cacheRead)}</span></div>
         <div class="row"><span class="k">合计 Token</span><span title="合计 = 输入 + 输出 + 推理 + 缓存读取 + 缓存写入"><b>${fmtToken(r.tokenUsage?.total)}</b></span></div>
-        <div class="row"><span class="k">编译尝试</span><span style="white-space:nowrap">${num(am.compile?.attempts)} 次（成功 ${num(am.compile?.succeeded)} / 失败 ${num(am.compile?.failed)}）</span></div>
         ${r.agentError ? `<div class="row" style="grid-column:1/-1"><span class="k">Agent 错误</span><span class="error">${esc(r.agentError)}</span></div>` : ""}
       </div>
     </div>`;
@@ -435,14 +442,14 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
     <div class="card tbl-wrap">
       <table>
         <thead><tr>
-          <th class="num">总数</th><th class="num">通过</th><th class="num">失败</th><th class="num">错误</th><th>总体结果</th>
+          <th class="ctr">总数</th><th class="ctr">通过</th><th class="ctr">失败</th><th class="ctr">错误</th><th class="ctr">总体结果</th>
         </tr></thead>
         <tbody><tr>
-          <td class="num">${overview.testsRun}</td>
-          <td class="num pass">✅ ${overview.passes}</td>
-          <td class="num fail">❌ ${overview.failures}</td>
-          <td class="num error">⛔ ${overview.errors}</td>
-          <td>${testBadge(overview.status)}</td>
+          <td class="ctr">${overview.testsRun}</td>
+          <td class="ctr pass">✓ ${overview.passes}</td>
+          <td class="ctr fail">✗ ${overview.failures}</td>
+          <td class="ctr error">⊗ ${overview.errors}</td>
+          <td class="ctr">${testBadge(overview.status)}</td>
         </tr></tbody>
       </table>
     </div>`;
@@ -524,6 +531,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
     caseRows.push({
       case: caseName,
       startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
       elapsedSec: result.elapsedSec,
       agentElapsedSec: deriveAgentElapsedSec(result) ?? am.elapsedSec,
       ohosTestElapsedSec: result?.ohosTest?.elapsedSec,
@@ -536,7 +544,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       tokenTotal: result?.tokenUsage?.total,
       status: result.status,
       testSummary: testRows.length
-        ? `<span class="pass">✅ ${ts.passes}</span> / <span class="fail">❌ ${ts.failures}</span> / <span class="error">⛔ ${ts.errors}</span>`
+        ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`
         : (result?.ohosTest?.status ? badge(result.ohosTest.status) : "--"),
     });
   }
