@@ -371,7 +371,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
       <td class="num" title="输入 ${fmtToken(c.tokenIn)} / 输出 ${fmtToken(c.tokenOut)} / 推理 ${fmtToken(c.tokenReasoning)} / 缓存 ${fmtToken(c.tokenCacheRead)}">${fmtToken(c.tokenTotal)}</td>
       <td>${badge(c.status)}</td>
       <td>${c.testSummary}</td>
-      <td><a class="link" href="subpage/${testName}">查看详情</a></td>
+      <td><a class="link" href="subpage/${testName}">查看详情</a>${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
     </tr>`;
   }).join("");
 
@@ -579,6 +579,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
 
 export async function writeHtmlReport({ batchRoot, summary }) {
   const report = await readJson(path.join(batchRoot, "report.json"));
+  const uploadResults = await readJson(path.join(batchRoot, "upload-results.json")) || {};
   const results = Array.isArray(summary?.results) ? summary.results : [];
   const representativeResult = results.find((item) => item?.agent || item?.providerId || item?.modelId) || {};
   const executionInfo = {
@@ -617,6 +618,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       tokenCacheRead: result?.tokenUsage?.cacheRead,
       tokenTotal: result?.tokenUsage?.total,
       status: result.status,
+      downloadUrl: uploadResults[caseName]?.url || "",
       testSummary: testRows.length
         ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`
         : (result?.ohosTest?.status ? badge(result.ohosTest.status) : "--"),

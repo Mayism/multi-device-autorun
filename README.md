@@ -25,6 +25,8 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - 下次启动时自动扫描并修复历史批次中遗留的 `running` 状态。
 - 自动建立 Git 基线并生成 `changes.patch`。
 - 保存批次状态、单用例状态、Agent 输出、SSE 事件和轮询记录。
+- 批次完成后自动生成 HTML 报告（总览页 + 每用例详情页），总览页支持导出 Excel。
+- 失败用例产物可打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。
 
 目前主流程只负责 Agent 执行和产物归档。使用生成工程继续执行编译、测试、设备验证等后续任务的能力将在后续版本补充。
 
@@ -261,6 +263,33 @@ node src/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\softwar
 
 ```bash
 node src/run-opencode-serve.mjs --help
+```
+
+### 6. 上传失败用例产物
+
+批次完成后，会自动将失败用例（整体状态非完成或测试项有失败/错误）的产物打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。上传凭证已内置在代码中，无需额外配置。
+
+**手动上传**（对已有批次补传）：
+
+```bash
+node src/upload-results.mjs output/<batchId>
+```
+
+上传行为：
+
+- 只上传**失败或错误**的用例（整体通过且无测试失败的用例跳过）。
+- 打包用例目录下的 `.ohostest-runs/`、`base/`（或 `task/`）和 `diff/` 三个子目录为 ZIP（DEFLATE 压缩，自动排除 `build`、`oh_modules`、`.hvigor` 等构建产物）。
+- ZIP 文件名为 `{CaseName}_{batchId}.zip`，上传路径为 `ohostest/{CaseName}_{batchId}.zip`。
+- 上传支持重试（默认 3 次），每次失败记录原因。每个用例上传后立即写 `upload-results.json`，中断后再次执行会跳过已成功的用例。
+- 上传结果写入 `output/<batchId>/upload-results.json`，格式为 `{ "CaseName": { "url": "下载地址", "error": "失败原因", "uploadedAt": "时间" } }`。
+
+上传成功后，重新生成 HTML 报告即可在总览页的「操作」列看到**下载**按钮，点击直接下载对应 ZIP。
+
+```bash
+# 先上传
+node src/upload-results.mjs output/<batchId>
+# 再刷新 HTML（自动读取 upload-results.json）
+node src/generate-html-report.mjs output/<batchId>
 ```
 
 ## 并发执行机制
