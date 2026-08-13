@@ -425,7 +425,6 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
         <div class="row"><span class="k">总耗时</span><span>${fmtDuration(r.elapsedSec)}</span></div>
         <div class="row"><span class="k">Agent执行耗时</span><span>${fmtDuration(deriveAgentElapsedSec(r) ?? am.elapsedSec)}</span></div>
         <div class="row"><span class="k">用例执行耗时</span><span>${fmtDuration(r.ohosTest?.elapsedSec)}</span></div>
-        ${r.ohosTest?.workDir ? `<div class="row" style="grid-column:1/-1"><span class="k">ohosTest 工作目录</span><span class="mono">${esc(r.ohosTest.workDir)}</span></div>` : ""}
         <div class="row"><span class="k">模型/工具调用</span><span>${am.modelCalls ?? "--"} / ${am.toolCalls ?? "--"}</span></div>
         <div class="row"><span class="k">输入 Token</span><span>${fmtToken(r.tokenUsage?.input)}</span></div>
         <div class="row"><span class="k">输出 Token</span><span>${fmtToken(r.tokenUsage?.output)}</span></div>
