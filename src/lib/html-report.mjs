@@ -361,7 +361,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
   const rowsHtml = caseRows.map((c) => {
     const testName = encodeURIComponent(`${c.case}.html`);
     return `<tr>
-      <td><a class="link" href="subpage/${testName}">${esc(c.case)}</a></td>
+      <td style="text-align:left"><a class="link" href="subpage/${testName}">${esc(c.case)}</a></td>
       <td>${fmtDateTime(c.startedAt)}</td>
       <td>${fmtDateTime(c.finishedAt)}</td>
       <td class="num">${fmtDuration(c.elapsedSec)}</td>
@@ -376,7 +376,10 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
   }).join("");
 
   const table = `
-    <h2>用例执行一览</h2>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2>用例执行一览</h2>
+      <button class="btn" onclick="exportCases()" title="导出 Excel" style="padding:6px 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>
+    </div>
     <div class="card tbl-wrap">
       <table>
         <thead><tr>
@@ -397,7 +400,79 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
     </div>
     <p class="legend">说明：「Agent执行耗时」为 Agent 改造代码阶段；「用例执行耗时」为 ohosTest 设备测试阶段；「总耗时」≈「Agent执行耗时」+「用例执行耗时」（相差不超过 1 秒为时间取整）；「交互(模型/工具)」为模型调用次数 / 工具调用次数。</p>`;
 
-  return pageShell({ title: `批次总览 · ${batch.batchId || ""}`, body: head + table });
+  const exportScript = `<script>
+  function exportCases() {
+    var table = document.querySelector('.tbl-wrap table');
+    if (!table) return;
+    var rows = [];
+    table.querySelectorAll('tr').forEach(function (tr) {
+      var cells = Array.from(tr.querySelectorAll('th, td'));
+      if (!cells.length) return;
+      cells.pop();
+      rows.push(cells.map(function (c) { return c.textContent.trim(); }));
+    });
+    if (!rows.length) return;
+    var lastCol = rows[0].length;
+    var maxNameLen = 0;
+    for (var ri0 = 1; ri0 < rows.length; ri0++) { if (rows[ri0][0] && rows[ri0][0].length > maxNameLen) maxNameLen = rows[ri0][0].length; }
+    var nameWidth = maxNameLen + 10;
+    function ex(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    var sheetRows = '';
+    rows.forEach(function (row, ri) {
+      sheetRows += '<row>' + row.map(function (v, ci) {
+        var s = ri === 0 ? '1' : (ci === 0 ? '3' : '2');
+        return '<c s="' + s + '" t="inlineStr"><is><t xml:space="preserve">' + ex(v) + '</t></is></c>';
+      }).join('') + '</row>';
+    });
+    var ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
+    var rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+    var wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="\\u7528\\u4f8b\\u6267\\u884c\\u4e00\\u89c8" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    var wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+    var styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF2E75B6"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="left"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+    var colsXml = '<cols><col min="1" max="1" width="' + nameWidth + '" customWidth="1"/><col min="2" max="3" width="25" customWidth="1"/>';
+    if (lastCol > 4) colsXml += '<col min="4" max="' + (lastCol - 1) + '" width="15" customWidth="1"/>';
+    colsXml += '<col min="' + lastCol + '" max="' + lastCol + '" width="25" customWidth="1"/></cols>';
+    var sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' + colsXml + '<sheetData>' + sheetRows + '</sheetData></worksheet>';
+    var files = [
+      { name: '[Content_Types].xml', data: ct },
+      { name: '_rels/.rels', data: rels },
+      { name: 'xl/workbook.xml', data: wb },
+      { name: 'xl/_rels/workbook.xml.rels', data: wbRels },
+      { name: 'xl/styles.xml', data: styles },
+      { name: 'xl/worksheets/sheet1.xml', data: sheet }
+    ];
+    var crcTable = [];
+    for (var i = 0; i < 256; i++) { var c = i; for (var j = 0; j < 8; j++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); crcTable[i] = c; }
+    function crc32(buf) { var c = 0xFFFFFFFF; for (var i = 0; i < buf.length; i++) c = crcTable[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+    var enc = new TextEncoder();
+    var local = [], central = [], offset = 0;
+    files.forEach(function (f) {
+      var nameB = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data), sz = data.length;
+      var lh = new Uint8Array(30 + nameB.length), dv = new DataView(lh.buffer);
+      dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint32(14, crc, true); dv.setUint32(18, sz, true); dv.setUint32(22, sz, true); dv.setUint16(26, nameB.length, true); lh.set(nameB, 30);
+      local.push(lh, data);
+      var ch = new Uint8Array(46 + nameB.length); dv = new DataView(ch.buffer);
+      dv.setUint32(0, 0x02014b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 20, true); dv.setUint16(10, 0, true); dv.setUint32(16, crc, true); dv.setUint32(20, sz, true); dv.setUint32(24, sz, true); dv.setUint16(28, nameB.length, true); dv.setUint32(42, offset, true); ch.set(nameB, 46);
+      central.push(ch);
+      offset += lh.length + sz;
+    });
+    var localSize = local.reduce(function (s, p) { return s + p.length; }, 0);
+    var centralSize = central.reduce(function (s, p) { return s + p.length; }, 0);
+    var eocd = new Uint8Array(22), dv = new DataView(eocd.buffer);
+    dv.setUint32(0, 0x06054b50, true); dv.setUint16(8, files.length, true); dv.setUint16(10, files.length, true); dv.setUint32(12, centralSize, true); dv.setUint32(16, localSize, true);
+    var all = local.concat(central, [eocd]), total = all.reduce(function (s, p) { return s + p.length; }, 0);
+    var zip = new Uint8Array(total), pos = 0;
+    all.forEach(function (p) { zip.set(p, pos); pos += p.length; });
+    var blob = new Blob([zip], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '用例执行一览_${batch.batchId || ""}.xlsx';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  </script>`;
+
+  return pageShell({ title: `批次总览 · ${batch.batchId || ""}`, body: head + table, extraHead: exportScript });
 }
 
 // ============ 详情页 ============
