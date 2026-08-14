@@ -33,7 +33,7 @@ function caseNeedsUpload(summaryResult, caseOhosResult) {
  * @param {function} [options.onLog] — 日志回调
  * @returns {Promise<object>} upload-results 映射 { caseName: { url, error, uploadedAt } }
  */
-export async function uploadFailedCases({ batchRoot, summary, report, onLog }) {
+export async function uploadFailedCases({ batchRoot, summary, report, enabled = false, onLog }) {
   const log = onLog || (() => {});
   const uploadConfig = UPLOAD_CONFIG;
   const results = {};
@@ -91,16 +91,27 @@ export async function uploadFailedCases({ batchRoot, summary, report, onLog }) {
     }
 
     const zipName = `${caseName}_${batchId}.zip`;
-    const objectName = `${prefix}/${zipName}`;
+    const localZipPath = path.join(caseDir, zipName);
 
     try {
       log(`${caseName}: 打包 ${sources.length} 个目录...`);
       const zipData = await createZip(sources);
+      // 始终保存 zip 到用例目录
+      await fs.writeFile(localZipPath, zipData);
       const sizeMB = (zipData.length / 1024 / 1024).toFixed(1);
-      log(`${caseName}: ${sizeMB} MB → 上传 ${objectName}`);
-      const uploadResult = await uploadBytes(uploadConfig, zipData, objectName, log);
-      results[caseName] = { url: uploadResult.url, error: "", uploadedAt: new Date().toISOString() };
-      log(`${caseName}: ✓ ${uploadResult.url}`);
+      log(`${caseName}: ${sizeMB} MB → ${localZipPath}`);
+
+      if (enabled) {
+        const objectName = `${prefix}/${zipName}`;
+        log(`${caseName}: 上传 ${objectName}`);
+        const uploadResult = await uploadBytes(uploadConfig, zipData, objectName, log);
+        results[caseName] = { url: uploadResult.url, error: "", uploadedAt: new Date().toISOString() };
+        log(`${caseName}: ✓ ${uploadResult.url}`);
+        // 仅上传模式下写 upload-results.json
+        await fs.writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
+      } else {
+        log(`${caseName}: ✓ 已保存到本地（上传未开启）`);
+      }
     } catch (error) {
       results[caseName] = { url: "", error: error.message, uploadedAt: new Date().toISOString() };
       log(`${caseName}: ✗ ${error.message}`);

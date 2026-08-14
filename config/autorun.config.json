@@ -25,5 +25,8 @@
     "enabled": true,
     "runnerRoot": "D:\\tool\\harmonyos-ohostest-auto\\harmonyos-ohostest-runner",
     "timeoutSec": 7200
+  },
+  "upload": {
+    "enabled": false
   }
 }

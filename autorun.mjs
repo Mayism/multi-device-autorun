@@ -140,6 +140,7 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
     baseDir,
     normalized.server.runtimeRoot || path.join(normalized.execution.outputRoot, "_runtime", "opencode"),
   );
+  normalized.upload = { enabled: normalized.upload?.enabled === true };
   return normalized;
 }
 
@@ -728,7 +729,7 @@ async function recoverInterruptedRuns(outputRoot) {
       error: "检测到上次 Autorun 未正常完成，已收尾遗留用例状态",
     });
     try {
-      summary.reports = await writeBatchReport({ batchRoot, summary });
+      summary.reports = await writeBatchReport({ batchRoot, summary, uploadConfig: config.upload });
     } catch (error) {
       summary.reportError = error.message;
       console.warn(`[warn] 批次报告生成失败: ${error.message}`);

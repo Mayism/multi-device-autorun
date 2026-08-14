@@ -202,7 +202,7 @@ function renderMarkdown(report) {
   return `${lines.join("\n").trim()}\n`;
 }
 
-export async function writeBatchReport({ batchRoot, summary }) {
+export async function writeBatchReport({ batchRoot, summary, uploadConfig }) {
   const results = Array.isArray(summary?.results) ? summary.results : [];
   const agentCases = await Promise.all(results.map(collectAgentCase));
   const ohosTestCases = await Promise.all(results.filter((item) => item?.ohosTest).map(collectOhosTestCase));
@@ -223,12 +223,12 @@ export async function writeBatchReport({ batchRoot, summary }) {
   const markdownPath = path.join(batchRoot, "report.md");
   await fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   await fs.writeFile(markdownPath, renderMarkdown(report), "utf8");
-  // 上传失败用例产物到 AGC 云存储
+  // 打包失败用例产物，upload.enabled 时同时上传到 AGC 云存储
   try {
     const { uploadFailedCases } = await import("./upload-orchestrator.mjs");
-    await uploadFailedCases({ batchRoot, summary, report, onLog: (m) => console.log(`[upload] ${m}`) });
+    await uploadFailedCases({ batchRoot, summary, report, enabled: uploadConfig?.enabled === true, onLog: (m) => console.log(`[upload] ${m}`) });
   } catch (error) {
-    console.warn(`[warn] 批量上传失败: ${error.message}`);
+    console.warn(`[warn] 批量打包/上传失败: ${error.message}`);
   }
   const html = { overviewPath: "", subpageDir: "" };
   try {
