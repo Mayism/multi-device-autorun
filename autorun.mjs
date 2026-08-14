@@ -1388,12 +1388,12 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode,
   }
   if (execution.agent === "harmonyos-multi-device") {
     const agentPrompt = String(config.agent[execution.agent]?.prompt || "");
-    if (!agentPrompt.includes("harmonyos-multi-device-adaptation/harmonyos-adaptation-workflow/SKILL.md")) {
+    if (!agentPrompt.includes("harmonyos-ui-multi")) {
       throw new Error("harmonyos-multi-device 插件未正确加载：运行时 Agent prompt 缺少一多适配工作流指令");
     }
     const skills = await waitForSkills(client, execution.casesRoot, { signal });
     const skillNames = new Set((Array.isArray(skills) ? skills : []).map((item) => String(item?.name || item?.id || "")));
-    for (const required of ["harmonyos-adaptation-workflow", "harmonyos-responsive-layout"]) {
+    for (const required of ["harmonyos-ui-multi"]) {
       if (!skillNames.has(required)) {
         throw new Error(`harmonyos-multi-device 关键 Skill 未注册: ${required}`);
       }
