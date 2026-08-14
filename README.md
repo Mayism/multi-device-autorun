@@ -106,6 +106,9 @@ cases/
     "enabled": true,
     "runnerRoot": "D:\\tool\\harmonyos-ohostest\\harmonyos-ohostest-runner",
     "timeoutSec": 7200
+  },
+  "upload": {
+    "enabled": false
   }
 }
 ```
@@ -133,6 +136,7 @@ cases/
 | `ohosTest.enabled` | 是否在 Agent 适配完成后自动执行 `npm run ohostest:case`。 |
 | `ohosTest.runnerRoot` | 本机 `harmonyos-ohostest-runner` 仓库路径，该目录需已执行 `npm install`。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，超时后终止 Runner 及其子进程。 |
+| `upload.enabled` | 是否在批次完成后自动将失败用例产物上传到 AGC 云存储。默认 `false`（仅打包 ZIP 到用例目录，不上传、不写 `upload-results.json`、HTML 不显示下载按钮）。设为 `true` 后上传成功写 `upload-results.json` 并在总览页显示下载按钮。上传凭证已内置在代码中，无需额外配置。 |
 
 相对路径以 `config/autorun.config.json` 所在目录为基准解析。
 
@@ -268,7 +272,7 @@ node src/run-opencode-serve.mjs --help
 
 ### 6. 上传失败用例产物
 
-批次完成后，会自动将失败用例（整体状态非完成或测试项有失败/错误）的产物打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。上传凭证已内置在代码中，无需额外配置。
+批次完成后，失败用例（整体状态非完成或测试项有失败/错误）的产物会自动打包为 ZIP 保存到各用例目录下。`upload.enabled` 设为 `true` 时同时上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示；设为 `false`（默认）时仅保留本地 ZIP，不上传、不写 `upload-results.json`、HTML 不显示下载按钮。
 
 **手动上传**（对已有批次补传）：
 
@@ -425,7 +429,7 @@ node autorun.mjs --check
 
 ### 一多适配任务没有调用 Skill
 
-`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-adaptation-workflow`、`harmonyos-responsive-layout` 等 Skill。Autorun 会在执行用例前检查这两项；如果插件或 Skill 的运行时路径失效，会直接报错而不再静默执行。
+`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项；如果插件或 Skill 的运行时路径失效，会直接报错而不再静默执行。
 
 自动启动 Server 时，Autorun 会把当前模式选中的 `resources/opencode` 直接设置为 `OPENCODE_CONFIG_DIR`，不会复制或映射资源。若复用了修复前启动的旧 Server，请先停止旧 Server，再重新执行 `node autorun.mjs`。
 
