@@ -2,6 +2,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -11,6 +12,12 @@ const RESULT_POLL_INTERVAL_MS = 500;
 const RESULT_EXIT_GRACE_MS = 10_000;
 const FINAL_RESULT_STATUSES = new Set(["completed", "failed"]);
 const RETAINED_WORKDIR_NAME = "ohostest-workdir";
+const RUNNER_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "runner",
+);
 
 async function exists(target) {
   try {
@@ -49,39 +56,48 @@ async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs =
 export async function loadOhosTestConfig(config) {
   const raw = config.ohosTest || {};
   const enabled = raw.enabled === true;
-  const runnerRoot = raw.runnerRoot
-    ? path.resolve(config.__baseDir || process.cwd(), raw.runnerRoot)
-    : "";
   const timeoutSec = Math.max(1, Number(raw.timeoutSec) || 7200);
-  const machineConfig = runnerRoot
-    ? path.resolve(runnerRoot, raw.machineConfig || path.join("config", "machine.json"))
-    : "";
+  const machineConfig = { ...raw };
+  delete machineConfig.enabled;
+  delete machineConfig.timeoutSec;
+  if (machineConfig.paths && typeof machineConfig.paths === "object") {
+    machineConfig.paths = { ...machineConfig.paths };
+    const foldServerScript = String(machineConfig.paths.foldServerScript || "").trim();
+    if (foldServerScript && !path.isAbsolute(foldServerScript)) {
+      machineConfig.paths.foldServerScript = path.resolve(
+        config.__baseDir || process.cwd(),
+        foldServerScript,
+      );
+    }
+  }
 
   const normalized = {
     enabled,
-    runnerRoot,
+    runnerDir: RUNNER_ROOT,
     timeoutSec,
     machineConfig,
     runMode: "swe",
   };
   if (!enabled) return normalized;
 
-  if (!runnerRoot) {
-    throw new Error("ohosTest.enabled=true 时必须配置 ohosTest.runnerRoot");
+  if (!machineConfig.paths || typeof machineConfig.paths !== "object") {
+    throw new Error("ohosTest.enabled=true 时必须配置 ohosTest.paths");
+  }
+  if (!Array.isArray(machineConfig.devices) || machineConfig.devices.length === 0) {
+    throw new Error("ohosTest.enabled=true 时必须配置至少一个 ohosTest.devices 设备");
   }
   for (const [label, target] of [
-    ["Runner package.json", path.join(runnerRoot, "package.json")],
-    ["ohostest:case 入口", path.join(runnerRoot, "scripts", "runOhosTestCase.ts")],
-    ["设备配置", machineConfig],
+    ["Runner package.json", path.join(RUNNER_ROOT, "package.json")],
+    ["ohostest:case 入口", path.join(RUNNER_ROOT, "scripts", "runOhosTestCase.ts")],
   ]) {
     if (!await exists(target)) throw new Error(`${label} 不存在: ${target}`);
   }
-  const packageJson = await readJson(path.join(runnerRoot, "package.json"));
+  const packageJson = await readJson(path.join(RUNNER_ROOT, "package.json"));
   if (!packageJson?.scripts?.["ohostest:case"]) {
-    throw new Error(`Runner 未定义 npm script ohostest:case: ${runnerRoot}`);
+    throw new Error(`Runner 未定义 npm script ohostest:case: ${RUNNER_ROOT}`);
   }
-  if (!await exists(path.join(runnerRoot, "node_modules"))) {
-    throw new Error(`Runner 依赖尚未安装，请先在该目录执行 npm install: ${runnerRoot}`);
+  if (!await exists(path.join(RUNNER_ROOT, "node_modules"))) {
+    throw new Error(`Runner 依赖尚未安装，请先在该目录执行 npm install: ${RUNNER_ROOT}`);
   }
   return { ...normalized, runnerVersion: String(packageJson.version || "") };
 }
@@ -317,6 +333,13 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
   const consolePath = path.join(caseRunDir, "ohostest-runner-console.log");
   const outputDir = runnerOutputDir(inputDir, startedAt);
   const resultWatchPath = path.join(outputDir, "result.json");
+  const machineConfigPath = path.join(outputDir, "machine.json");
+  await fsp.mkdir(outputDir, { recursive: true });
+  await fsp.writeFile(
+    machineConfigPath,
+    `${JSON.stringify(settings.machineConfig, null, 2)}\n`,
+    "utf8",
+  );
   const npmArgs = [
     "run",
     "--silent",
@@ -326,6 +349,8 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     inputDir,
     "--out",
     outputDir,
+    "--machine-config",
+    machineConfigPath,
     "--run",
     settings.runMode,
     "--keep-emulators",
@@ -344,7 +369,7 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
       signal,
     }, () => runProcess({
       ...invocation,
-      cwd: settings.runnerRoot,
+      cwd: settings.runnerDir,
       consolePath,
       timeoutSec: settings.timeoutSec,
       signal,
@@ -381,7 +406,6 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     status,
     runnerStatus: runnerResult?.status || "",
     runnerVersion: settings.runnerVersion || "",
-    runnerRoot: settings.runnerRoot,
     runMode: settings.runMode,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
@@ -391,6 +415,7 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     error: completed ? "" : String(diagnostic),
     inputCaseDir: inputDir,
     metadataPath: stagedCase.metadataPath,
+    machineConfigPath,
     testPatchPath: stagedCase.testPatchPath,
     goldenPatchPath: stagedCase.goldenPatchPath,
     outputDir,

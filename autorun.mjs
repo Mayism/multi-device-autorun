@@ -1284,7 +1284,6 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
   const startedAt = new Date().toISOString();
   reporter.caseOhosTestStarted(caseName);
   await appendCaseLog(caseLogPath, "info", "ohostest_started", {
-    runnerRoot: settings.runnerRoot,
     runMode: settings.runMode,
   });
   await store.setCase(caseName, {
@@ -1316,7 +1315,6 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
     ohosTest = {
       status: interrupted ? "interrupted" : "failed",
       runnerVersion: settings.runnerVersion || "",
-      runnerRoot: settings.runnerRoot,
       runMode: settings.runMode,
       startedAt,
       finishedAt: new Date().toISOString(),
@@ -1445,7 +1443,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   const model = await validateServerConfig(client, execution, serverConfig, sourceMode, signal);
   throwIfInterrupted(signal);
   const ohosTestLabel = ohosTest.enabled
-    ? `已启用（串行，Runner=${ohosTest.runnerRoot}）`
+    ? "已启用（串行，内置 Runner）"
     : "未启用";
   if (
     sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
@@ -1475,7 +1473,6 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     ohosTest: {
       enabled: ohosTest.enabled,
       concurrency: ohosTest.enabled ? 1 : 0,
-      runnerRoot: ohosTest.runnerRoot,
     },
     ...(retryPlan ? {
       retry: {

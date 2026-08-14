@@ -51,6 +51,7 @@ autorun/
 │   ├── ask-opencode.mjs        # 人工执行单个 Agent 任务
 │   ├── run-opencode-serve.mjs  # 独立启动 OpenCode Server
 │   └── lib/                    # Autorun 内部模块
+├── runner/                     # 内置 HarmonyOS ohosTest Runner
 ├── cases/                      # 原始用例
 └── output/
     ├── _runtime/opencode/      # OpenCode Server 运行数据和日志
@@ -58,6 +59,7 @@ autorun/
 ```
 
 工程仅提供 `.mjs` 入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行。当前自动化主链不会依赖平台专用的 `.bat`、`.ps1` 或 `.sh` 脚本。
+首次检出后需要执行 `npm --prefix runner install` 安装内置 Runner 的依赖。
 
 ## 用例格式
 
@@ -104,11 +106,24 @@ cases/
   },
   "ohosTest": {
     "enabled": true,
-    "runnerRoot": "D:\\tool\\harmonyos-ohostest\\harmonyos-ohostest-runner",
-    "timeoutSec": 7200
-  },
-  "upload": {
-    "enabled": false
+    "timeoutSec": 7200,
+    "paths": {
+      "hvigorw": "hvigorw",
+      "ohpm": "ohpm",
+      "hdc": "hdc",
+      "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
+      "emulatorDeployedDir": "D:/deveco/Images",
+      "foldServerScript": "../runner/src/fold/assets/fold-server.py"
+    },
+    "devices": [
+      {
+        "id": "phone",
+        "profile": "Pura 90",
+        "target": "127.0.0.1:15001",
+        "hdcPort": 15001,
+        "startEmulator": true
+      }
+    ]
   }
 }
 ```
@@ -134,9 +149,9 @@ cases/
 | `execution.maxRuntimeSec` | 单个用例最大总运行时间。 |
 | `execution.continueOnError` | 单个用例失败后是否继续执行剩余用例。 |
 | `ohosTest.enabled` | 是否在 Agent 适配完成后自动执行 `npm run ohostest:case`。 |
-| `ohosTest.runnerRoot` | 本机 `harmonyos-ohostest-runner` 仓库路径，该目录需已执行 `npm install`。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，超时后终止 Runner 及其子进程。 |
-| `upload.enabled` | 是否在批次完成后自动将失败用例产物上传到 AGC 云存储。默认 `false`（仅打包 ZIP 到用例目录，不上传、不写 `upload-results.json`、HTML 不显示下载按钮）。设为 `true` 后上传成功写 `upload-results.json` 并在总览页显示下载按钮。上传凭证已内置在代码中，无需额外配置。 |
+| `ohosTest.paths` | Runner 使用的 Hvigor、ohpm、hdc、模拟器和折叠屏服务脚本路径。 |
+| `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
 
 相对路径以 `config/autorun.config.json` 所在目录为基准解析。
 
@@ -330,7 +345,7 @@ Worker 3 -> Case 3
 
 启用 `ohosTest` 后，Agent Worker 和测试队列相互独立：Agent 每完成一个用例，就立即将该用例放入 ohosTest 队列，然后继续领取下一个 Agent 用例。ohosTest 队列固定并发数为 1，前一个用例完成模拟器启动、设备测试和清理后，才会执行下一个用例，避免多个用例争抢模拟器和端口。
 
-Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata 和两个 patch 原样复制到 `output/<batchId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 或 `task/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`。Autorun 不传 `--out` 和 `--machine-config`：结果目录由 Runner 默认创建，设备配置由 Runner 工作目录下的 `config/machine.json` 提供。
+Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata 和两个 patch 原样复制到 `output/<batchId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 或 `task/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`。Autorun 会将当前配置中的 `ohosTest.paths` 和 `ohosTest.devices` 写入本次运行目录的 `machine.json`，再通过 `--machine-config` 传给内置 Runner。
 
 Agent 的实际提示词会追加工作目录隔离要求，禁止枚举或读取当前工程以外的用例和评测文件。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。OpenCode Server 同时保持 `external_directory=deny`。
 
@@ -357,6 +372,7 @@ output/<batchId>/
     ├── ohostest-runner-console.log # Runner 标准输出和错误输出
     ├── .ohostest-runs/        # harmonyos-ohostest-runner 自动生成
     │   └── <runId>/
+    │       ├── machine.json   # 从 autorun.config.json 生成的本次设备配置
     │       ├── result.json
     │       ├── summary.md
     │       └── commands.jsonl

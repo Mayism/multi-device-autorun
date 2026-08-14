@@ -2,8 +2,8 @@
   "server": {
     "url": "http://127.0.0.1:61419",
     "opencodeSource": {
-      "mode": "softwareEngineering",
-      "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
+      "mode": "harmonyBot",
+      "root": "C:/Users/HW/.vscode/extensions"
     },
     "devecoHome": "D:\\deveco\\DevEco Studio",
     "stopWhenFinished": true,
@@ -14,7 +14,7 @@
     "outputRoot": "../output",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
-    "additionalPrompt": "严格按照harmonyros-ui-multi中的六步流程来执行适配，不允许跳过",
+    "additionalPrompt": "",
     "concurrency": 3,
     "consoleMode": "dashboard",
     "idleTimeoutSec": 600,
@@ -23,10 +23,45 @@
   },
   "ohosTest": {
     "enabled": true,
+<<<<<<< Updated upstream
     "runnerRoot": "D:\\tool\\harmonyos-ohostest-auto\\harmonyos-ohostest-runner",
     "timeoutSec": 7200
   },
   "upload": {
     "enabled": false
+=======
+    "timeoutSec": 7200,
+    "paths": {
+      "hvigorw": "hvigorw",
+      "ohpm": "ohpm",
+      "hdc": "hdc",
+      "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
+      "emulatorDeployedDir": "D:/deveco/Images",
+      "foldServerScript": "../runner/src/fold/assets/fold-server.py"
+    },
+    "devices": [
+      {
+        "id": "phone",
+        "profile": "Pura 90",
+        "target": "127.0.0.1:15001",
+        "hdcPort": 15001,
+        "startEmulator": true
+      },
+      {
+        "id": "foldable",
+        "profile": "Mate X7",
+        "target": "127.0.0.1:15005",
+        "hdcPort": 15005,
+        "startEmulator": true
+      },
+      {
+        "id": "tablet",
+        "profile": "MatePad Pro 13_API24",
+        "target": "127.0.0.1:15008",
+        "hdcPort": 15008,
+        "startEmulator": true
+      }
+    ]
+>>>>>>> Stashed changes
   }
 }
