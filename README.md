@@ -27,6 +27,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - 保存批次状态、单用例状态、Agent 输出、SSE 事件和轮询记录。
 - 批次完成后自动生成 HTML 报告（总览页 + 每用例详情页），总览页支持导出 Excel。
 - 失败用例产物可打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。
+- 支持合并多个批次的报告：把多轮回归的总览页数值自动求和、用例行汇总，生成跨批次总览页（`node autorun.mjs --merge`）。
 
 目前主流程只负责 Agent 执行和产物归档。使用生成工程继续执行编译、测试、设备验证等后续任务的能力将在后续版本补充。
 
@@ -291,6 +292,23 @@ node src/upload-results.mjs output/<batchId>
 # 再刷新 HTML（自动读取 upload-results.json）
 node src/generate-html-report.mjs output/<batchId>
 ```
+
+### 7. 合并批次报告
+
+多轮回归后，可把多个批次的总览报告合并成一份跨批次总览页：统计卡片（用例数、耗时等）按数值/单位/斜杠型自动求和，用例详情行汇总到同一张表，子页面按「批次名__原文件名」前缀隔离防覆盖。
+
+```bash
+# 合并默认 outputRoot（见配置）下所有含 overview.html 的批次目录
+node autorun.mjs --merge
+
+# 合并指定目录
+node autorun.mjs --merge path/to/results
+
+# 也可指定配置文件
+node autorun.mjs --merge --config ./config/another.config.json
+```
+
+合并产物直接落在该根目录下：`overview.html`（跨批次总览）与 `subpage/`（汇总后的用例详情页）。该模式不启动 OpenCode Server、不执行用例，仅处理既有报告，可随时重跑。
 
 ## 并发执行机制
 

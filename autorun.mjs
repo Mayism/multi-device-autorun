@@ -16,6 +16,7 @@ import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./sr
 import { loadOhosTestConfig, runOhosTest } from "./src/lib/ohostest-orchestrator.mjs";
 import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
+import { mergeOverview } from "./src/lib/merge-overview.mjs";
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
@@ -54,6 +55,7 @@ function parseArgs(argv) {
     checkOnly: false,
     retryBatchId: "",
     retryCaseName: "",
+    merge: undefined,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -68,11 +70,19 @@ function parseArgs(argv) {
     } else if (value === "--case") {
       if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--case 需要用例名称");
       result.retryCaseName = argv[++index];
+    } else if (value === "--merge") {
+      // 可选根目录：下一个 token 存在且不是 flag 则当作根目录，否则用 config 的 outputRoot
+      if (argv[index + 1] && !argv[index + 1].startsWith("--")) {
+        result.merge = argv[++index];
+      } else {
+        result.merge = "";
+      }
     } else if (value === "--help" || value === "-h") {
       console.log([
         "用法:",
         "  node autorun.mjs [--config config/autorun.config.json] [--check]",
         "  node autorun.mjs --retry <batchId> [--case <caseName>] [--config config/autorun.config.json]",
+        "  node autorun.mjs --merge [output目录] [--config config/autorun.config.json]",
       ].join("\n"));
       process.exit(0);
     } else {
@@ -81,6 +91,8 @@ function parseArgs(argv) {
   }
   if (result.retryCaseName && !result.retryBatchId) throw new Error("--case 只能和 --retry 一起使用");
   if (result.checkOnly && result.retryBatchId) throw new Error("--check 不能和 --retry 一起使用");
+  if (result.merge !== undefined && result.checkOnly) throw new Error("--merge 不能和 --check 一起使用");
+  if (result.merge !== undefined && result.retryBatchId) throw new Error("--merge 不能和 --retry 一起使用");
   return result;
 }
 
@@ -1649,6 +1661,21 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
 
 const args = parseArgs(process.argv.slice(2));
 const config = await loadAutorunConfig(args.configPath);
+
+// --merge 模式：仅合并既有批次报告，不启动 OpenCode Server、不跑用例，短路退出。
+if (args.merge !== undefined) {
+  const mergeRoot = args.merge || config.execution.outputRoot;
+  try {
+    const merged = mergeOverview({ root: mergeRoot });
+    console.log(`[merge] 已合并 ${merged.batchCount} 个批次 → ${merged.overviewPath}`);
+    console.log(`[merge] 已生成 ${merged.subpageDir}/ （${merged.copiedFiles} 个文件）`);
+    process.exit(0);
+  } catch (error) {
+    console.error(`[merge] ${error.message}`);
+    process.exit(1);
+  }
+}
+
 const shutdownController = new AbortController();
 let server;
 let retryPlan;
