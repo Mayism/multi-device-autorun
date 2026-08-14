@@ -6,24 +6,17 @@
       "root": "C:/Users/HW/.vscode/extensions"
     },
     "devecoHome": "D:\\deveco\\DevEco Studio",
-    "stopWhenFinished": true,
     "loadAgents": []
   },
   "execution": {
     "casesRoot": "D:\\cases",
-    "outputRoot": "../output",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
     "additionalPrompt": "",
     "concurrency": 3,
-    "consoleMode": "dashboard",
-    "idleTimeoutSec": 600,
-    "maxRuntimeSec": 6000,
-    "continueOnError": true
+    "consoleMode": "dashboard"
   },
   "ohosTest": {
-    "enabled": true,
-    "timeoutSec": 7200,
     "paths": {
       "hvigorw": "hvigorw",
       "ohpm": "ohpm",

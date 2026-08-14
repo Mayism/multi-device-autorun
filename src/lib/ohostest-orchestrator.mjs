@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -54,8 +53,13 @@ async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs =
 }
 
 export async function loadOhosTestConfig(config) {
-  const raw = config.ohosTest || {};
-  const enabled = raw.enabled === true;
+  const hasOhosTestConfig = Boolean(
+    config.ohosTest
+    && typeof config.ohosTest === "object"
+    && !Array.isArray(config.ohosTest),
+  );
+  const raw = hasOhosTestConfig ? config.ohosTest : {};
+  const enabled = hasOhosTestConfig && raw.enabled !== false;
   const timeoutSec = Math.max(1, Number(raw.timeoutSec) || 7200);
   const machineConfig = { ...raw };
   delete machineConfig.enabled;
@@ -193,17 +197,12 @@ async function runProcess({
   command,
   args,
   cwd,
-  consolePath,
   timeoutSec,
   signal,
   resultWatchPath,
   resultExitGraceMs = RESULT_EXIT_GRACE_MS,
 }) {
-  await fsp.mkdir(path.dirname(consolePath), { recursive: true });
   return new Promise((resolve, reject) => {
-    const log = fs.createWriteStream(consolePath, { flags: "a", encoding: "utf8" });
-    log.write(`[${new Date().toISOString()}] ${command} ${args.join(" ")}\n`);
-
     let settled = false;
     let stopReason = "";
     let timer;
@@ -222,8 +221,6 @@ async function runProcess({
       settled = true;
       clearTimers();
       signal?.removeEventListener("abort", onAbort);
-      log.end();
-      await once(log, "finish").catch(() => {});
       resolve({
         code,
         signal: childSignal || "",
@@ -237,28 +234,22 @@ async function runProcess({
       settled = true;
       clearTimers();
       signal?.removeEventListener("abort", onAbort);
-      log.end();
       reject(error);
     };
     const stop = async (reason) => {
       if (settled || stopReason) return;
       stopReason = reason;
-      log.write(`[${new Date().toISOString()}] ${reason}\n`);
       await terminateProcessTree(child);
     };
     const onAbort = () => stop("Autorun 中断，正在终止 ohosTest 进程树").catch(() => {});
     const stopAfterFinalResult = async () => {
       if (settled || stopReason) return;
       stopReason = `ohosTest 已生成最终 result.json（status=${detectedResultStatus}），但进程在 ${Math.round(resultExitGraceMs / 1000)} 秒内未退出，正在终止进程树`;
-      log.write(`[${new Date().toISOString()}] ${stopReason}\n`);
       await terminateProcessTree(child);
       if (settled) return;
 
-      // cmd/npm 可能已经退出，但某个后代仍持有 stdout/stderr 管道，导致 Node 的
-      // close 事件永远不触发。最终结果已写出且 Runner 已完成设备清理后，主动关闭
-      // 本地管道并结算本次运行，避免阻塞串行队列。
-      child.stdout?.unpipe(log);
-      child.stderr?.unpipe(log);
+      // 最终结果已经写出且 Runner 已完成设备清理，主动结算本次运行，避免仍未退出
+      // 的 npm/Runner 后代阻塞串行队列。
       child.stdout?.destroy();
       child.stderr?.destroy();
       await finish(child.exitCode, child.signalCode);
@@ -271,9 +262,6 @@ async function runProcess({
         if (settled || !result) return;
         detectedResultStatus = String(result.status);
         clearInterval(resultPollTimer);
-        log.write(
-          `[${new Date().toISOString()}] 已检测到最终 result.json（status=${detectedResultStatus}），等待进程正常退出\n`,
-        );
         resultExitTimer = setTimeout(
           () => stopAfterFinalResult().catch(() => {}),
           resultExitGraceMs,
@@ -288,15 +276,12 @@ async function runProcess({
       child = spawn(command, args, {
         cwd,
         windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: "ignore",
       });
     } catch (error) {
-      log.end();
       reject(error);
       return;
     }
-    child.stdout.pipe(log, { end: false });
-    child.stderr.pipe(log, { end: false });
     child.once("error", fail);
     child.once("close", (code, childSignal) => finish(code, childSignal).catch(fail));
     if (signal?.aborted) {
@@ -320,9 +305,7 @@ async function runProcess({
   });
 }
 
-export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, deviceLeasePath, signal }) {
-  const startedAt = new Date();
-  const stagedCase = await prepareGeneratedCase({ caseInfo, caseRunDir, patchPath });
+async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLeasePath, signal, startedAt, stagedCase }) {
   const { inputDir } = stagedCase;
   const runnerWorkDir = path.join(inputDir, "work");
   const retainedWorkDir = path.join(inputDir, RETAINED_WORKDIR_NAME);
@@ -330,7 +313,6 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     fsp.rm(runnerWorkDir, { recursive: true, force: true }),
     fsp.rm(retainedWorkDir, { recursive: true, force: true }),
   ]);
-  const consolePath = path.join(caseRunDir, "ohostest-runner-console.log");
   const outputDir = runnerOutputDir(inputDir, startedAt);
   const resultWatchPath = path.join(outputDir, "result.json");
   const machineConfigPath = path.join(outputDir, "machine.json");
@@ -370,7 +352,6 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     }, () => runProcess({
       ...invocation,
       cwd: settings.runnerDir,
-      consolePath,
       timeoutSec: settings.timeoutSec,
       signal,
       resultWatchPath,
@@ -417,12 +398,28 @@ export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, d
     metadataPath: stagedCase.metadataPath,
     machineConfigPath,
     testPatchPath: stagedCase.testPatchPath,
-    goldenPatchPath: stagedCase.goldenPatchPath,
     outputDir,
     resultPath: runnerResultPath,
     summaryPath: runnerSummaryPath,
-    consolePath,
     workDir,
     ...(workPreserveError ? { workPreserveError } : {}),
   };
+}
+
+export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, deviceLeasePath, signal }) {
+  const startedAt = new Date();
+  const stagedCase = await prepareGeneratedCase({ caseInfo, caseRunDir, patchPath });
+  try {
+    return await runPreparedOhosTest({
+      settings,
+      caseInfo,
+      caseRunDir,
+      deviceLeasePath,
+      signal,
+      startedAt,
+      stagedCase,
+    });
+  } finally {
+    await fsp.rm(stagedCase.goldenPatchPath, { force: true }).catch(() => {});
+  }
 }

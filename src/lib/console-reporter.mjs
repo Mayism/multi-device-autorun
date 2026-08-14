@@ -349,9 +349,6 @@ export class ConsoleReporter {
     const reports = summary.reports || {};
     if (reports.htmlOverviewPath) {
       this.write(`[batch:${this.batchId}] HTML 报告：${reports.htmlOverviewPath}`);
-    }
-    if (reports.markdownPath) {
-      this.write(`[batch:${this.batchId}] 报告：${reports.markdownPath}`);
     } else {
       this.write(`[batch:${this.batchId}] 报告：生成失败${summary.reportError ? `（${summary.reportError}）` : ""}`);
     }

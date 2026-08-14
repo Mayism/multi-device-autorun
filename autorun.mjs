@@ -689,9 +689,7 @@ async function recoverInterruptedRuns(outputRoot) {
           messagesPath: await exists(path.join(generateDir, "all-messages.json")) ? path.join(generateDir, "all-messages.json") : "",
           ssePath: path.join(generateDir, "opencode-sse.jsonl"),
           pollingPath: path.join(generateDir, "opencode-polling.jsonl"),
-          executionPath: path.join(current.runDir, "execution.jsonl"),
           consolePath: path.join(generateDir, "agent-console.log"),
-          ohosTestConsolePath: existingResult?.ohosTest?.consolePath || existingResult?.logs?.ohosTestConsolePath || "",
         };
         current.resultPath = resultPath;
         await atomicWriteJson(resultPath, result);
@@ -945,9 +943,61 @@ async function generatePatch(projectDir, baseline, patchPath) {
   await fs.writeFile(patchPath, diff.stdout);
 }
 
-async function appendCaseLog(logPath, level, message, data = {}) {
-  const row = { timestamp: new Date().toISOString(), level, message, ...data };
-  await fs.appendFile(logPath, `${JSON.stringify(row)}\n`, "utf8");
+const GENERATED_PROJECT_DIRS = new Set([".git", ".hvigor", "build", "node_modules"]);
+
+async function removeOutputPath(target) {
+  if (!target) return;
+  await fs.rm(target, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+}
+
+async function pruneGeneratedProjectDirs(rootDir) {
+  if (!rootDir || !await exists(rootDir)) return;
+  const visit = async (currentDir) => {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const target = path.join(currentDir, entry.name);
+      if (GENERATED_PROJECT_DIRS.has(entry.name)) {
+        await removeOutputPath(target);
+      } else {
+        await visit(target);
+      }
+    }
+  };
+  await visit(rootDir);
+}
+
+async function cleanupCaseArtifacts({
+  caseName,
+  originalDir = "",
+  projectDir = "",
+  patchPath = "",
+  generateDir = "",
+  removeRawAgentLogs = false,
+  pruneProject = false,
+}) {
+  const failures = [];
+  const attempt = async (label, action) => {
+    try {
+      await action();
+    } catch (error) {
+      failures.push(`${label}: ${error.message}`);
+    }
+  };
+
+  if (originalDir && patchPath && await exists(patchPath)) {
+    await attempt("删除 original", () => removeOutputPath(originalDir));
+  }
+  if (removeRawAgentLogs && generateDir) {
+    await attempt("删除 SSE 日志", () => removeOutputPath(path.join(generateDir, "opencode-sse.jsonl")));
+    await attempt("删除轮询日志", () => removeOutputPath(path.join(generateDir, "opencode-polling.jsonl")));
+  }
+  if (pruneProject && projectDir) {
+    await attempt("清理工程构建缓存", () => pruneGeneratedProjectDirs(projectDir));
+  }
+  if (failures.length) {
+    console.warn(`[warn] ${caseName} 输出清理未完全完成：${failures.join("；")}`);
+  }
 }
 
 async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTestEnabled, store, reporter, signal }) {
@@ -961,7 +1011,6 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
   const patchPath = path.join(caseRunDir, "diff", "changes.patch");
   const resultPath = path.join(caseRunDir, "result.json");
   const statePath = path.join(caseRunDir, "state.json");
-  const caseLogPath = path.join(caseRunDir, "execution.jsonl");
   const agentConsolePath = path.join(generateDir, "agent-console.log");
   const startedAt = new Date();
   let baseline = "";
@@ -1044,8 +1093,6 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       maxRuntimeSec: execution.maxRuntimeSec,
       signal,
       onProgress: (event, data) => {
-        // 原始 SSE 已单独保存，避免在 execution.jsonl 中重复写入大量事件。
-        if (event !== "sse") appendCaseLog(caseLogPath, "info", event, data).catch(() => {});
         if (data?.tokenUsage) {
           latestTokenUsage = data.tokenUsage;
           reporter.caseTokenUsage(caseName, latestTokenUsage);
@@ -1074,6 +1121,15 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     reporter.caseProgress(caseName, "Agent 已结束，正在生成结果和差异文件");
     await updateState({ stage: "artifacting", childSessionIds: monitored.childSessionIds });
     await generatePatch(projectDir, baseline, patchPath);
+    await cleanupCaseArtifacts({
+      caseName,
+      originalDir,
+      projectDir,
+      patchPath,
+      generateDir,
+      removeRawAgentLogs: true,
+      pruneProject: !ohosTestEnabled,
+    });
 
     const agentFinishedAt = new Date();
     const agentElapsedSec = Math.round((agentFinishedAt.getTime() - startedAt.getTime()) / 1000);
@@ -1093,7 +1149,6 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       finishReason: monitored.finishReason,
       tokenUsage,
       agentCompile,
-      originalDir,
       projectName: caseInfo.projectName,
       projectDir,
       patchPath,
@@ -1105,9 +1160,6 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
         messagesPath: agentLogs.messagesPath,
         compileAttemptsPath: agentLogs.compileAttemptsPath,
         finalMessagePath: path.join(generateDir, "final-message.json"),
-        ssePath: path.join(generateDir, "opencode-sse.jsonl"),
-        pollingPath: path.join(generateDir, "opencode-polling.jsonl"),
-        executionPath: caseLogPath,
         consolePath: agentConsolePath,
       },
       ...(ohosTestEnabled ? { ohosTest: { status: "queued" } } : {}),
@@ -1139,6 +1191,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     if (baseline && await exists(projectDir)) {
       await generatePatch(projectDir, baseline, patchPath).catch(() => {});
     }
+    await cleanupCaseArtifacts({ caseName, originalDir, patchPath });
     if (error.lastMessage) {
       await atomicWriteJson(path.join(generateDir, "last-message.json"), error.lastMessage).catch(() => {});
     }
@@ -1176,7 +1229,6 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
         compileAttemptsPath: agentLogs?.compileAttemptsPath || "",
         ssePath: path.join(generateDir, "opencode-sse.jsonl"),
         pollingPath: path.join(generateDir, "opencode-polling.jsonl"),
-        executionPath: caseLogPath,
         consolePath: agentConsolePath,
       },
     };
@@ -1214,7 +1266,6 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
   const patchPath = path.join(diffDir, "changes.patch");
   const resultPath = path.join(caseRunDir, "result.json");
   const statePath = path.join(caseRunDir, "state.json");
-  const executionPath = path.join(caseRunDir, "execution.jsonl");
   const startedAt = new Date().toISOString();
 
   await fs.mkdir(generateDir, { recursive: true });
@@ -1248,7 +1299,6 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     logs: {
       transcriptPath: previousResult.logs?.transcriptPath || "",
       messagesPath: previousResult.logs?.messagesPath || "",
-      executionPath,
       consolePath: previousResult.logs?.consolePath || "",
       sourceResultPath: previousResult.resultPath || "",
     },
@@ -1260,7 +1310,6 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     stage: "ohostest_queued",
     updatedAt: startedAt,
   });
-  await appendCaseLog(executionPath, "info", "retry_reused_agent", result.retry);
   await store.setCase(caseInfo.name, {
     status: "running",
     stage: "ohostest_queued",
@@ -1280,12 +1329,8 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
   const caseName = caseInfo.name;
   const caseRunDir = path.dirname(agentResult.resultPath);
   const statePath = path.join(caseRunDir, "state.json");
-  const caseLogPath = agentResult.logs?.executionPath || path.join(caseRunDir, "execution.jsonl");
   const startedAt = new Date().toISOString();
   reporter.caseOhosTestStarted(caseName);
-  await appendCaseLog(caseLogPath, "info", "ohostest_started", {
-    runMode: settings.runMode,
-  });
   await store.setCase(caseName, {
     status: "running",
     stage: "ohostest_running",
@@ -1323,9 +1368,20 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
       outputDir: path.join(caseRunDir, ".ohostest-runs"),
       resultPath: "",
       summaryPath: "",
-      consolePath: path.join(caseRunDir, "ohostest-runner-console.log"),
     };
   }
+
+  const retainedOhosTestWorkDir = ohosTest.workDir
+    || (await exists(path.join(caseRunDir, "ohostest-workdir"))
+      ? path.join(caseRunDir, "ohostest-workdir")
+      : await exists(path.join(caseRunDir, "work"))
+        ? path.join(caseRunDir, "work")
+        : "");
+  await cleanupCaseArtifacts({
+    caseName,
+    projectDir: agentResult.projectDir,
+    pruneProject: ohosTest.status === "completed" || Boolean(retainedOhosTestWorkDir),
+  });
 
   const finishedAt = ohosTest.finishedAt || new Date().toISOString();
   const status = ohosTest.status === "completed" ? "completed" : ohosTest.status;
@@ -1343,10 +1399,7 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
     finishedAt,
     elapsedSec: elapsedSeconds(agentResult.startedAt, finishedAt),
     ohosTest,
-    logs: {
-      ...agentResult.logs,
-      ohosTestConsolePath: ohosTest.consolePath,
-    },
+    logs: { ...agentResult.logs },
   };
   await atomicWriteJson(agentResult.resultPath, finalResult);
   const finalState = {
@@ -1370,7 +1423,6 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
     resultPath: agentResult.resultPath,
     ohosTest,
   });
-  await appendCaseLog(caseLogPath, status === "completed" ? "info" : "error", "ohostest_finished", ohosTest);
   reporter.caseFinished(finalResult);
   return finalResult;
 }
