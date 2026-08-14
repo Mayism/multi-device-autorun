@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "lib_foundation",
-    "type": "har",
-    "deviceTypes": [
-      "default"
-    ]
-  }
-}

@@ -23,13 +23,6 @@
   },
   "ohosTest": {
     "enabled": true,
-<<<<<<< Updated upstream
-    "runnerRoot": "D:\\tool\\harmonyos-ohostest-auto\\harmonyos-ohostest-runner",
-    "timeoutSec": 7200
-  },
-  "upload": {
-    "enabled": false
-=======
     "timeoutSec": 7200,
     "paths": {
       "hvigorw": "hvigorw",
@@ -62,6 +55,5 @@
         "startEmulator": true
       }
     ]
->>>>>>> Stashed changes
   }
 }
