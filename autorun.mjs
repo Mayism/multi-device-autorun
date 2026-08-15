@@ -399,9 +399,6 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   } else {
     log(`[server] 使用 Software Engineering 资源: ${source.root}`);
   }
-  log(`[server] OpenCode 资源目录: ${source.resourcesDir}`);
-  log(`[server] OpenCode 运行数据: ${runtimeRoot}`);
-  log(`[server] 自动调用 run-opencode-serve.mjs: ${process.execPath} ${args.slice(0, 1).concat(args.slice(1)).join(" ")}`);
   let child;
   try {
     child = spawn(process.execPath, args, {
