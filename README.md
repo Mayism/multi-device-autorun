@@ -1,14 +1,14 @@
 # Muti-Device-Autorun
 
-Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自动启动或复用 OpenCode Server，扫描 `cases/` 下的用例，并通过固定并发的 Worker Pool 持续执行任务。
+Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自动启动或复用 OpenCode Server，扫描 `execution.casesRoot` 配置目录下的用例，并通过固定并发的 Worker Pool 持续执行任务。
 
-每个用例都使用独立的 OpenCode session、工程副本和结果目录。Agent 不会直接修改 `cases/<case>/base/` 或 `cases/<case>/task/` 中的原始工程。
+每个用例都使用独立的 OpenCode session、工程副本和结果目录。Agent 不会直接修改用例根目录中的原始工程。
 
 ## 主要功能
 
 - 自动启动或复用 OpenCode Server。
 - 支持 Windows、macOS 和 Linux 的 Node.js 运行环境。
-- 自动扫描 `cases/` 下的可执行用例。
+- 自动扫描 `execution.casesRoot` 配置目录下的可执行用例。
 - 从每个用例的 `PROMPT.md` 读取任务提示词。
 - 通过可配置的 Worker Pool 并行执行多个用例。
 - 任意用例完成后立即领取下一个待执行用例，不等待同批其他用例结束。
@@ -52,7 +52,6 @@ autorun/
 │   ├── run-opencode-serve.mjs  # 独立启动 OpenCode Server
 │   └── lib/                    # Autorun 内部模块
 ├── runner/                     # 内置 HarmonyOS ohosTest Runner
-├── cases/                      # 原始用例
 └── output/
     ├── _runtime/opencode/      # OpenCode Server 运行数据和日志
     └── <batchId>/              # 正式批量运行结果
@@ -63,10 +62,10 @@ autorun/
 
 ## 用例格式
 
-`cases/` 的每个直接子目录代表一个用例。一个可执行用例至少需要包含：
+`execution.casesRoot` 指向的目录中，每个直接子目录代表一个用例。一个可执行用例至少需要包含：
 
 ```text
-cases/
+<casesRoot>/
 └── CaseHomeStay/
     ├── base/ 或 task/          # 原始工程，Autorun 不会直接修改
     ├── PROMPT.md               # Agent 任务提示词
@@ -93,7 +92,7 @@ cases/
     "loadAgents": []
   },
   "execution": {
-    "casesRoot": "../cases",
+    "casesRoot": "D:\\cases",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
     "additionalPrompt": "",
@@ -170,7 +169,7 @@ Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参�
 ```json
 {
   "execution": {
-    "casesRoot": "D:/multi-device-autorun/cases",
+    "casesRoot": "D:/cases",
     "outputRoot": "D:/out"
   }
 }
@@ -251,7 +250,7 @@ node autorun.mjs --retry 20260810_095119_d87e1ad0 --case CaseAtomic
 确保 OpenCode Server 已运行，然后执行：
 
 ```powershell
-node src/ask-opencode.mjs "帮我把当前工程下的文件名列出来" --agent harmonyos-multi-device --model deepseek-v4-flash -C "D:\autorun\cases\CaseHomeStay"
+node src/ask-opencode.mjs "帮我把当前工程下的文件名列出来" --agent harmonyos-multi-device --model deepseek-v4-flash -C "D:\cases\CaseHomeStay"
 ```
 
 查看单任务参数：
@@ -458,7 +457,7 @@ PROMPT.md
 
 ### 复制用例时出现 `EPERM ... symlink`
 
-部分 HarmonyOS 工程会在 `oh_modules` 中使用 Windows Junction。Autorun 会在复制用例时自动把这类目录联接重映射到当前运行沙箱，不需要管理员权限，也不会让链接指回 `cases` 原始工程。
+部分 HarmonyOS 工程会在 `oh_modules` 中使用 Windows Junction。Autorun 会在复制用例时自动把这类目录联接重映射到当前运行沙箱，不需要管理员权限，也不会让链接指回源用例工程。
 
 如果仍出现该错误，请确认使用的是包含 `src/lib/sandbox-copy.mjs` 的当前版本，并重新启动 `node autorun.mjs`。已经启动的 Node 进程不会加载后续代码修改；失败批次可以保留用于排查，重新运行会创建新的批次目录。
 
