@@ -14,6 +14,7 @@ import { ConsoleReporter } from "./src/lib/console-reporter.mjs";
 import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/lib/token-usage.mjs";
 import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/lib/compile-usage.mjs";
 import { loadOhosTestConfig, runOhosTest } from "./src/lib/ohostest-orchestrator.mjs";
+import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling } from "./src/lib/cloudtest-orchestrator.mjs";
 import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 import { mergeOverview } from "./src/lib/merge-overview.mjs";
@@ -56,6 +57,12 @@ function parseArgs(argv) {
     retryBatchId: "",
     retryCaseName: "",
     merge: undefined,
+    cloudTest: false,
+    cloudProjectName: "",
+    cloudProjectDir: "",
+    appPath: "",
+    taskName: "",
+    pollTask: "",
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -70,6 +77,23 @@ function parseArgs(argv) {
     } else if (value === "--case") {
       if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--case 需要用例名称");
       result.retryCaseName = argv[++index];
+    } else if (value === "--cloud-test") {
+      result.cloudTest = true;
+    } else if (value === "--project") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--project 需要工程目录名（base 或 task）");
+      result.cloudProjectName = argv[++index];
+    } else if (value === "--project-dir") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--project-dir 需要工程目录路径");
+      result.cloudProjectDir = argv[++index];
+    } else if (value === "--app") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--app 需要 .app 文件路径");
+      result.appPath = argv[++index];
+    } else if (value === "--task-name") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--task-name 需要任务名称");
+      result.taskName = argv[++index];
+    } else if (value === "--poll-task") {
+      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--poll-task 需要任务组 ID");
+      result.pollTask = argv[++index];
     } else if (value === "--merge") {
       // 可选根目录：下一个 token 存在且不是 flag 则当作根目录，否则用 config 的 outputRoot
       if (argv[index + 1] && !argv[index + 1].startsWith("--")) {
@@ -83,16 +107,35 @@ function parseArgs(argv) {
         "  node autorun.mjs [--config config/autorun.config.json] [--check]",
         "  node autorun.mjs --retry <batchId> [--case <caseName>] [--config config/autorun.config.json]",
         "  node autorun.mjs --merge [output目录] [--config config/autorun.config.json]",
+        "  node autorun.mjs --cloud-test (--case <caseName> [--project base|task] | --project-dir <dir> | --app <签名.app>) [--task-name <名称>] [--config config/autorun.config.json]",
+        "  node autorun.mjs --poll-task <taskGroupId> [--config config/autorun.config.json]",
       ].join("\n"));
       process.exit(0);
     } else {
       throw new Error(`未知参数: ${value}`);
     }
   }
-  if (result.retryCaseName && !result.retryBatchId) throw new Error("--case 只能和 --retry 一起使用");
+  if (result.retryCaseName && !result.retryBatchId && !result.cloudTest) throw new Error("--case 只能和 --retry 或 --cloud-test 一起使用");
   if (result.checkOnly && result.retryBatchId) throw new Error("--check 不能和 --retry 一起使用");
   if (result.merge !== undefined && result.checkOnly) throw new Error("--merge 不能和 --check 一起使用");
   if (result.merge !== undefined && result.retryBatchId) throw new Error("--merge 不能和 --retry 一起使用");
+  if (result.cloudTest) {
+    if (result.checkOnly) throw new Error("--cloud-test 不能和 --check 一起使用");
+    if (result.retryBatchId) throw new Error("--cloud-test 不能和 --retry 一起使用");
+    if (result.merge !== undefined) throw new Error("--cloud-test 不能和 --merge 一起使用");
+    if (result.pollTask) throw new Error("--cloud-test 不能和 --poll-task 一起使用");
+    if (!result.retryCaseName && !result.cloudProjectDir && !result.appPath) {
+      throw new Error("--cloud-test 需要 --case <用例名>、--project-dir <工程目录> 或 --app <签名.app 文件> 之一");
+    }
+    if (result.cloudProjectDir && result.retryCaseName) throw new Error("--project-dir 不能和 --case 一起使用");
+  } else if (result.pollTask) {
+    if (result.checkOnly) throw new Error("--poll-task 不能和 --check 一起使用");
+    if (result.retryBatchId) throw new Error("--poll-task 不能和 --retry 一起使用");
+    if (result.merge !== undefined) throw new Error("--poll-task 不能和 --merge 一起使用");
+    if (!/^\d+$/.test(result.pollTask)) throw new Error("--poll-task 需要纯数字任务组 ID");
+  } else if (result.cloudProjectName || result.cloudProjectDir || result.appPath || result.taskName) {
+    throw new Error("--project/--project-dir/--app/--task-name 只能和 --cloud-test 一起使用");
+  }
   return result;
 }
 
@@ -615,6 +658,18 @@ function elapsedSeconds(startedAt, finishedAt) {
   return Math.max(0, Math.round((finish - start) / 1000));
 }
 
+// 判断 pid 是否仍在运行（batch.pid 存在且进程活着 → 批次仍在本机执行，不参与恢复）
+function isProcessAlive(pid) {
+  const numeric = Number(pid);
+  if (!Number.isInteger(numeric) || numeric <= 0) return false;
+  try {
+    process.kill(numeric, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
 async function recoverInterruptedRuns(outputRoot) {
   if (!await exists(outputRoot)) return [];
   const recovered = [];
@@ -625,6 +680,10 @@ async function recoverInterruptedRuns(outputRoot) {
     const batchPath = path.join(batchRoot, "batch.json");
     const batch = await readJson(batchPath);
     if (!batch || batch.status !== "running" || !batch.cases || typeof batch.cases !== "object") continue;
+    // 活进程持有中的批次不是遗留状态（如长时间云测试轮询期间 batch.json 不更新），跳过
+    const pidFile = path.join(batchRoot, "batch.pid");
+    const pidText = (await fs.readFile(pidFile, "utf8").catch(() => "")).trim();
+    if (pidText && isProcessAlive(pidText)) continue;
 
     const recoveredAt = new Date().toISOString();
     const results = [];
@@ -997,7 +1056,7 @@ async function cleanupCaseArtifacts({
   }
 }
 
-async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTestEnabled, store, reporter, signal }) {
+async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTestEnabled, cloudTestEnabled, store, reporter, signal }) {
   const caseName = caseInfo.name;
   const deviceLeasePath = path.join(batchRoot, ".device-validation.lock");
   const caseRunDir = path.join(batchRoot, safeName(caseName));
@@ -1130,9 +1189,10 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
 
     const agentFinishedAt = new Date();
     const agentElapsedSec = Math.round((agentFinishedAt.getTime() - startedAt.getTime()) / 1000);
+    const pendingStages = ohosTestEnabled || cloudTestEnabled;
     const result = {
       case: caseName,
-      status: ohosTestEnabled ? "running" : "completed",
+      status: pendingStages ? "running" : "completed",
       agentStatus: "completed",
       sessionId,
       childSessionIds: monitored.childSessionIds,
@@ -1142,7 +1202,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       startedAt: startedAt.toISOString(),
       agentFinishedAt: agentFinishedAt.toISOString(),
       agentElapsedSec,
-      ...(!ohosTestEnabled ? { finishedAt: agentFinishedAt.toISOString(), elapsedSec: agentElapsedSec } : {}),
+      ...(!pendingStages ? { finishedAt: agentFinishedAt.toISOString(), elapsedSec: agentElapsedSec } : {}),
       finishReason: monitored.finishReason,
       tokenUsage,
       agentCompile,
@@ -1160,23 +1220,25 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
         consolePath: agentConsolePath,
       },
       ...(ohosTestEnabled ? { ohosTest: { status: "queued" } } : {}),
+      ...(cloudTestEnabled ? { cloudTest: { status: "queued" } } : {}),
     };
     const finalPreview = compactPreview(monitored.output, 500);
     if (finalPreview) await writeAgentConsole("final", finalPreview);
     await writeAgentConsole("complete", `执行完成；完整输出=${agentLogs.transcriptPath}`);
     await agentConsoleWriteChain;
     await atomicWriteJson(resultPath, result);
-    if (ohosTestEnabled) {
+    if (pendingStages) {
       await updateState({
         status: "running",
-        stage: "ohostest_queued",
+        stage: ohosTestEnabled ? "ohostest_queued" : "cloudtest_queued",
         agentStatus: "completed",
         agentFinishedAt: result.agentFinishedAt,
         resultPath,
         patchPath,
         tokenUsage,
         agentCompile,
-        ohosTest: result.ohosTest,
+        ...(ohosTestEnabled ? { ohosTest: result.ohosTest } : {}),
+        ...(cloudTestEnabled ? { cloudTest: result.cloudTest } : {}),
       });
       reporter.caseOhosTestQueued(caseName, { agentTimedOut: false });
     } else {
@@ -1322,7 +1384,7 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
   return result;
 }
 
-async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceLeasePath, store, reporter, signal }) {
+async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceLeasePath, store, reporter, signal, deferFinish = false }) {
   const caseName = caseInfo.name;
   const caseRunDir = path.dirname(agentResult.resultPath);
   const statePath = path.join(caseRunDir, "state.json");
@@ -1420,8 +1482,52 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
     resultPath: agentResult.resultPath,
     ohosTest,
   });
-  reporter.caseFinished(finalResult);
+  await appendCaseLog(caseLogPath, status === "completed" ? "info" : "error", "ohostest_finished", ohosTest);
+  if (!deferFinish) reporter.caseFinished(finalResult);
   return finalResult;
+}
+
+// 云测试收尾：把云测试结果合并进用例 result.json，并完成状态/报告上报。
+async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store, reporter }) {
+  const caseName = caseInfo.name;
+  const caseRunDir = path.dirname(caseResult.resultPath);
+  const resultPath = caseResult.resultPath;
+  const cloud = {
+    status: cloudResult.status || "failed",
+    taskGroupId: cloudResult.task?.taskGroupId || "",
+    taskName: cloudResult.task?.taskName || "",
+    error: cloudResult.error || "",
+    outputDir: cloudResult.outputDir || "",
+  };
+  const current = await readJson(resultPath) || caseResult;
+  // ohostest/agent 已失败的用例保持原状态；"running" 表示尚无后置阶段定级，
+  // 视为此前阶段成功，最终状态由云测试结果决定
+  const previousStatus = !current.status || current.status === "running" ? "completed" : current.status;
+  const status = previousStatus !== "completed" ? previousStatus : (cloud.status === "completed" ? "completed" : cloud.status);
+  const final = {
+    ...current,
+    status,
+    error: status === "completed" ? "" : (current.error || cloud.error || `云测试 ${cloud.status}`),
+    cloudTest: cloud,
+    finishedAt: new Date().toISOString(),
+  };
+  final.elapsedSec = elapsedSeconds(final.startedAt, final.finishedAt);
+  await atomicWriteJson(resultPath, final);
+  const statePath = path.join(caseRunDir, "state.json");
+  const stateCurrent = await readJson(statePath) || { case: caseName };
+  await atomicWriteJson(statePath, {
+    ...stateCurrent,
+    status,
+    stage: status,
+    error: final.error,
+    finishedAt: final.finishedAt,
+    cloudTest: cloud,
+    updatedAt: new Date().toISOString(),
+  });
+  await store.setCase(caseName, { status, stage: status, error: final.error, finishedAt: final.finishedAt, cloudTest: cloud });
+  await appendCaseLog(path.join(caseRunDir, "execution.jsonl"), status === "completed" ? "info" : "error", "cloudtest_finished", cloud);
+  reporter.caseFinished(final);
+  return final;
 }
 
 async function validateServerConfig(client, execution, loadedConfig, sourceMode, signal) {
@@ -1469,6 +1575,16 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   };
   if (!execution.agent) throw new Error("未配置 execution.agent");
   const ohosTest = await loadOhosTestConfig(config);
+  // 云测试默认属于主流程；配置不完整时告警并跳过（不阻断批次），enabled=false 可显式关闭
+  let cloudTest = { enabled: false, settings: null };
+  try {
+    const cloudSettings = loadCloudTestConfig(config);
+    cloudTest = { enabled: cloudSettings.enabled, settings: cloudSettings };
+  } catch (error) {
+    if (config.cloudTest?.enabled !== false) {
+      console.warn(`[warn] 云测试不可用，本批次跳过该阶段: ${error.message}`);
+    }
+  }
   const discovered = await discoverCases(execution.casesRoot, { requireOhosTest: ohosTest.enabled });
   let cases = discovered.runnable;
   let skippedCases = discovered.skipped;
@@ -1494,6 +1610,9 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   const ohosTestLabel = ohosTest.enabled
     ? "已启用（串行，内置 Runner）"
     : "未启用";
+  const cloudTestLabel = cloudTest.enabled
+    ? `已启用（与 ohosTest 并行，提交串行/轮询并行，任务时长 ${cloudTest.settings.testCategories.map((c) => `${c.timeSpan}分钟/类别${c.category}`).join("，")}）`
+    : "未启用";
   if (
     sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
     && configuredAgent
@@ -1501,7 +1620,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   ) {
     console.log(`[check] softwareEngineering 仅加载 Skills，使用 OpenCode 内置 Agent=${execution.agent}（忽略 execution.agent=${configuredAgent}）`);
   }
-  console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}`);
+  console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}；cloudTest=${cloudTestLabel}`);
   if (retryPlan) {
     console.log(`[retry] 来源批次 ${retryPlan.sourceBatchId}；重试用例: ${retryPlan.selectedCaseNames.join(", ")}`);
   }
@@ -1523,6 +1642,10 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       enabled: ohosTest.enabled,
       concurrency: ohosTest.enabled ? 1 : 0,
     },
+    cloudTest: {
+      enabled: cloudTest.enabled,
+      testCategories: cloudTest.enabled ? cloudTest.settings.testCategories : [],
+    },
     ...(retryPlan ? {
       retry: {
         sourceBatchId: retryPlan.sourceBatchId,
@@ -1541,6 +1664,8 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   };
   const store = new BatchStateStore(path.join(batchRoot, "batch.json"), state);
   await store.persist();
+  // 批次存活标记：恢复扫描据此跳过仍在运行的批次（进程退出后残留的 pid 文件在恢复时按死进程处理）
+  await fs.writeFile(path.join(batchRoot, "batch.pid"), `${process.pid}\n`, "utf8");
   const workerCount = Math.min(execution.concurrency, cases.length);
   const reporter = new ConsoleReporter({
     mode: execution.consoleMode,
@@ -1553,11 +1678,43 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   reporter.start();
   const queue = [...cases];
   const results = [];
-  const ohosTestJobs = [];
+  const postValidationJobs = [];
   let ohosTestTail = Promise.resolve();
+  let cloudSubmitTail = Promise.resolve();
   let stopQueue = false;
 
-  function scheduleOhosTest(caseInfo, agentResult) {
+  // 云测试分支：远端执行，不占用本地设备。提交阶段（构建+上传+提交）跨用例串行
+  // （规避频率限制与并发构建），轮询阶段各任务并行；返回云测试结果（不 reject）。
+  function startCloudBranch(caseInfo, agentResult) {
+    const caseName = caseInfo.name;
+    const caseRunDir = path.dirname(agentResult.resultPath);
+    const outDir = path.join(caseRunDir, "cloudtest");
+    // 云测试进度走专用报告通道（云测试列 + 当前活动），不污染 Agent 阶段状态
+    const onLog = (message) => reporter.caseCloudTestProgress(caseName, `云测试：${message}`);
+    const fallback = (error) => error.cloudResult || { status: "failed", error: error.message, outputDir: outDir };
+    const submitted = cloudSubmitTail.then(() => submitCloudTestForProject({
+      config,
+      settings: cloudTest.settings,
+      projectDir: agentResult.projectDir,
+      caseName,
+      // 任务名默认为 工程名(用例名)_时间戳
+      taskNameLabel: caseName,
+      outDir,
+      signal,
+      onLog,
+    }));
+    cloudSubmitTail = submitted.catch(() => {});
+    return submitted.then(
+      (ctx) => finishCloudTestPolling({ ...ctx, signal, onLog }).then(
+        (cloudResult) => cloudResult,
+        (error) => fallback(error),
+      ),
+      (error) => fallback(error),
+    );
+  }
+
+  // ohosTest 分支：本地模拟器，跨用例串行（设备租约）；返回用例级最终结果（不 reject）。
+  function startOhosBranch(caseInfo, agentResult) {
     const scheduled = ohosTestTail.then(() => executeOhosTestForCase({
       caseInfo,
       agentResult,
@@ -1566,32 +1723,62 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       store,
       reporter,
       signal,
+      // 最终 caseFinished 上报统一由 schedulePostValidation 的 join 完成
+      deferFinish: true,
     }));
     // 只有这一条 Promise 链会进入 Runner，确保模拟器启动和设备执行始终串行。
     ohosTestTail = scheduled.catch(() => {});
-    ohosTestJobs.push(scheduled.then((finalResult) => {
-      results.push(finalResult);
-      if (finalResult.status !== "completed" && !execution.continueOnError) stopQueue = true;
-    }).catch(async (error) => {
-      const failed = {
-        ...agentResult,
-        status: signal?.aborted ? "interrupted" : "failed",
-        error: `ohosTest 编排异常: ${error.message}`,
-        finishedAt: new Date().toISOString(),
-        ohosTest: { status: "failed", error: error.message },
-      };
-      failed.elapsedSec = elapsedSeconds(failed.startedAt, failed.finishedAt);
-      await atomicWriteJson(agentResult.resultPath, failed).catch(() => {});
-      await store.setCase(caseInfo.name, {
-        status: failed.status,
-        stage: failed.status,
-        error: failed.error,
-        finishedAt: failed.finishedAt,
-        ohosTest: failed.ohosTest,
-      }).catch(() => {});
-      reporter.caseFinished(failed);
-      results.push(failed);
-      if (!execution.continueOnError) stopQueue = true;
+    return scheduled.then(
+      (finalResult) => finalResult,
+      async (error) => {
+        const failed = {
+          ...agentResult,
+          status: signal?.aborted ? "interrupted" : "failed",
+          error: `ohosTest 编排异常: ${error.message}`,
+          finishedAt: new Date().toISOString(),
+          ohosTest: { status: "failed", error: error.message },
+        };
+        failed.elapsedSec = elapsedSeconds(failed.startedAt, failed.finishedAt);
+        await atomicWriteJson(agentResult.resultPath, failed).catch(() => {});
+        await store.setCase(caseInfo.name, {
+          status: failed.status,
+          stage: failed.status,
+          error: failed.error,
+          finishedAt: failed.finishedAt,
+          ohosTest: failed.ohosTest,
+        }).catch(() => {});
+        return failed;
+      },
+    );
+  }
+
+  // Agent 完成后：云测试（远端）与 ohosTest（本地设备）并行执行；
+  // 云测试上传后只需轮询等待，与模拟器测试互不抢占。两个分支都结束后
+  // 合并出用例最终状态、统一上报并计入批次结果。
+  function schedulePostValidation(caseInfo, agentResult) {
+    const cloudEnabled = cloudTest.enabled;
+    if (!cloudEnabled && !ohosTest.enabled) {
+      results.push(agentResult);
+      return;
+    }
+    if (cloudEnabled) reporter.caseCloudTestQueued(caseInfo.name);
+    const cloudBranch = cloudEnabled ? startCloudBranch(caseInfo, agentResult) : Promise.resolve(null);
+    const ohosBranch = ohosTest.enabled ? startOhosBranch(caseInfo, agentResult) : Promise.resolve(null);
+    postValidationJobs.push(Promise.all([cloudBranch, ohosBranch]).then(async ([cloudOutcome, ohosOutcome]) => {
+      let merged = ohosOutcome || agentResult;
+      if (cloudOutcome) {
+        merged = await finalizeCloudTestCase({
+          caseInfo,
+          caseResult: ohosOutcome || agentResult,
+          cloudResult: cloudOutcome,
+          store,
+          reporter,
+        });
+      } else {
+        reporter.caseFinished(merged);
+      }
+      results.push(merged);
+      if (merged.status !== "completed" && !execution.continueOnError) stopQueue = true;
     }));
   }
 
@@ -1603,8 +1790,8 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       try {
         const previousResult = retryPlan?.previousResults.get(next.name);
         if (await canReuseSuccessfulAgent(previousResult, next)) {
-          if (!ohosTest.enabled) {
-            throw new Error(`用例 ${next.name} 的 Agent 已成功，只需重试 ohosTest，但当前 ohosTest.enabled=false`);
+          if (!ohosTest.enabled && !cloudTest.enabled) {
+            throw new Error(`用例 ${next.name} 的 Agent 已成功，只需重试设备测试，但当前 ohosTest.enabled=false 且 cloudTest.enabled=false`);
           }
           const agentResult = await prepareReusedAgentResult({
             caseInfo: next,
@@ -1614,7 +1801,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
             store,
           });
           reporter.caseOhosTestQueued(next.name);
-          scheduleOhosTest(next, agentResult);
+          schedulePostValidation(next, agentResult);
           continue;
         }
         const agentResult = await runCase({
@@ -1624,25 +1811,25 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
           model,
           execution,
           ohosTestEnabled: ohosTest.enabled,
+          cloudTestEnabled: cloudTest.enabled,
           store,
           reporter,
           signal,
         });
-        if (ohosTest.enabled) scheduleOhosTest(next, agentResult);
-        else results.push(agentResult);
+        schedulePostValidation(next, agentResult);
       } catch (error) {
         const agentResult = error.caseResult || { case: next.name, status: "failed", error: error.message };
         // Agent 空闲/总时长超时不代表已生成工程不能编译。此时仍把现有 base/ 或 task/
-        // 交给串行 ohostest 队列验证；用户中断时不再启动新的模拟器任务。
-        const shouldRunOhosTestAfterAgentTimeout = (
-          ohosTest.enabled
+        // 交给设备验证队列（云测试与 ohosTest 并行）；用户中断时不再启动新的任务。
+        const shouldValidateAfterAgentTimeout = (
+          (ohosTest.enabled || cloudTest.enabled)
           && !signal?.aborted
           && agentResult.status === "timed_out"
           && agentResult.agentStatus === "timed_out"
         );
-        if (shouldRunOhosTestAfterAgentTimeout) {
+        if (shouldValidateAfterAgentTimeout) {
           reporter.caseOhosTestQueued(next.name, { agentTimedOut: true });
-          scheduleOhosTest(next, agentResult);
+          schedulePostValidation(next, agentResult);
         } else {
           results.push(agentResult);
           if (signal?.aborted || !execution.continueOnError) stopQueue = true;
@@ -1654,7 +1841,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   await Promise.all(
     Array.from({ length: workerCount }, (_, index) => worker(index + 1)),
   );
-  await Promise.all(ohosTestJobs);
+  await Promise.all(postValidationJobs);
 
   if ((stopQueue || signal?.aborted) && queue.length) {
     const interrupted = signal?.aborted;
@@ -1701,6 +1888,8 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   }
   await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
   await store.setBatch({ status: summary.status, finishedAt: summary.finishedAt });
+  // 批次已结束，移除存活标记（残留的 pid 文件在恢复扫描时按死进程处理）
+  await fs.rm(path.join(batchRoot, "batch.pid"), { force: true }).catch(() => {});
   reporter.finish(summary);
   if (activeReporter === reporter) activeReporter = null;
   return summary;
@@ -1721,6 +1910,83 @@ if (args.merge !== undefined) {
     console.error(`[merge] ${error.message}`);
     process.exit(1);
   }
+}
+
+// --cloud-test 模式：本地构建签名包 → 上传 AGC 云测试 → 提交任务 → 轮询结果，短路退出。
+// TODO(用户要求保留调试)：云测试已接入主批次流程（cloudTest.enabled 默认 true），
+// 此独立指令仅作调试用途，待确认稳定后删除（连同 --poll-task 一并评估）。
+if (args.cloudTest) {
+  const { runCloudTest } = await import("./src/lib/cloudtest-orchestrator.mjs");
+  let projectDir = args.cloudProjectDir ? path.resolve(args.cloudProjectDir) : "";
+  if (args.retryCaseName) {
+    const caseRoot = path.join(config.execution.casesRoot, args.retryCaseName);
+    if (!await exists(caseRoot)) {
+      console.error(`[cloudtest] 用例不存在: ${caseRoot}（casesRoot=${config.execution.casesRoot}）`);
+      process.exit(1);
+    }
+    const projectName = args.cloudProjectName
+      || (await exists(path.join(caseRoot, "base")) ? "base" : "task");
+    const candidate = path.join(caseRoot, projectName);
+    if (!await exists(candidate)) {
+      console.error(`[cloudtest] 用例工程目录不存在: ${candidate}`);
+      process.exit(1);
+    }
+    projectDir = candidate;
+  }
+
+  const cloudShutdown = new AbortController();
+  const onCloudInterrupt = (signame) => {
+    if (cloudShutdown.signal.aborted) return;
+    console.error(`[cloudtest] ${signame}，正在收尾云测试`);
+    cloudShutdown.abort(new Error(`云测试执行被中断（${signame}）`));
+  };
+  process.once("SIGINT", () => onCloudInterrupt("收到 SIGINT（Ctrl+C）"));
+  process.once("SIGTERM", () => onCloudInterrupt("收到 SIGTERM"));
+
+  let cloudExitCode = 0;
+  try {
+    const cloudResult = await runCloudTest({
+      config,
+      projectDir,
+      appPath: args.appPath,
+      caseName: args.retryCaseName,
+      taskName: args.taskName,
+      signal: cloudShutdown.signal,
+      onLog: (message) => console.log(`[cloudtest] ${message}`),
+    });
+    if (cloudResult.status !== "completed") cloudExitCode = 1;
+  } catch (error) {
+    console.error(`[cloudtest] ${error.stack || error.message}`);
+    cloudExitCode = 1;
+  }
+  process.exit(cloudExitCode);
+}
+
+// --poll-task 模式：不构建、不提交，仅续查已提交云测试任务的状态，短路退出。
+if (args.pollTask) {
+  const { pollExistingTask } = await import("./src/lib/cloudtest-orchestrator.mjs");
+  const pollShutdown = new AbortController();
+  const onPollInterrupt = (signame) => {
+    if (pollShutdown.signal.aborted) return;
+    console.error(`[cloudtest] ${signame}，正在收尾轮询`);
+    pollShutdown.abort(new Error(`云测试轮询被中断（${signame}）`));
+  };
+  process.once("SIGINT", () => onPollInterrupt("收到 SIGINT（Ctrl+C）"));
+  process.once("SIGTERM", () => onPollInterrupt("收到 SIGTERM"));
+  let pollExitCode = 0;
+  try {
+    const pollResult = await pollExistingTask({
+      config,
+      taskGroupId: args.pollTask,
+      signal: pollShutdown.signal,
+      onLog: (message) => console.log(`[cloudtest] ${message}`),
+    });
+    if (pollResult.status !== "completed") pollExitCode = 1;
+  } catch (error) {
+    console.error(`[cloudtest] ${error.stack || error.message}`);
+    pollExitCode = 1;
+  }
+  process.exit(pollExitCode);
 }
 
 const shutdownController = new AbortController();

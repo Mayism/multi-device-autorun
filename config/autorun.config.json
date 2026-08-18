@@ -48,5 +48,34 @@
         "startEmulator": true
       }
     ]
+  },
+  "cloudTest": {
+    "enabled": true,
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "storeFile": "test.p12",
+          "storePassword": "000000181A8B539CD0650B3527DA850C740266C90E126BB98421C8C2DAF5D4539E0EE3E4E7783094",
+          "keyAlias": "yl",
+          "keyPassword": "000000186D37D5170A8AC9F29A064233A677B96BA8AC225DA3B762A598A1C1A41A6F570312A9DEF7",
+          "signAlg": "SHA256withECDSA",
+          "profile": "test.p7b",
+          "certpath": "test.cer"
+        }
+      }
+    ],
+    "bundleName": "com.atomicservice.5765880207855743137",
+    "teamId": "260086000249430501",
+    "projectId": "388421841221975192",
+    "testCategories": [
+      {
+        "category": 24,
+        "timeSpan": 40
+      }
+    ],
+    "pollIntervalSec": 60,
+    "taskTimeoutSec": 3600
   }
 }

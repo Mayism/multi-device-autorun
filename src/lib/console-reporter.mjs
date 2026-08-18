@@ -123,6 +123,7 @@ export class ConsoleReporter {
       status: item.skipReason ? "skipped" : "queued",
       agentStatus: item.skipReason ? "skipped" : "queued",
       ohosTestStatus: "not_started",
+      cloudTestStatus: "not_started",
       activity: item.skipReason || "等待 Worker",
       startedAt: null,
       finishedAt: item.skipReason ? Date.now() : null,
@@ -156,6 +157,7 @@ export class ConsoleReporter {
     if (!item) return;
     item.agentStatus = "preparing";
     item.ohosTestStatus = "not_started";
+    item.cloudTestStatus = "not_started";
     Object.assign(item, { status: "preparing", phase: "agent", activity: "复制并初始化工程", startedAt: Date.now(), worker });
     if (this.mode !== "dashboard") this.write(`[case:${caseName}] 开始执行（Worker ${worker}）`);
     this.render();
@@ -194,6 +196,8 @@ export class ConsoleReporter {
       agentStatus: agentTimedOut ? "timed_out" : "completed",
       ohosTestStatus: "queued",
       phase: "ohostest_queued",
+      // Agent 超时上报会预置 finishedAt，后置验证仍在进行，恢复计时
+      finishedAt: null,
       activity: agentTimedOut
         ? "Agent 超时，仍等待串行 ohosTest"
         : "Agent 已完成，等待串行 ohosTest",
@@ -215,6 +219,23 @@ export class ConsoleReporter {
     this.render(true);
   }
 
+  caseCloudTestQueued(caseName) {
+    const item = this.cases.get(caseName);
+    if (!item) return;
+    item.cloudTestStatus = "queued";
+    item.finishedAt = null;
+    this.render();
+  }
+
+  caseCloudTestProgress(caseName, activity, status = "running") {
+    const item = this.cases.get(caseName);
+    if (!item) return;
+    // 只更新云测试列，不占用“当前操作”列（那里留给 ohosTest 等本地阶段）
+    item.cloudTestStatus = status;
+    if (this.mode === "verbose") this.write(`[case:${caseName}] ${String(activity || "云测试执行中")}`);
+    this.render();
+  }
+
   caseFinished(result) {
     const item = this.cases.get(result.case);
     if (!item) return;
@@ -224,6 +245,7 @@ export class ConsoleReporter {
       status: result.status,
       agentStatus: result.agentStatus || item.agentStatus,
       ohosTestStatus: result.ohosTest?.status || item.ohosTestStatus,
+      cloudTestStatus: result.cloudTest?.status || item.cloudTestStatus,
       phase: "finished",
       activity: result.status === "completed"
         ? testedAfterAgentTimeout ? "测试通过（Agent 曾超时）" : "已完成"
@@ -284,6 +306,7 @@ export class ConsoleReporter {
         : Math.max(16, Math.min(24, Math.floor(terminalWidth * 0.28)));
     const agentStatusWidth = terminalColumns >= 70 ? 10 : 8;
     const ohosTestStatusWidth = terminalColumns >= 70 ? 10 : 8;
+    const cloudTestStatusWidth = terminalColumns >= 70 ? 10 : 8;
     const elapsedWidth = terminalColumns >= 70 ? 9 : 7;
     const tokenColumns = terminalColumns >= 160
       ? [
@@ -299,7 +322,7 @@ export class ConsoleReporter {
     const compileColumns = terminalColumns >= 160
       ? [{ title: "\u7f16\u8bd1", width: 18, value: (item) => compileText(item.compileUsage) }]
       : [];
-    const fixedWidth = caseWidth + agentStatusWidth + ohosTestStatusWidth + elapsedWidth
+    const fixedWidth = caseWidth + agentStatusWidth + ohosTestStatusWidth + cloudTestStatusWidth + elapsedWidth
       + tokenColumns.reduce((sum, column) => sum + column.width, 0)
       + compileColumns.reduce((sum, column) => sum + column.width, 0);
     const separatorWidth = 2 * (4 + tokenColumns.length + compileColumns.length);
@@ -308,6 +331,7 @@ export class ConsoleReporter {
       { title: "用例", width: caseWidth, value: (item) => item.name },
       { title: "生成状态", width: agentStatusWidth, value: (item) => statusText(item.agentStatus) },
       { title: "测试状态", width: ohosTestStatusWidth, value: (item) => statusText(item.ohosTestStatus) },
+      { title: "云测试", width: cloudTestStatusWidth, value: (item) => statusText(item.cloudTestStatus) },
       { title: "耗时", width: elapsedWidth, value: (item) => elapsed(item.startedAt, item.finishedAt || Date.now()) },
       ...tokenColumns,
       ...compileColumns,

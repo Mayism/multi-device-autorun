@@ -40,7 +40,7 @@ function text(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
-function esc(value) {
+export function esc(value) {
   return text(value)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -49,7 +49,7 @@ function esc(value) {
     .replace(/'/g, "&#39;");
 }
 
-function fmtDuration(seconds) {
+export function fmtDuration(seconds) {
   const total = Math.max(0, Math.round(num(seconds)));
   if (total <= 0) return "0s";
   const h = Math.floor(total / 3600);
@@ -60,7 +60,7 @@ function fmtDuration(seconds) {
   return `${s}s`;
 }
 
-function fmtMs(milliseconds) {
+export function fmtMs(milliseconds) {
   return fmtDuration(Math.round(num(milliseconds) / 1000));
 }
 
@@ -73,7 +73,7 @@ function fmtToken(value) {
   return `${Math.round(k)}k`;
 }
 
-function fmtDateTime(iso) {
+export function fmtDateTime(iso) {
   const t = text(iso).trim();
   if (!t) return "--";
   const d = new Date(t);
@@ -82,7 +82,7 @@ function fmtDateTime(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-const STATUS_META = {
+export const STATUS_META = {
   completed: { label: "完成", cls: "ok" },
   passed: { label: "通过", cls: "ok" },
   succeeded: { label: "成功", cls: "ok" },
@@ -107,7 +107,7 @@ function statusClass(value) {
   return STATUS_META[key]?.cls || "muted";
 }
 
-function badge(value) {
+export function badge(value) {
   return `<span class="badge badge-${statusClass(value)}">${esc(statusLabel(value))}</span>`;
 }
 
@@ -200,7 +200,7 @@ function summarizeTestRows(rows) {
 
 // ============ 公共页面骨架 ============
 
-function pageShell({ title, body, extraHead = "" }) {
+export function pageShell({ title, body, extraHead = "" }) {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -324,6 +324,16 @@ function reasonModalMarkup() {
   </div>`;
 }
 
+// 云测试列：状态徽标 + 任务组 id 悬浮提示；无云测试数据时显示 --
+function cloudTestCell(cloudTest) {
+  if (!cloudTest || !cloudTest.status) return "--";
+  const id = text(cloudTest.taskGroupId);
+  const name = text(cloudTest.taskName);
+  const tip = [name && `任务: ${name}`, id && `任务组: ${id}`, cloudTest.error && `错误: ${text(cloudTest.error).slice(0, 120)}`]
+    .filter(Boolean).join("\n");
+  return `<span title="${esc(tip)}">${badge(cloudTest.status)}${id ? `<span class="muted"> ${esc(id.slice(-6))}</span>` : ""}</span>`;
+}
+
 // ============ 总览页 ============
 
 function buildOverview({ summary, report, caseRows, executionInfo }) {
@@ -370,6 +380,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
       <td class="num">${c.modelCalls ?? "--"}<span class="muted">/${c.toolCalls ?? "--"}</span></td>
       <td class="num" title="输入 ${fmtToken(c.tokenIn)} / 输出 ${fmtToken(c.tokenOut)} / 推理 ${fmtToken(c.tokenReasoning)} / 缓存 ${fmtToken(c.tokenCacheRead)}">${fmtToken(c.tokenTotal)}</td>
       <td>${badge(c.status)}</td>
+      <td>${cloudTestCell(c.cloudTest)}</td>
       <td>${c.testSummary}</td>
       <td><a class="link" href="subpage/${testName}">查看详情</a>${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
     </tr>`;
@@ -392,6 +403,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
           <th class="num">交互(模型/工具)</th>
           <th class="num">Token 消耗</th>
           <th>测试结果</th>
+          <th>云测试</th>
           <th>执行结果</th>
           <th>操作</th>
         </tr></thead>
@@ -618,6 +630,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       tokenCacheRead: result?.tokenUsage?.cacheRead,
       tokenTotal: result?.tokenUsage?.total,
       status: result.status,
+      cloudTest: result.cloudTest || null,
       downloadUrl: uploadResults[caseName]?.url || "",
       testSummary: testRows.length
         ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`

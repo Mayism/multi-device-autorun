@@ -28,6 +28,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - 批次完成后自动生成 HTML 报告（总览页 + 每用例详情页），总览页支持导出 Excel。
 - 失败用例产物可打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。
 - 支持合并多个批次的报告：把多轮回归的总览页数值自动求和、用例行汇总，生成跨批次总览页（`node autorun.mjs --merge`）。
+- 支持集成 AGC 云测试：本地构建签名包 → 上传云测试 → 提交真机任务 → 轮询结果（`node autorun.mjs --cloud-test`）。
 
 目前主流程只负责 Agent 执行和产物归档。使用生成工程继续执行编译、测试、设备验证等后续任务的能力将在后续版本补充。
 
@@ -116,6 +117,17 @@ autorun/
         "startEmulator": true
       }
     ]
+  },
+  "cloudTest": {
+    "enabled": true,
+    "teamId": "260086000249430501",
+    "projectId": "388421841221975192",
+    "testCategories": [
+      { "category": 24, "timeSpan": 40 }
+    ],
+    "pollIntervalSec": 60,
+    "taskTimeoutSec": 3600
+  }
   }
 }
 ```
@@ -144,6 +156,20 @@ autorun/
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
 | `ohosTest.paths` | Runner 使用的 Hvigor、ohpm、hdc、模拟器和折叠屏服务脚本路径。 |
 | `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
+| `cloudTest.enabled` | 云测试是否作为主流程的一部分默认执行（Agent → ohosTest → 云测试）。默认 `true`；设为 `false` 关闭整个云测试流程（主批次与独立指令均不可用）。配置不完整时主批次会告警并跳过该阶段，独立指令则直接报错。 |
+| `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |
+| `cloudTest.cookieFile` | cookie 纯文本文件路径（相对 config 目录），单行整行 cookie，**原样粘贴无需转义**（如 `config/agc-cookie.txt`）。未显式配置时自动探测 `config/agc-cookie.txt`。优先级高于 `cloudTest.agcAuthInfo`。 |
+| `cloudTest.agcAuthInfo` | AGC 鉴权 cookie（写入 JSON 需转义，推荐改用 cookieFile 纯文本文件）。支持整行 `cookie:` 请求头、单个 `agc_authInfo=...` 键值对或裸值（解码 JSON 自动编码，主域 `authInfo` 自动派生 `agc_authInfo`）。可用环境变量 `AGC_AUTH_INFO` 覆盖。 |
+| `cloudTest.testCategories` | 测试类别配置，数组每项 `{ "category": 24, "timeSpan": 40 }`（类别 + 执行时长分钟）。设备列表查询、配额预检与任务提交共用该配置；未配置时默认 `[{ category: 24, timeSpan: 60 }]`（兼容旧字段 `category` + `timeSpanMin`）。 |
+| `cloudTest.pollIntervalSec` | 任务状态轮询间隔（秒），默认 60（1 分钟）。 |
+| `cloudTest.taskTimeoutSec` | 单个云测试任务的轮询总时长（秒），默认 7200（2 小时）；超时退出但任务仍在云端继续执行。 |
+| `cloudTest.devecoHome` | 云测试构建使用的 DevEco Studio 目录，默认沿用 `server.devecoHome`。 |
+| `cloudTest.product` / `cloudTest.buildMode` | hvigor 构建参数，默认 `default` / `release`。 |
+| `cloudTest.buildTimeoutSec` / `cloudTest.analyzeTimeoutSec` | 本地构建 / 云端包解析的最长等待时间（秒），默认 1800 / 900。 |
+| `cloudTest.bundleName` | 补充签名：打包前替换工程 `AppScope/app.json5` 的 `bundleName`（需与签名 profile 匹配；不配置则保留工程原值）。 |
+| `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库在 `config/test.cer|p12|p7b` 提供了一套参考证书，该配置与各环境相关，默认不入库、自行填写。 |
+| `cloudTest.appClass` | 任务提交负载中的应用分类（`thirdClass`），默认 `Tool`；服务端校验必填（"The app class can't empty"）。 |
+| `cloudTest.taskType` / `cloudTest.category` / `cloudTest.testItem` | 云测试任务类型参数，默认 28（上架测试）/ 24 / 17179869185，与控制台一致，一般无需修改。设备列表查询使用 testCategories 的类别数字（逗号分隔）；`[{category,timeSpan}]` 对象结构用于配额预检与任务提交。 |
 
 相对路径以 `config/autorun.config.json` 所在目录为基准解析。
 
@@ -320,6 +346,43 @@ node autorun.mjs --merge --config ./config/another.config.json
 ```
 
 合并产物直接落在该根目录下：`overview.html`（跨批次总览）与 `subpage/`（汇总后的用例详情页）。该模式不启动 OpenCode Server、不执行用例，仅处理既有报告，可随时重跑。
+
+### 8. 云测试（主流程默认执行 / `--cloud-test` 独立调试）
+
+云测试是主流程的一部分，默认在每个用例的 Agent 完成后自动执行。**云测试（远端真机）与 ohosTest（本地模拟器）并行**：云测试上传包后只需轮询等待、不占用本地设备，两个分支都结束后合并出用例最终状态，云测试结果记录在用例 `result.json` 的 `cloudTest` 字段。多个用例的云测试提交阶段（构建+上传+提交）串行执行以规避频率限制，轮询阶段并行；模拟器测试保持跨用例串行（设备租约）。构建不与 ohosTest 合并：ohosTest 使用 debug 包（由 Runner 内部构建安装），云测试要求 release 签名包（由本流程构建上传），产物与签名不同，各自独立构建。设置 `cloudTest.enabled: false` 可整体关闭。
+
+每用例的云测试流程：
+
+1. 从工程 `AppScope/app.json5` 读取 `bundleName` / `versionName`，并校验 `build-profile.json5` 已配置签名（`app.signingConfigs` 非空，签名材料需本地预先配置好）；
+2. 复制工程到输出沙箱（不污染源仓库），缺依赖时自动 `ohpm install --all`，再执行 `hvigor assembleApp` 生成签名 `.app`；
+3. 查询云端历史已上传包（**暂不删除旧包**，发现同包名记录时直接重新上传）；
+4. 申请 OBS 直传凭证 → 上传包 → 轮询云端解析结果（appInfoId、appType、API level 等）；
+5. 查询可用真机列表（`business/device/list`，按包解析出的 appType/测试类别/API 版本过滤），**空闲设备在前、可排队设备在后**排序；
+6. 按排序逐台尝试提交任务：每台提交前做配额预检，配额不足立即停止；单台提交失败（如设备被占用）自动换下一台；
+7. 轮询任务组状态直到完成（**status 3/4/5/6 均视为已完成；resultStatus 非零（已出结果）也直接视为完成**；默认每 60 秒一次、最长 2 小时），结果写入 `output/cloudtest/<时间戳>/` 或用例目录的 `cloudtest/`。任务名默认为 **工程名_时间戳**（批次内为用例名如 `CaseXXX_20260818140000`，独立运行为工程目录名），`--task-name` 可覆盖。
+
+独立调试指令（后续计划移除，仅调试用）：
+
+```bash
+# 对某个用例的 base 工程单独执行云测试（也可 --project task 指定 task 工程）
+node autorun.mjs --cloud-test --case CaseTouristAttractionTicketAndMine
+
+# 直接指定工程目录
+node autorun.mjs --cloud-test --project-dir path/to/project
+
+# 跳过构建，直接上传现成的签名 .app
+node autorun.mjs --cloud-test --app path/to/xxx-signed.app
+
+# 自定义任务名
+node autorun.mjs --cloud-test --case CaseX --task-name MyTask_0817
+
+# 轮询中断后（如 cookie 过期），仅续查已提交任务的状态
+node autorun.mjs --poll-task 1296404946635560185
+```
+
+鉴权（与控制台 py 脚本一致）：每次运行先调 `GET edge/oauth2/v1/refresh` 轮换登录态——请求为 GET+JSON body（需显式 Content-Length）+ `agc_authInfo` URL 编码单对 cookie；**新 authInfo 在响应 Set-Cookie 的 agc_authInfo 项中，csrfToken 在响应 body 中**。之后所有接口只带四个鉴权头：`Cookie`（agc_authInfo 单对）、`agcCsrfToken`、`agcTeamId`、`productId`，不依赖浏览器整行 cookie/WAF 会话。token 每次轮换后旧值作废：运行中 401 会自动再 refresh 续链，因此 `config/agc-cookie.txt` 只需一个尚有效的 token 种子值。**cookie 配置方式：把浏览器 Network 面板整行 `cookie:` 值原样粘贴到 `config/agc-cookie.txt`（单行纯文本，无需任何转义，已被 .gitignore 忽略；主域 `authInfo` 会自动派生 `agc_authInfo`）**，也可写入配置的 `cloudTest.agcAuthInfo`（需 JSON 转义，不推荐）。`csrfToken` 需从同会话请求头 `X-HD-CSRF` 复制到 `cloudTest.csrfToken`。token 约 1 小时过期：客户端在临过期前或收到 401 时自动调用 `GET edge/oauth2/v1/refresh`（body 传 `{"agcTeamId":...}`，cookie 使用引号转义 JSON 形式的 `agc_authInfo` 单对，无需 WAF 会话），新 token 仅当前运行内生效、不落盘。注意 cloudTest 主接口必须整行 cookie（含 WAF 会话），仅 `agc_authInfo` 单对只对 refresh 端点有效；refreshToken 通常一次性，被浏览器使用后 CLI 刷新会报"refreshToken 已失效"，重新粘贴整行 cookie 即可。轮询中断后可用 `--poll-task <taskGroupId>` 续查。`teamId` / `projectId` 可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。
+
+结果产物：`output/cloudtest/<时间戳>/` 下的 `cloudtest-result.json`（分阶段实时落盘，含构建、上传、解析、任务提交与轮询详情）、`cloudtest-report.html`（**HTML 结果页**：结果总览统计卡、应用/执行信息、设备×用例 PASS/FAIL 矩阵（FAIL 悬浮显示未通过规范条款号）、问题明细（规则号/描述/规范文档链接/出错位置）、设备执行明细；批量模式在 `<Case>/cloudtest/` 下，`--poll-task` 续查也会生成）、`build-console.log`（完整构建日志）与 `project/`（构建沙箱工程）。
 
 ## 并发执行机制
 
