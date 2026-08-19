@@ -1482,7 +1482,6 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
     resultPath: agentResult.resultPath,
     ohosTest,
   });
-  await appendCaseLog(caseLogPath, status === "completed" ? "info" : "error", "ohostest_finished", ohosTest);
   if (!deferFinish) reporter.caseFinished(finalResult);
   return finalResult;
 }
@@ -1525,7 +1524,6 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
     updatedAt: new Date().toISOString(),
   });
   await store.setCase(caseName, { status, stage: status, error: final.error, finishedAt: final.finishedAt, cloudTest: cloud });
-  await appendCaseLog(path.join(caseRunDir, "execution.jsonl"), status === "completed" ? "info" : "error", "cloudtest_finished", cloud);
   reporter.caseFinished(final);
   return final;
 }
