@@ -19,7 +19,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { CloudTestClient } from "./cloudtest-client.mjs";
 import { readLooseJson5 } from "./json5-lite.mjs";
 
-const DEFAULT_DEVECO_HOME = "/Applications/DevEco-Studio.app";
 // 任务组 status：1 待执行 / 2 执行中；3、4、5、6 均视为已完成（终态）。
 // 另外 resultStatus 非零（已出结果）也直接视为完成，不必等 status 变终态。
 const TASKGROUP_FINAL_STATUSES = new Set([3, 4, 5, 6]);
@@ -105,7 +104,21 @@ export function loadCloudTestConfig(config) {
     teamId: String(raw.teamId || process.env.AGC_TEAM_ID || "").trim(),
     projectId: String(raw.projectId || process.env.AGC_PROJECT_ID || "").trim(),
     agcAuthInfo: String(fileCookie || raw.agcAuthInfo || process.env.AGC_AUTH_INFO || "").trim(),
-    devecoHome: String(raw.devecoHome || config.server?.devecoHome || DEFAULT_DEVECO_HOME),
+    // 工具路径为 server 下的扁平键（与 devecoHome 同级）：
+    // hvigorw/ohpm 为本机命令（PATH 裸命令或绝对路径，可含参数前缀如
+    // "node /…/hvigorw.js"），未配置则复用 ohosTest.paths 已有键，再退到 PATH 裸命令；
+    // sdkHome/javaHome 可选，设置后注入 DEVECO_SDK_HOME/JAVA_HOME，
+    // 未设置则继承当前进程环境。
+    paths: (() => {
+      const server = config.server && typeof config.server === "object" ? config.server : {};
+      const ohosPaths = config.ohosTest?.paths && typeof config.ohosTest.paths === "object" ? config.ohosTest.paths : {};
+      return {
+        hvigorw: String(server.hvigorw || ohosPaths.hvigorw || "hvigorw").trim(),
+        ohpm: String(server.ohpm || ohosPaths.ohpm || "ohpm").trim(),
+        sdkHome: String(server.sdkHome || "").trim(),
+        javaHome: String(server.javaHome || "").trim(),
+      };
+    })(),
     product: String(raw.product || "default"),
     buildMode: String(raw.buildMode || "release"),
     buildTimeoutSec: Math.max(60, Number(raw.buildTimeoutSec) || 1800),
@@ -186,12 +199,29 @@ export async function readAppProfile(projectDir) {
 // ============================================================
 
 /** 运行外部命令，stdout/stderr 逐行追加到 consolePath 并回调 onLine。 */
-async function runLogged({ command, args, cwd, env, consolePath, onLine, timeoutMs, timeoutLabel, signal }) {
+/** 终止进程树（shell 执行时 kill 需覆盖子进程；与 ohostest-orchestrator 同一策略）。 */
+async function terminateProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null) return;
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
+    killer.once("error", () => {});
+    return;
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    // 进程可能已退出
+  }
+}
+
+/** 以 shell 命令串运行外部命令，stdout/stderr 逐行追加到 consolePath 并回调 onLine。
+ * commandLine 为完整命令（可含参数，由调用方保证引号），工具路径来自配置、经 PATH 或绝对路径解析。 */
+async function runLogged({ commandLine, cwd, env, consolePath, onLine, timeoutMs, timeoutLabel, signal }) {
   await fsp.mkdir(path.dirname(consolePath), { recursive: true });
   const startedAt = new Date();
   const result = await new Promise((resolve, reject) => {
-    fs.appendFileSync(consolePath, `\n[${startedAt.toISOString()}] ${command} ${args.join(" ")}\n`, "utf8");
-    const child = spawn(command, args, { cwd, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    fs.appendFileSync(consolePath, `\n[${startedAt.toISOString()}] ${commandLine}\n`, "utf8");
+    const child = spawn(commandLine, { cwd, env, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], shell: true });
     const log = fs.createWriteStream(consolePath, { flags: "a", encoding: "utf8" });
     const append = (chunk) => {
       log.write(chunk);
@@ -210,7 +240,7 @@ async function runLogged({ command, args, cwd, env, consolePath, onLine, timeout
       fn(value);
     };
     const onAbort = () => {
-      child.kill("SIGKILL");
+      terminateProcessTree(child);
       finish(reject, interruptionError(signal.reason));
     };
     child.stdout.on("data", append);
@@ -223,45 +253,44 @@ async function runLogged({ command, args, cwd, env, consolePath, onLine, timeout
     }
     signal?.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => {
-      child.kill("SIGKILL");
+      terminateProcessTree(child);
       finish(reject, new Error(`${timeoutLabel}超时（${Math.round(timeoutMs / 1000)} 秒）`));
     }, timeoutMs);
     timer.unref?.();
   });
   return {
-    command: `${command} ${args.join(" ")}`,
+    command: commandLine,
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     exitCode: result.code,
   };
 }
 
-function devecoBuildEnv(devecoHome) {
-  return {
-    ...process.env,
-    DEVECO_SDK_HOME: path.join(devecoHome, "Contents", "sdk"),
-    JAVA_HOME: path.join(devecoHome, "Contents", "jbr", "Contents", "Home"),
-  };
+/** 构建环境：sdkHome/javaHome 配置了才注入，未配置继承当前进程环境。 */
+function buildEnv(paths) {
+  const env = { ...process.env };
+  if (paths.sdkHome) env.DEVECO_SDK_HOME = paths.sdkHome;
+  if (paths.javaHome) env.JAVA_HOME = paths.javaHome;
+  return env;
 }
 
-/** 依赖缺失时先执行 ohpm install，再运行 hvigor assembleApp 生成签名 .app。 */
+/** 依赖缺失时先执行 ohpm install，再运行 hvigor assembleApp 生成签名 .app。
+ * 工具命令来自 settings.paths（配置 > ohosTest.paths > PATH 裸命令），
+ * 以 shell 命令串执行；绝对路径命令会做存在性预检，PATH 命令由运行时解析。 */
 async function buildSignedApp({ projectDir, settings, consolePath, onLine, signal }) {
-  const devecoHome = settings.devecoHome;
-  const nodeBin = path.join(devecoHome, "Contents", "tools", "node", "bin", "node");
-  const hvigorw = path.join(devecoHome, "Contents", "tools", "hvigor", "bin", "hvigorw.js");
-  const ohpmBin = path.join(devecoHome, "Contents", "tools", "ohpm", "bin", process.platform === "win32" ? "ohpm.cmd" : "ohpm");
-  for (const [label, target] of [["DevEco node", nodeBin], ["hvigorw", hvigorw]]) {
-    if (!await exists(target)) throw new Error(`${label} 不存在: ${target}（检查 cloudTest.devecoHome）`);
+  const paths = settings.paths;
+  for (const [label, command] of [["hvigorw", paths.hvigorw], ["ohpm", paths.ohpm]]) {
+    if (path.isAbsolute(command) && !await exists(command)) {
+      throw new Error(`${label} 配置的路径不存在: ${command}（检查 cloudTest.paths / ohosTest.paths）`);
+    }
   }
-  const env = devecoBuildEnv(devecoHome);
+  const env = buildEnv(paths);
   const steps = [];
 
   if (!await exists(path.join(projectDir, "oh_modules"))) {
-    if (!await exists(ohpmBin)) throw new Error(`ohpm 不存在: ${ohpmBin}（检查 cloudTest.devecoHome）`);
     onLine(`工程缺少 oh_modules，先执行 ohpm install --all ...`);
     steps.push(await runLogged({
-      command: ohpmBin,
-      args: ["install", "--all"],
+      commandLine: `${paths.ohpm} install --all`,
       cwd: projectDir,
       env,
       consolePath,
@@ -276,9 +305,8 @@ async function buildSignedApp({ projectDir, settings, consolePath, onLine, signa
   }
 
   steps.push(await runLogged({
-    command: nodeBin,
-    args: [
-      hvigorw,
+    commandLine: [
+      paths.hvigorw,
       "--mode", "project",
       "-p", `product=${settings.product}`,
       "-p", `buildMode=${settings.buildMode}`,
@@ -287,7 +315,7 @@ async function buildSignedApp({ projectDir, settings, consolePath, onLine, signa
       "--parallel",
       "--incremental",
       "--no-daemon",
-    ],
+    ].join(" "),
     cwd: projectDir,
     env,
     consolePath,

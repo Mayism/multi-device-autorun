@@ -162,6 +162,8 @@ npm --prefix whitebox-evaluation run build
 | `server.opencodeSource.mode` | OpenCode 来源模式，只支持 `harmonyBot` 或 `softwareEngineering`，二者互斥且不会合并、回退。 |
 | `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
+| `server.hvigorw` / `server.ohpm` | 机器级工具命令（与 `devecoHome` 同级，云测试构建使用）：PATH 裸命令或绝对路径，可含参数前缀如 `node /…/hvigorw.js`；未配置则复用 `ohosTest.paths` 已有键，再退到 PATH 裸命令。 |
+| `server.sdkHome` / `server.javaHome` | 可选：设置后注入 `DEVECO_SDK_HOME`/`JAVA_HOME`（云测试构建），未设置继承当前环境。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server，默认 `true`。启动前已存在的 Server 不会被关闭。 |
 | `server.loadAgents` | 指定自动启动的 Server 只加载这些 Agent（字符串数组）。留空（默认）加载 `opencode.json` 中的全部 Agent；配置后仅加载列出的 Agent，且 `execution.agent` 必须在列表中，否则启动即报错中止并提示修改配置。仅对 Autorun 自动启动的 Server 生效；复用已运行的 Server 时不重新过滤。 |
 | `execution.casesRoot` | 用例根目录。 |
@@ -191,7 +193,6 @@ npm --prefix whitebox-evaluation run build
 | `cloudTest.testCategories` | 测试类别配置，数组每项 `{ "category": 24, "timeSpan": 40 }`（类别 + 执行时长分钟）。设备列表查询、配额预检与任务提交共用该配置；未配置时默认 `[{ category: 24, timeSpan: 60 }]`（兼容旧字段 `category` + `timeSpanMin`）。 |
 | `cloudTest.pollIntervalSec` | 任务状态轮询间隔（秒），默认 60（1 分钟）。 |
 | `cloudTest.taskTimeoutSec` | 单个云测试任务的轮询总时长（秒），默认 7200（2 小时）；超时退出但任务仍在云端继续执行。 |
-| `cloudTest.devecoHome` | 云测试构建使用的 DevEco Studio 目录，默认沿用 `server.devecoHome`。 |
 | `cloudTest.product` / `cloudTest.buildMode` | hvigor 构建参数，默认 `default` / `release`。 |
 | `cloudTest.buildTimeoutSec` / `cloudTest.analyzeTimeoutSec` | 本地构建 / 云端包解析的最长等待时间（秒），默认 1800 / 900。 |
 | `cloudTest.bundleName` | 补充签名：打包前替换工程 `AppScope/app.json5` 的 `bundleName`（需与签名 profile 匹配；不配置则保留工程原值）。 |
