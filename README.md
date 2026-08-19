@@ -162,7 +162,7 @@ npm --prefix whitebox-evaluation run build
 | `server.opencodeSource.mode` | OpenCode 来源模式，只支持 `harmonyBot` 或 `softwareEngineering`，二者互斥且不会合并、回退。 |
 | `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
-| `server.hvigorw` / `server.ohpm` | 机器级工具命令（与 `devecoHome` 同级，云测试构建使用）：PATH 裸命令或绝对路径，可含参数前缀如 `node /…/hvigorw.js`；未配置则复用 `ohosTest.paths` 已有键，再退到 PATH 裸命令。 |
+| `server.hvigorw` / `server.ohpm` | 机器级工具路径（与 `devecoHome` 同级，云测试构建使用）：`hvigorw` 填 hvigorw.js 路径（自动以当前 node 运行）或可执行命令，`ohpm` 填 ohpm 命令；**含空格的路径会自动加引号**（如 Windows `D:\deveco\DevEco Studio\…`）；未配置则复用 `ohosTest.paths` 已有键，再退到 PATH 裸命令。 |
 | `server.sdkHome` / `server.javaHome` | 可选：设置后注入 `DEVECO_SDK_HOME`/`JAVA_HOME`（云测试构建），未设置继承当前环境。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server，默认 `true`。启动前已存在的 Server 不会被关闭。 |
 | `server.loadAgents` | 指定自动启动的 Server 只加载这些 Agent（字符串数组）。留空（默认）加载 `opencode.json` 中的全部 Agent；配置后仅加载列出的 Agent，且 `execution.agent` 必须在列表中，否则启动即报错中止并提示修改配置。仅对 Autorun 自动启动的 Server 生效；复用已运行的 Server 时不重新过滤。 |
@@ -188,17 +188,14 @@ npm --prefix whitebox-evaluation run build
 | `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
 | `cloudTest.enabled` | 云测试是否作为主流程的一部分默认执行（Agent → ohosTest → 云测试）。默认 `true`；设为 `false` 关闭整个云测试流程（主批次与独立指令均不可用）。配置不完整时主批次会告警并跳过该阶段，独立指令则直接报错。 |
 | `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |
-| `cloudTest.cookieFile` | cookie 纯文本文件路径（相对 config 目录），单行整行 cookie，**原样粘贴无需转义**（如 `config/agc-cookie.txt`）。未显式配置时自动探测 `config/agc-cookie.txt`。优先级高于 `cloudTest.agcAuthInfo`。 |
-| `cloudTest.agcAuthInfo` | AGC 鉴权 cookie（写入 JSON 需转义，推荐改用 cookieFile 纯文本文件）。支持整行 `cookie:` 请求头、单个 `agc_authInfo=...` 键值对或裸值（解码 JSON 自动编码，主域 `authInfo` 自动派生 `agc_authInfo`）。可用环境变量 `AGC_AUTH_INFO` 覆盖。 |
-| `cloudTest.testCategories` | 测试类别配置，数组每项 `{ "category": 24, "timeSpan": 40 }`（类别 + 执行时长分钟）。设备列表查询、配额预检与任务提交共用该配置；未配置时默认 `[{ category: 24, timeSpan: 60 }]`（兼容旧字段 `category` + `timeSpanMin`）。 |
+| `cloudTest.testCategories` | 测试类别配置，数组每项 `{ "category": 24, "timeSpan": 40 }`（类别 + 执行时长分钟）。设备列表查询、配额预检与任务提交共用该配置；未配置时默认 `[{ category: 24, timeSpan: 60 }]`。 |
 | `cloudTest.pollIntervalSec` | 任务状态轮询间隔（秒），默认 60（1 分钟）。 |
+| `cloudTest.proxy` | **OBS 直传专用代理**（`http://host:port`，也支持 `host:port`），云测试 API 与 refresh 始终直连；也可用环境变量 `AGC_PROXY`。HTTPS 上传经 HTTP CONNECT 隧道传输；配置代理时默认跳过证书校验（兼容企业 MITM 自签证书）。 |
 | `cloudTest.taskTimeoutSec` | 单个云测试任务的轮询总时长（秒），默认 7200（2 小时）；超时退出但任务仍在云端继续执行。 |
-| `cloudTest.product` / `cloudTest.buildMode` | hvigor 构建参数，默认 `default` / `release`。 |
-| `cloudTest.buildTimeoutSec` / `cloudTest.analyzeTimeoutSec` | 本地构建 / 云端包解析的最长等待时间（秒），默认 1800 / 900。 |
 | `cloudTest.bundleName` | 补充签名：打包前替换工程 `AppScope/app.json5` 的 `bundleName`（需与签名 profile 匹配；不配置则保留工程原值）。 |
 | `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库在 `config/test.cer|p12|p7b` 提供了一套参考证书，该配置与各环境相关，默认不入库、自行填写。 |
-| `cloudTest.appClass` | 任务提交负载中的应用分类（`thirdClass`），默认 `Tool`；服务端校验必填（"The app class can't empty"）。 |
-| `cloudTest.taskType` / `cloudTest.category` / `cloudTest.testItem` | 云测试任务类型参数，默认 28（上架测试）/ 24 / 17179869185，与控制台一致，一般无需修改。设备列表查询使用 testCategories 的类别数字（逗号分隔）；`[{category,timeSpan}]` 对象结构用于配额预检与任务提交。 |
+
+云测试另有构建/提交类的可选调参（`product`、`buildMode`、`buildTimeoutSec`、`analyzeTimeoutSec`、`appClass`、`taskType`、`testItem`），由代码内置默认值提供、未写入配置文件，一般无需配置。
 
 相对路径以 `config/autorun.config.json` 所在目录为基准解析。
 
@@ -409,7 +406,7 @@ node autorun.mjs --cloud-test --case CaseX --task-name MyTask_0817
 node autorun.mjs --poll-task 1296404946635560185
 ```
 
-鉴权（与控制台 py 脚本一致）：每次运行先调 `GET edge/oauth2/v1/refresh` 轮换登录态——请求为 GET+JSON body（需显式 Content-Length）+ `agc_authInfo` URL 编码单对 cookie；**新 authInfo 在响应 Set-Cookie 的 agc_authInfo 项中，csrfToken 在响应 body 中**。之后所有接口只带四个鉴权头：`Cookie`（agc_authInfo 单对）、`agcCsrfToken`、`agcTeamId`、`productId`，不依赖浏览器整行 cookie/WAF 会话。token 每次轮换后旧值作废：运行中 401 会自动再 refresh 续链，因此 `config/agc-cookie.txt` 只需一个尚有效的 token 种子值。**cookie 配置方式：把浏览器 Network 面板整行 `cookie:` 值原样粘贴到 `config/agc-cookie.txt`（单行纯文本，无需任何转义，已被 .gitignore 忽略；主域 `authInfo` 会自动派生 `agc_authInfo`）**，也可写入配置的 `cloudTest.agcAuthInfo`（需 JSON 转义，不推荐）。`csrfToken` 需从同会话请求头 `X-HD-CSRF` 复制到 `cloudTest.csrfToken`。token 约 1 小时过期：客户端在临过期前或收到 401 时自动调用 `GET edge/oauth2/v1/refresh`（body 传 `{"agcTeamId":...}`，cookie 使用引号转义 JSON 形式的 `agc_authInfo` 单对，无需 WAF 会话），新 token 仅当前运行内生效、不落盘。注意 cloudTest 主接口必须整行 cookie（含 WAF 会话），仅 `agc_authInfo` 单对只对 refresh 端点有效；refreshToken 通常一次性，被浏览器使用后 CLI 刷新会报"refreshToken 已失效"，重新粘贴整行 cookie 即可。轮询中断后可用 `--poll-task <taskGroupId>` 续查。`teamId` / `projectId` 可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。
+鉴权（与控制台 py 脚本一致）：**cookie 种子放在 `config/agc-cookie.txt`**（单行纯文本，整行 cookie / `agc_authInfo=...` 单对 / 裸 token 值均可，主域 `authInfo` 会自动派生；也可用环境变量 `AGC_AUTH_INFO`）。每次运行先调 `GET edge/oauth2/v1/refresh` 轮换登录态（GET + JSON body，需显式 Content-Length，cookie 为 `agc_authInfo` URL 编码单对）——**新 authInfo 在响应 Set-Cookie 的 agc_authInfo 项中，csrfToken 在响应 body 中**；之后所有接口只带四个鉴权头：`Cookie`（agc_authInfo 单对）、`agcCsrfToken`、`agcTeamId`、`productId`，不依赖浏览器整行 cookie/WAF 会话。token 每次轮换后旧值作废，运行中 401 会自动再 refresh 续链。注意：种子需来自**已进入团队项目的登录会话**（个人态原生 token——带 `signature` 无 `teamId`——刷新会报 502；进入团队控制台后轮换成带 `teamId` 的格式即可）；页面退出登录会作废整条 token 链。轮询中断后可用 `--poll-task <taskGroupId>` 续查。`teamId` / `projectId` 可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。
 
 结果产物：`output/cloudtest/<时间戳>/` 下的 `cloudtest-result.json`（分阶段实时落盘，含构建、上传、解析、任务提交与轮询详情）、`cloudtest-report.html`（**HTML 结果页**：结果总览统计卡、应用/执行信息、设备×用例 PASS/FAIL 矩阵（FAIL 悬浮显示未通过规范条款号）、问题明细（规则号/描述/规范文档链接/出错位置）、设备执行明细；批量模式在 `<Case>/cloudtest/` 下，`--poll-task` 续查也会生成）、`build-console.log`（完整构建日志）与 `project/`（构建沙箱工程）。
 

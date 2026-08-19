@@ -74,13 +74,8 @@ export function loadCloudTestConfig(config) {
   const baseDir = config.__baseDir || process.cwd();
   const DEFAULT_COOKIE_FILE = "agc-cookie.txt";
   let cookieFile = "";
-  const configuredCookieFile = String(raw.cookieFile || "").trim();
-  if (configuredCookieFile) {
-    cookieFile = path.resolve(baseDir, configuredCookieFile);
-  } else {
-    const defaultCookieFile = path.join(baseDir, DEFAULT_COOKIE_FILE);
-    if (fs.existsSync(defaultCookieFile)) cookieFile = defaultCookieFile;
-  }
+  const defaultCookieFile = path.join(baseDir, DEFAULT_COOKIE_FILE);
+  if (fs.existsSync(defaultCookieFile)) cookieFile = defaultCookieFile;
   let fileCookie = "";
   if (cookieFile) {
     if (!fs.existsSync(cookieFile)) {
@@ -88,11 +83,10 @@ export function loadCloudTestConfig(config) {
     }
     fileCookie = fs.readFileSync(cookieFile, "utf8").replace(/[\r\n]+/g, "").trim();
   }
-  // 测试类别配置：每项 { category, timeSpan }。未配置时由旧的
-  // category/timeSpanMin 单值字段生成一条，保持向后兼容。
+  // 测试类别配置：每项 { category, timeSpan }，未配置时使用默认值。
   const rawCategories = Array.isArray(raw.testCategories) && raw.testCategories.length
     ? raw.testCategories
-    : [{ category: raw.category, timeSpan: raw.timeSpanMin }];
+    : [{ category: 24, timeSpan: 60 }];
   const testCategories = rawCategories.map((item) => ({
     category: Number(item?.category) || 24,
     timeSpan: Math.max(1, Number(item?.timeSpan) || 60),
@@ -103,7 +97,7 @@ export function loadCloudTestConfig(config) {
     cookieFile,
     teamId: String(raw.teamId || process.env.AGC_TEAM_ID || "").trim(),
     projectId: String(raw.projectId || process.env.AGC_PROJECT_ID || "").trim(),
-    agcAuthInfo: String(fileCookie || raw.agcAuthInfo || process.env.AGC_AUTH_INFO || "").trim(),
+    agcAuthInfo: String(fileCookie || process.env.AGC_AUTH_INFO || "").trim(),
     // 工具路径为 server 下的扁平键（与 devecoHome 同级）：
     // hvigorw/ohpm 为本机命令（PATH 裸命令或绝对路径，可含参数前缀如
     // "node /…/hvigorw.js"），未配置则复用 ohosTest.paths 已有键，再退到 PATH 裸命令；
@@ -145,6 +139,9 @@ export function loadCloudTestConfig(config) {
     testItem: String(raw.testItem || "17179869185"),
     pollIntervalSec: Math.max(5, Number(raw.pollIntervalSec) || 60),
     taskTimeoutSec: Math.max(60, Number(raw.taskTimeoutSec) || 7200),
+    // OBS 直传代理（http://host:port），AGC 接口与 refresh 始终直连；也可用环境变量 AGC_PROXY。
+    // 配置代理时 OBS 上传默认跳过证书校验（兼容企业 MITM 自签证书），无额外配置项。
+    proxy: String(raw.proxy || process.env.AGC_PROXY || "").trim(),
   };
   const missing = [
     ["teamId", normalized.teamId],
@@ -266,6 +263,19 @@ async function runLogged({ commandLine, cwd, env, consolePath, onLine, timeoutMs
   };
 }
 
+/** shell 引号包裹（与 runner 的 shellQuote 同语义）：
+ * 安全部件（字母数字与 _ . / : = @ % + , - 和反斜杠）不加引号，
+ * 其余按平台加引号，避免含空格路径（如 "D:\deveco\DevEco Studio"）被 shell 截断。 */
+function shellQuote(value) {
+  const text = String(value ?? "");
+  if (text === "") return '""';
+  if (/^[A-Za-z0-9_.\/:=@%+,\\-]+$/.test(text)) return text;
+  if (process.platform === "win32") {
+    return '"' + text.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1') + '"';
+  }
+  return "'" + text.replace(/'/g, "'\\''") + "'";
+}
+
 /** 构建环境：sdkHome/javaHome 配置了才注入，未配置继承当前进程环境。 */
 function buildEnv(paths) {
   const env = { ...process.env };
@@ -279,9 +289,13 @@ function buildEnv(paths) {
  * 以 shell 命令串执行；绝对路径命令会做存在性预检，PATH 命令由运行时解析。 */
 async function buildSignedApp({ projectDir, settings, consolePath, onLine, signal }) {
   const paths = settings.paths;
+  // hvigorw 语义：hvigorw.js 路径（自动以当前 node 运行）或可执行命令（PATH 裸命令/绝对路径）
+  const hvigorwCommand = paths.hvigorw.endsWith(".js")
+    ? `${shellQuote(process.execPath)} ${shellQuote(paths.hvigorw)}`
+    : shellQuote(paths.hvigorw);
   for (const [label, command] of [["hvigorw", paths.hvigorw], ["ohpm", paths.ohpm]]) {
     if (path.isAbsolute(command) && !await exists(command)) {
-      throw new Error(`${label} 配置的路径不存在: ${command}（检查 cloudTest.paths / ohosTest.paths）`);
+      throw new Error(`${label} 配置的路径不存在: ${command}（检查 server.hvigorw / server.ohpm / ohosTest.paths）`);
     }
   }
   const env = buildEnv(paths);
@@ -290,7 +304,7 @@ async function buildSignedApp({ projectDir, settings, consolePath, onLine, signa
   if (!await exists(path.join(projectDir, "oh_modules"))) {
     onLine(`工程缺少 oh_modules，先执行 ohpm install --all ...`);
     steps.push(await runLogged({
-      commandLine: `${paths.ohpm} install --all`,
+      commandLine: `${shellQuote(paths.ohpm)} install --all`,
       cwd: projectDir,
       env,
       consolePath,
@@ -306,7 +320,7 @@ async function buildSignedApp({ projectDir, settings, consolePath, onLine, signa
 
   steps.push(await runLogged({
     commandLine: [
-      paths.hvigorw,
+      hvigorwCommand,
       "--mode", "project",
       "-p", `product=${settings.product}`,
       "-p", `buildMode=${settings.buildMode}`,
