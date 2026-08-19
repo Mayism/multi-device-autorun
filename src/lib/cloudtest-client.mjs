@@ -15,6 +15,7 @@
 
 import https from "node:https";
 import http from "node:http";
+import tls from "node:tls";
 
 const DEFAULT_BASE_URL = "https://agc-drcn.developer.huawei.com/agc/edge/cloudTest/2/apptest/task";
 // 报告接口在 apptest/report 前缀下（与任务接口的 apptest/task 前缀不同）
@@ -119,32 +120,127 @@ function normalizeCookieLine(value) {
   return [...pairs].map(([key, pairValue]) => `${key}=${pairValue}`).join("; ");
 }
 
-// 云测试 refresh 接口是 GET + JSON body（Python requests 允许、fetch 规范禁止），
-// 因此用 node:http(s) 原生请求实现。
-function requestWithGetBody({ url, headers, body, timeoutMs = 30_000 }) {
+/** 解析代理地址：支持 http://host:port 或 host:port，返回 URL 或 null。 */
+function parseProxyUrl(proxy) {
+  const raw = String(proxy || "").trim();
+  if (!raw) return null;
+  try {
+    return new URL(/^https?:\/\//.test(raw) ? raw : `http://${raw}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 统一 HTTP 传输：node:http(s) 直连或经 HTTP 代理（https 走 CONNECT 隧道）。
+ * Node 的 fetch/https.request 默认不读 HTTP_PROXY 环境变量，代理需在此显式支持。
+ * @returns {Promise<{status: number, text: string, setCookies: string[]}>}
+ */
+export function sendRequest({ url, method, headers = {}, body, timeoutMs = 30_000, proxy = "", tlsOptions = {} }) {
   return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const transport = target.protocol === "http:" ? http : https;
-    const req = transport.request(target, { method: "GET", headers }, (res) => {
-      const chunks = [];
-      res.on("data", (chunk) => chunks.push(chunk));
-      res.on("end", () => resolve({
-        status: res.statusCode,
-        text: Buffer.concat(chunks).toString("utf8"),
-        setCookies: res.headers["set-cookie"] || [],
-      }));
+    const target = url instanceof URL ? url : new URL(url);
+    const isTls = target.protocol === "https:";
+    const transport = isTls ? https : http;
+    const bodyBuffer = body === undefined || body === null
+      ? null
+      : Buffer.isBuffer(body) ? body : Buffer.from(String(body), "utf8");
+    const finalHeaders = { ...headers };
+    if (bodyBuffer !== null) {
+      finalHeaders["Content-Length"] ??= String(bodyBuffer.length);
+    }
+    const baseOptions = {
+      hostname: target.hostname,
+      port: target.port || (isTls ? 443 : 80),
+      method,
+      path: `${target.pathname}${target.search}`,
+      headers: finalHeaders,
+    };
+    let settled = false;
+    let timer = null;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    };
+    const succeed = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const issue = (options, customTransport) => {
+      const req = (customTransport || transport).request(options, (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => succeed({
+          status: res.statusCode,
+          text: Buffer.concat(chunks).toString("utf8"),
+          setCookies: res.headers["set-cookie"] || [],
+        }));
+        res.on("error", fail);
+      });
+      req.once("error", fail);
+      if (bodyBuffer !== null) req.write(bodyBuffer);
+      req.end();
+      return req;
+    };
+    timer = setTimeout(() => {
+      fail(new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）: ${method} ${target.hostname}`));
+    }, timeoutMs);
+    timer.unref?.();
+
+    const proxyUrl = parseProxyUrl(proxy);
+    if (!proxyUrl) {
+      issue({ ...baseOptions, ...tlsOptions });
+      return;
+    }
+
+    if (!isTls) {
+      // http 目标：直接向代理发起，使用绝对 URL
+      issue({
+        ...baseOptions,
+        hostname: proxyUrl.hostname,
+        port: proxyUrl.port || 80,
+        path: target.href,
+        headers: { ...finalHeaders, Host: target.host },
+      });
+      return;
+    }
+    // https 目标：先向代理建立 CONNECT 隧道，再在隧道上做 TLS 与请求
+    const connectReq = http.request({
+      hostname: proxyUrl.hostname,
+      port: proxyUrl.port || 80,
+      method: "CONNECT",
+      path: `${target.hostname}:${baseOptions.port}`,
+      headers: { Host: `${target.hostname}:${baseOptions.port}` },
+      timeout: timeoutMs,
     });
-    req.setTimeout(timeoutMs, () => {
-      req.destroy(new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）: GET ${url}`));
+    connectReq.once("connect", (res, socket) => {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        fail(new Error(`代理 CONNECT 失败: HTTP ${res.statusCode}（${proxyUrl.host}）`));
+        return;
+      }
+      // 默认严格校验证书；tlsOptions 可传企业 CA（ca）或在受信内网场景跳过校验（rejectUnauthorized:false）。
+      // TLS 在隧道上由我们建立，之后的请求用 http.request 在已加密 socket 上收发
+      //（不能再交给 https.request——它会对 TLS socket 重复握手）。
+      const tlsSocket = tls.connect({ socket, servername: target.hostname, ...tlsOptions }, () => {
+        issue({ ...baseOptions, createConnection: () => tlsSocket }, http);
+      });
+      tlsSocket.once("error", fail);
     });
-    req.once("error", reject);
-    if (body !== undefined) req.write(body);
-    req.end();
+    connectReq.once("error", fail);
+    connectReq.once("timeout", () => {
+      connectReq.destroy(new Error(`代理连接超时: ${proxyUrl.host}`));
+    });
+    connectReq.end();
   });
 }
 
+
 export class CloudTestClient {
-  constructor({ teamId, projectId, agcAuthInfo, baseUrl = DEFAULT_BASE_URL } = {}) {
+  constructor({ teamId, projectId, agcAuthInfo, baseUrl = DEFAULT_BASE_URL, proxy = "" } = {}) {
     if (!teamId) throw new Error("缺少 cloudTest.teamId");
     if (!projectId) throw new Error("缺少 cloudTest.projectId");
     if (!agcAuthInfo) throw new Error("缺少 cloudTest.agcAuthInfo（agc_authInfo 值或整行 cookie）");
@@ -156,6 +252,8 @@ export class CloudTestClient {
     this.csrfToken = String(this.cookieJar.get("csrfToken") || "");
     this.tokenJson = extractTokenJson(agcAuthInfo);
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    // 代理仅用于 OBS 直传（云测试 API 与 refresh 始终直连）
+    this.proxy = String(proxy || "").trim();
     this.refreshing = null;
   }
 
@@ -211,13 +309,14 @@ export class CloudTestClient {
   async refreshAuth({ timeoutMs = 30_000 } = {}) {
     if (this.refreshing) return this.refreshing;
     this.refreshing = (async () => {
-      const res = await requestWithGetBody({
+      // GET + JSON body（sendRequest 会显式设置 Content-Length：
+      // 缺省时 node 用 chunked 传输，网关对 GET+chunked 直接 502）
+      const res = await sendRequest({
         url: REFRESH_URL,
+        method: "GET",
         headers: {
           Cookie: this.authCookie(),
           "Content-Type": "application/json",
-          // 必须显式设置：缺省时 node 会用 chunked 传输，网关对 GET+chunked 直接 502
-          "Content-Length": String(Buffer.byteLength(JSON.stringify({ agcTeamId: this.teamId }))),
         },
         body: JSON.stringify({ agcTeamId: this.teamId }),
         timeoutMs,
@@ -362,15 +461,20 @@ export class CloudTestClient {
       if (["host", "content-length", "connection"].includes(lower)) continue;
       forward[key] = value;
     }
-    const res = await fetch(obs.url, {
+    // OBS 直传可配置代理（cloudTest.proxy），其余 AGC 接口始终直连。
+    // 配置了代理时默认跳过证书校验（兼容企业 MITM 代理的自签证书），无需配置项；
+    // 直连（真实 OBS 证书）保持默认校验。
+    const res = await sendRequest({
+      url: obs.url,
       method: obs.method || "PUT",
       headers: forward,
       body: bytes,
-      signal: AbortSignal.timeout(300_000),
+      timeoutMs: 300_000,
+      proxy: this.proxy,
+      tlsOptions: this.proxy ? { rejectUnauthorized: false } : {},
     });
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`OBS 上传失败: HTTP ${res.status}: ${text.slice(0, 300)}`);
+    if ((Number(res.status) || 0) >= 400) {
+      throw new Error(`OBS 上传失败: HTTP ${res.status}: ${String(res.text || "").slice(0, 300)}`);
     }
     return true;
   }
