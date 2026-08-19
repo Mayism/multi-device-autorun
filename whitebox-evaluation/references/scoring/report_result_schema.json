@@ -1,0 +1,1053 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HarmonyOS生成代码评分结果",
+  "description": "HarmonyOS NEXT 生成代码评测结果的统一固定 JSON Schema，用于本地落盘与服务端上报。",
+  "type": "object",
+  "properties": {
+    "basic_info": {
+      "type": "object",
+      "properties": {
+        "rubric_version": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string",
+          "enum": ["full_generation", "continuation", "bug_fix"]
+        },
+        "evaluation_mode": {
+          "type": "string",
+          "enum": ["auto_precheck", "auto_precheck_with_human_review"]
+        },
+        "rules_enabled": {
+          "type": "boolean"
+        },
+        "build_check_enabled": {
+          "type": "boolean"
+        },
+        "target_description": {
+          "type": "string"
+        },
+        "target_scope": {
+          "type": "string"
+        },
+        "task_type_basis": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rubric_version",
+        "task_type",
+        "evaluation_mode",
+        "rules_enabled",
+        "build_check_enabled",
+        "target_description",
+        "target_scope",
+        "task_type_basis"
+      ],
+      "additionalProperties": false
+    },
+    "overall_conclusion": {
+      "type": "object",
+      "properties": {
+        "total_score": {
+          "type": "number"
+        },
+        "hard_gate_triggered": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "pre_cap_score": {
+          "type": "number"
+        },
+        "hard_gates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "score_cap": {
+                "type": "number"
+              },
+              "description": {
+                "type": "string"
+              },
+              "trigger_reason": {
+                "type": "string"
+              },
+              "trigger_policy": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "triggered_rule_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "score_cap",
+              "description",
+              "trigger_reason",
+              "trigger_policy",
+              "triggered_rule_ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "total_score",
+        "pre_cap_score",
+        "hard_gate_triggered",
+        "hard_gates",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "dimension_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dimension_name": {
+            "type": "string"
+          },
+          "dimension_intent": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number"
+          },
+          "max_score": {
+            "type": "number"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "agent_evaluation_summary": {
+            "type": "object",
+            "properties": {
+              "base_score": {
+                "type": "number"
+              },
+              "logic": {
+                "type": "string"
+              },
+              "key_evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "confidence": {
+                "type": "string",
+                "enum": ["high", "medium", "low"]
+              }
+            },
+            "required": ["base_score", "logic", "key_evidence", "confidence"],
+            "additionalProperties": false
+          },
+          "rule_violation_summary": {
+            "type": "object",
+            "properties": {
+              "violated_rule_count": {
+                "type": "number"
+              },
+              "affected_item_count": {
+                "type": "number"
+              },
+              "total_rule_delta": {
+                "type": "number"
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "violated_rule_count",
+              "affected_item_count",
+              "total_rule_delta",
+              "summary"
+            ],
+            "additionalProperties": false
+          },
+          "item_results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "item_name": {
+                  "type": "string"
+                },
+                "item_weight": {
+                  "type": "number"
+                },
+                "score": {
+                  "type": "number"
+                },
+                "matched_band": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "score": {
+                          "type": "number"
+                        },
+                        "criteria": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["score", "criteria"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": ["high", "medium", "low"]
+                },
+                "review_required": {
+                  "type": "boolean"
+                },
+                "agent_evaluation": {
+                  "type": "object",
+                  "properties": {
+                    "base_score": {
+                      "type": "number"
+                    },
+                    "matched_band_score": {
+                      "type": "number"
+                    },
+                    "matched_criteria": {
+                      "type": "string"
+                    },
+                    "logic": {
+                      "type": "string"
+                    },
+                    "evidence_used": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "deduction_trace": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "code_locations": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "impact_scope": {
+                              "type": "string"
+                            },
+                            "rubric_comparison": {
+                              "type": "string"
+                            },
+                            "deduction_reason": {
+                              "type": "string"
+                            },
+                            "improvement_suggestion": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code_locations",
+                            "impact_scope",
+                            "rubric_comparison",
+                            "deduction_reason",
+                            "improvement_suggestion"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "confidence": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    }
+                  },
+                  "required": [
+                    "base_score",
+                    "matched_band_score",
+                    "matched_criteria",
+                    "logic",
+                    "evidence_used",
+                    "deduction_trace",
+                    "confidence"
+                  ],
+                  "additionalProperties": false
+                },
+                "rule_impacts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "rule_id": {
+                        "type": "string"
+                      },
+                      "rule_source": {
+                        "type": "string",
+                        "enum": [
+                          "must_rule",
+                          "should_rule",
+                          "forbidden_pattern"
+                        ]
+                      },
+                      "result": {
+                        "type": "string",
+                        "enum": ["不满足", "待人工复核"]
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "review_only",
+                          "light",
+                          "medium",
+                          "heavy",
+                          "gating"
+                        ]
+                      },
+                      "score_delta": {
+                        "type": "number"
+                      },
+                      "agent_assisted": {
+                        "type": "boolean"
+                      },
+                      "needs_human_review": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "rule_id",
+                      "rule_source",
+                      "result",
+                      "severity",
+                      "score_delta",
+                      "agent_assisted",
+                      "needs_human_review"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "score_fusion": {
+                  "type": "object",
+                  "properties": {
+                    "base_score": {
+                      "type": "number"
+                    },
+                    "rule_delta": {
+                      "type": "number"
+                    },
+                    "final_score": {
+                      "type": "number"
+                    },
+                    "fusion_logic": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "base_score",
+                    "rule_delta",
+                    "final_score",
+                    "fusion_logic"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "item_name",
+                "item_weight",
+                "score",
+                "matched_band",
+                "confidence",
+                "review_required",
+                "agent_evaluation",
+                "rule_impacts",
+                "score_fusion"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "dimension_name",
+          "dimension_intent",
+          "score",
+          "max_score",
+          "comment",
+          "agent_evaluation_summary",
+          "rule_violation_summary",
+          "item_results"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bound_rule_packs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "pack_id": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "rule_set": {
+            "type": "string"
+          }
+        },
+        "required": ["pack_id", "display_name"],
+        "additionalProperties": false
+      }
+    },
+    "case_rule_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": ["P0", "P1"]
+          },
+          "rule_source": {
+            "type": "string",
+            "enum": ["must_rule", "should_rule"]
+          },
+          "result": {
+            "type": "string",
+            "enum": ["满足", "不满足", "不涉及", "待人工复核"]
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "hard_gate_triggered": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rule_id",
+          "rule_name",
+          "priority",
+          "rule_source",
+          "result",
+          "conclusion",
+          "hard_gate_triggered"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "level": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "risk_code": {
+            "type": "string"
+          },
+          "risk_category": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
+          },
+          "source_rule_id": {
+            "type": "string"
+          },
+          "score_effect": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["risk_level_rule_impact"]
+              },
+              "rule_id": {
+                "type": "string"
+              },
+              "original_level": {
+                "type": "string"
+              },
+              "hard_gate_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "hard_gate_active_levels": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "gate_caps": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "impacts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "dimension_name": {
+                      "type": "string"
+                    },
+                    "item_name": {
+                      "type": "string"
+                    },
+                    "original_score_delta": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "dimension_name",
+                    "item_name",
+                    "original_score_delta"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "type",
+              "rule_id",
+              "original_level",
+              "hard_gate_ids",
+              "hard_gate_active_levels",
+              "gate_caps",
+              "impacts"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": ["id", "level", "title"],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "required": ["source_rule_id"]
+            },
+            "then": {
+              "required": ["evidence"],
+              "not": {
+                "anyOf": [
+                  {
+                    "required": ["description"]
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "strengths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "main_issues": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "human_review_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "number"
+          },
+          "item": {
+            "type": "string"
+          },
+          "current_assessment": {
+            "type": "string"
+          },
+          "uncertainty_reason": {
+            "type": "string"
+          },
+          "suggested_focus": {
+            "type": "string"
+          },
+          "score_effect": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["hard_gate", "rule_result"]
+              },
+              "gate_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "rule_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "hard_gate_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "gate_caps": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "trigger_reason": {
+                "type": "string"
+              },
+              "trigger_policy": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "triggered_rule_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": ["type", "gate_caps"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "item",
+          "current_assessment",
+          "uncertainty_reason",
+          "suggested_focus"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "final_recommendation": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "current_limitations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rule_audit_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_summary": {
+            "type": "string"
+          },
+          "rule_source": {
+            "type": "string",
+            "enum": ["must_rule", "should_rule", "forbidden_pattern"]
+          },
+          "result": {
+            "type": "string",
+            "enum": ["满足", "不满足", "不涉及", "待人工复核"]
+          },
+          "conclusion": {
+            "type": "string"
+          },
+          "finding_count": {
+            "type": "number"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "number"
+                },
+                "column": {
+                  "type": "number"
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": ["suggestion", "warn", "error", "unknown"]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": ["file", "severity", "message"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["rule_id", "rule_source", "result", "conclusion"],
+        "additionalProperties": false
+      }
+    },
+    "official_linter_summary": {
+      "type": "object",
+      "properties": {
+        "configuredRuleSets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "effectiveFindingCount": {
+          "type": "number"
+        },
+        "runStatus": {
+          "type": "string",
+          "enum": [
+            "not_enabled",
+            "not_installed",
+            "success",
+            "failed",
+            "timeout",
+            "invalid_output"
+          ]
+        },
+        "exitCode": {
+          "type": "number"
+        },
+        "durationMs": {
+          "type": "number"
+        },
+        "diagnostics": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "configuredRuleSets",
+        "effectiveFindingCount",
+        "runStatus",
+        "durationMs"
+      ],
+      "additionalProperties": false
+    },
+    "build_check_summary": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "not_enabled",
+            "skipped",
+            "tool_unavailable",
+            "success",
+            "failed",
+            "timeout"
+          ]
+        },
+        "hvigor_run_dir": {
+          "type": "string"
+        },
+        "build_check_source": {
+          "type": "string",
+          "enum": ["remote", "hvigor", "agent"]
+        },
+        "checked_modules": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "hard_gate_triggered": {
+          "type": "boolean"
+        },
+        "score_cap": {
+          "type": "number"
+        },
+        "diagnostics": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "number"
+        },
+        "module_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "module_path": {
+                "type": "string"
+              },
+              "module_name": {
+                "type": "string"
+              },
+              "command": {
+                "type": "string",
+                "enum": [
+                  "assembleHar",
+                  "assembleHap",
+                  "assembleHsp",
+                  "assembleApp"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": ["success", "failed", "timeout", "skipped"]
+              },
+              "exit_code": {
+                "type": "number"
+              },
+              "duration_ms": {
+                "type": "number"
+              },
+              "diagnostics": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "module_path",
+              "module_name",
+              "command",
+              "status",
+              "duration_ms"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "status",
+        "checked_modules",
+        "hard_gate_triggered",
+        "duration_ms",
+        "module_results"
+      ],
+      "additionalProperties": false
+    },
+    "report_meta": {
+      "type": "object",
+      "properties": {
+        "result_json_file_name": {
+          "type": "string"
+        },
+        "unit_name": {
+          "type": "string"
+        },
+        "generated_at": {
+          "type": "string"
+        }
+      },
+      "required": ["result_json_file_name", "unit_name", "generated_at"],
+      "additionalProperties": false
+    },
+    "human_review_revision": {
+      "type": "object",
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "reviewed_at": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "overall_comment": {
+          "type": "string"
+        },
+        "score_recalculation": {
+          "type": "object",
+          "properties": {
+            "original_total_score": {
+              "type": "number"
+            },
+            "revised_total_score": {
+              "type": "number"
+            },
+            "original_hard_gate_triggered": {
+              "type": "boolean"
+            },
+            "revised_hard_gate_triggered": {
+              "type": "boolean"
+            },
+            "changed_item_count": {
+              "type": "number"
+            },
+            "changed_risk_count": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "original_total_score",
+            "revised_total_score",
+            "original_hard_gate_triggered",
+            "revised_hard_gate_triggered",
+            "changed_item_count",
+            "changed_risk_count"
+          ],
+          "additionalProperties": false
+        },
+        "item_reviews": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "itemId": {
+                "type": "number"
+              },
+              "agree": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "score_effect_applied": {
+                "type": "boolean"
+              }
+            },
+            "required": ["itemId", "agree", "score_effect_applied"],
+            "additionalProperties": false
+          }
+        },
+        "risk_reviews": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "riskId": {
+                "type": "number"
+              },
+              "agree": {
+                "type": "boolean"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "correctedLevel": {
+                "type": "string"
+              },
+              "score_effect_applied": {
+                "type": "boolean"
+              }
+            },
+            "required": ["riskId", "agree", "score_effect_applied"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "applied",
+        "reviewed_at",
+        "score_recalculation",
+        "item_reviews",
+        "risk_reviews"
+      ],
+      "additionalProperties": false
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "result.v2"
+    },
+    "score_policy": {
+      "type": "object",
+      "properties": {
+        "risk_level_weights": {
+          "type": "object",
+          "properties": {
+            "high": {
+              "type": "number"
+            },
+            "medium": {
+              "type": "number"
+            },
+            "low": {
+              "type": "number"
+            },
+            "none": {
+              "type": "number"
+            }
+          },
+          "required": ["high", "medium", "low", "none"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["risk_level_weights"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "basic_info",
+    "overall_conclusion",
+    "score_policy",
+    "dimension_results",
+    "bound_rule_packs",
+    "case_rule_results",
+    "risks",
+    "strengths",
+    "main_issues",
+    "human_review_items",
+    "final_recommendation",
+    "rule_audit_results",
+    "official_linter_summary",
+    "report_meta"
+  ],
+  "additionalProperties": false
+}

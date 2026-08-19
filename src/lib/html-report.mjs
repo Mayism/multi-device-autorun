@@ -340,6 +340,7 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
   const batch = summary || {};
   const agentTotals = report?.agent || {};
   const ohosTotals = report?.ohosTest || {};
+  const whiteboxTotals = report?.whitebox || {};
   const agentType = text(batch.agent || agentTotals.type || executionInfo?.agent);
   const providerId = text(batch.providerId || agentTotals.providerId || executionInfo?.providerId);
   const modelId = text(batch.modelId || agentTotals.modelId || executionInfo?.modelId);
@@ -353,6 +354,8 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
     { k: "工具调用", v: agentTotals.toolCalls ?? "--" },
     { k: "执行用例个数", v: ohosTotals.testsRun ?? "--" },
     { k: "通过 / 失败 / 错误", v: `<span class="pass">${ohosTotals.passes ?? 0}</span> / <span class="fail">${ohosTotals.failures ?? 0}</span> / <span class="error">${ohosTotals.errors ?? 0}</span>`, html: true },
+    { k: "白盒完成 / 失败", v: `${whiteboxTotals.completed ?? 0} / ${whiteboxTotals.failed ?? 0}` },
+    { k: "白盒平均分", v: whiteboxTotals.averageScore ?? "--" },
   ];
 
   const agentName = text(executionInfo?.agent || batch.agent);
@@ -382,7 +385,8 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
       <td>${badge(c.status)}</td>
       <td>${cloudTestCell(c.cloudTest)}</td>
       <td>${c.testSummary}</td>
-      <td><a class="link" href="subpage/${testName}">查看详情</a>${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
+      <td>${c.whiteboxStatus ? `${badge(c.whiteboxStatus)}${c.whiteboxScore != null ? ` <b>${esc(c.whiteboxScore)}</b>` : ""}` : "--"}</td>
+      <td><a class="link" href="subpage/${testName}">查看详情</a>${c.whiteboxReport ? ` <a class="link" href="${esc(c.whiteboxReport)}">白盒报告</a>` : ""}${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
     </tr>`;
   }).join("");
 
@@ -405,9 +409,10 @@ function buildOverview({ summary, report, caseRows, executionInfo }) {
           <th>测试结果</th>
           <th>云测试</th>
           <th>执行结果</th>
+          <th>白盒评价</th>
           <th>操作</th>
         </tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="11" class="empty">暂无用例数据</td></tr>`}</tbody>
+        <tbody>${rowsHtml || `<tr><td colspan="13" class="empty">暂无用例数据</td></tr>`}</tbody>
       </table>
     </div>
     <p class="legend">说明：「Agent执行耗时」为 Agent 改造代码阶段；「用例执行耗时」为 ohosTest 设备测试阶段；「总耗时」≈「Agent执行耗时」+「用例执行耗时」（相差不超过 1 秒为时间取整）；「交互(模型/工具)」为模型调用次数 / 工具调用次数。</p>`;
@@ -497,6 +502,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
   const modelId = text(r.modelId || executionInfo?.modelId);
   const model = [providerId, modelId].filter(Boolean).join("/");
   const overview = summarizeTestRows(testRows);
+  const whitebox = r.whitebox || {};
 
   const back = `<div class="back"><a class="link" href="../overview.html">← 返回总览</a></div>`;
   const head = `
@@ -519,6 +525,19 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
         <div class="row"><span class="k">缓存读取</span><span>${fmtToken(r.tokenUsage?.cacheRead)}</span></div>
         <div class="row"><span class="k">合计 Token</span><span title="合计 = 输入 + 输出 + 推理 + 缓存读取 + 缓存写入"><b>${fmtToken(r.tokenUsage?.total)}</b></span></div>
         ${r.agentError ? `<div class="row" style="grid-column:1/-1"><span class="k">Agent 错误</span><span class="error">${esc(r.agentError)}</span></div>` : ""}
+      </div>
+    </div>`;
+
+  const whiteboxCard = `
+    <h2>白盒评价</h2>
+    <div class="card" style="padding:16px 18px;">
+      <div class="kv">
+        <div class="row"><span class="k">状态</span><span>${badge(whitebox.status || "not_started")}</span></div>
+        <div class="row"><span class="k">总分</span><span><b>${whitebox.totalScore ?? "--"}</b></span></div>
+        <div class="row"><span class="k">硬门槛</span><span>${whitebox.hardGateTriggered ? badge("已触发") : badge("未触发")}</span></div>
+        <div class="row"><span class="k">裁判模型</span><span>${esc([whitebox.judge?.providerId, whitebox.judge?.modelId].filter(Boolean).join("/") || "--")}</span></div>
+        ${whitebox.reportHref ? `<div class="row"><span class="k">完整报告</span><span><a class="link" href="${esc(whitebox.reportHref)}">打开白盒 HTML</a></span></div>` : ""}
+        ${whitebox.error ? `<div class="row" style="grid-column:1/-1"><span class="k">错误</span><span class="error">${esc(whitebox.error)}</span></div>` : ""}
       </div>
     </div>`;
 
@@ -583,7 +602,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
     </div>`;
 
   const extraHead = `<script>window.__REASONS__ = ${JSON.stringify(reasons)};</script>`;
-  const body = back + head + agentCard + overviewTable + detailTable + reasonModalMarkup();
+  const body = back + head + agentCard + whiteboxCard + overviewTable + detailTable + reasonModalMarkup();
   return pageShell({ title: `${caseName} · 详情`, body, extraHead }) + modalScript();
 }
 
@@ -631,6 +650,11 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       tokenTotal: result?.tokenUsage?.total,
       status: result.status,
       cloudTest: result.cloudTest || null,
+      whiteboxStatus: result?.whitebox?.status,
+      whiteboxScore: result?.whitebox?.totalScore,
+      whiteboxReport: result?.whitebox?.reportPath
+        ? path.relative(batchRoot, result.whitebox.reportPath).split(path.sep).join("/")
+        : "",
       downloadUrl: uploadResults[caseName]?.url || "",
       testSummary: testRows.length
         ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`
@@ -653,7 +677,15 @@ export async function writeHtmlReport({ batchRoot, summary }) {
     const testRows = flattenRunnerTests(runnerResult);
     const html = buildCasePage({
       caseName,
-      caseResult: result,
+      caseResult: {
+        ...result,
+        whitebox: result?.whitebox?.reportPath
+          ? {
+              ...result.whitebox,
+              reportHref: `../${path.relative(batchRoot, result.whitebox.reportPath).split(path.sep).join("/")}`,
+            }
+          : result?.whitebox,
+      },
       agentMetrics: am,
       runnerResult,
       testRows,

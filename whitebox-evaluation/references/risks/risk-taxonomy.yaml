@@ -1,0 +1,300 @@
+version: v1
+score_taxonomy:
+  - code: REQUIREMENT_NOT_IMPLEMENTED
+    level: high
+    title: 需求未实现
+    description: 需求目标、关键约束、验收点或必要业务回调没有在生成代码中落地。
+    primaryItemsByTask:
+      full_generation:
+        dimension: 架构与职责划分
+        item: 页面/组件职责分离
+      continuation:
+        dimension: 与既有工程一致性
+        item: 复用既有能力程度
+      bug_fix:
+        dimension: 改动精准度与最小侵入性
+        item: 问题点命中程度
+    matchHints:
+      - 未实现
+      - 缺失功能
+      - 需求偏离
+      - 关键约束缺失
+      - 空回调
+      - 必要能力缺失
+  - code: REQUIREMENT_PARTIALLY_IMPLEMENTED
+    level: medium
+    title: 需求实现不完整
+    description: 需求已有部分实现，但关键路径、边界场景、交互分支、核心链路、接口承诺或兜底逻辑缺失。
+    primaryItemsByTask:
+      full_generation:
+        dimension: 架构与职责划分
+        item: 页面/组件职责分离
+      continuation:
+        dimension: 与既有工程一致性
+        item: 复用既有能力程度
+      bug_fix:
+        dimension: 改动精准度与最小侵入性
+        item: 问题点命中程度
+    matchHints:
+      - 部分实现
+      - 兜底不足
+      - 边界缺失
+      - 实现不完整
+      - 跳转逻辑不完整
+      - 接口定义与实现不一致
+      - 参数不完整
+      - 交互链路不完整
+      - 核心链路缺失
+      - 空实现
+      - 无响应按钮
+      - 删除功能缺失
+      - 加载状态缺失
+      - 分页加载缺失
+  - code: API_USAGE_DEVIATION
+    level: high
+    title: 核心 API 使用偏离
+    description: 关键能力没有按要求使用框架 API、平台接口、指定 Kit、指定组件、指定调用方式或官方推荐接入方式；规则要求指定 Kit/API 时，pass 必须有真实 import、符号调用或可追溯到 Kit/API 的封装。
+    primaryItem:
+      dimension: 平台规范符合度
+      item: HarmonyOS工程实践符合度
+    matchHints:
+      - API 偏离
+      - 未使用指定 API
+      - 平台接口缺失
+      - 调用方式错误
+      - 导入约束偏差
+      - 实现方式与需求不一致
+      - API 调用错误
+      - 指定 Kit
+      - 指定组件
+      - 真实 import
+      - 符号调用
+      - 可追溯封装
+      - 本地同名函数
+      - Mock 替代
+      - 静态占位
+      - HTTP endpoint
+      - AtomicServiceWeb
+      - MapComponent
+      - FunctionalButton
+      - openLink
+  - code: DEPRECATED_API_USAGE
+    level: medium
+    title: 新增代码使用废弃 API
+    description: 新增或修改代码使用了编译器标记为 deprecated 的 ArkTS/ArkUI API，后续版本可能移除或行为变化。
+    primaryItem:
+      dimension: 平台规范符合度
+      item: HarmonyOS工程实践符合度
+    matchHints:
+      - deprecated
+      - has been deprecated
+      - 废弃 API
+  - code: LANGUAGE_CONSTRAINT_VIOLATION
+    level: medium
+    title: 语言约束违规
+    description: ArkTS / TypeScript 类型、语法、空值处理或语言约束不符合要求。
+    primaryItem:
+      dimension: 代码正确性与静态质量
+      item: ArkTS/ArkUI语法与类型安全
+    matchHints:
+      - 类型违规
+      - 语法违规
+      - ArkTS
+      - any
+      - unknown
+      - 类型宽松
+      - 非空断言
+  - code: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+    level: medium
+    title: 布局或断点不匹配
+    description: 布局、断点、窗口形态、折叠屏、悬停态、折痕区域、Web/Native 断点同步、列表、网格、资源化样式或响应式策略与要求不一致。
+    primaryItemsByTask:
+      full_generation:
+        dimension: 平台规范符合度
+        item: ArkUI组织方式合理性
+      continuation:
+        dimension: 与既有工程一致性
+        item: 目录/模块接入一致性
+      bug_fix:
+        dimension: 平台规范符合度
+        item: ArkTS/ArkUI规范符合度
+    matchHints:
+      - 断点
+      - Grid
+      - List
+      - WaterFlow
+      - 响应式
+      - GridRow
+      - GridCol
+      - 硬编码颜色
+      - 魔法颜色值
+      - 浅层窗口
+      - 半模态
+      - 弹窗形态
+      - 折叠屏
+      - 悬停态
+      - 折痕区域
+      - 垂直断点
+      - 横竖屏
+      - Web 断点
+      - CSS media query
+      - 相对单位
+      - 安全区避让
+  - code: PERFORMANCE_OR_LIFECYCLE_RISK
+    level: medium
+    title: 性能或生命周期风险
+    description: 存在重复计算、热点路径低效、存储无界增长、监听释放不完整或生命周期状态清理不稳。
+    primaryItem:
+      dimension: 风险控制与稳定性
+      item: 稳定性风险
+    matchHints:
+      - 性能
+      - 生命周期
+      - 监听
+      - 重复计算
+      - 释放
+      - 状态清理
+      - 存储无上限
+      - 退出时清空
+      - controller 生命周期
+  - code: BUILD_OR_RESOURCE_ISSUE
+    level: medium
+    title: 构建或资源问题
+    description: 构建流程、资源引用、配置、依赖、模块边界、包名或无效导入存在问题。
+    primaryItem:
+      dimension: 代码正确性与静态质量
+      item: 明显错误密度
+    matchHints:
+      - 构建
+      - 资源
+      - 配置
+      - 依赖
+      - 模块
+      - HAR 资源
+      - 占位包名
+      - 未使用的导入
+  - code: READABILITY_OR_MAINTAINABILITY_RISK
+    level: low
+    title: 可读性或可维护性下降
+    description: 命名、结构、注释、重复代码、硬编码配置或状态管理方式影响后续 review 和维护。
+    primaryItem:
+      dimension: 可维护性与可读性
+      item: 复杂度控制
+    matchHints:
+      - 可读性
+      - 可维护性
+      - 命名
+      - 注释
+      - 重复代码
+      - 局部代码风格
+      - 硬编码规则
+      - 状态管理装饰器
+      - 死代码
+      - 模板代码残留
+      - 目录组织不统一
+      - 技术栈混用
+      - 装饰器版本不一致
+      - 路由分支过多
+  - code: DATA_STATE_CONSISTENCY_RISK
+    level: medium
+    title: 数据或状态一致性风险
+    description: 异步流程、全局状态、缓存、持久化数据或多份状态之间缺少一致性保障，可能导致页面数据、业务状态或后续加载结果不一致。
+    primaryItemsByTask:
+      full_generation:
+        dimension: 架构与职责划分
+        item: 状态与数据流组织
+      continuation:
+        dimension: 架构与职责划分
+        item: 状态接入合理性
+      bug_fix:
+        dimension: 风险控制与稳定性
+        item: 回归风险控制
+    matchHints:
+      - 数据不一致
+      - 状态不一致
+      - 状态同步
+      - 全局状态共享
+      - 异步未等待
+      - 缓存未同步
+      - 持久化未更新
+      - 导航栈
+      - popup 状态
+      - 弹窗状态
+      - 返回状态
+      - 横竖屏切换
+      - 页面栈
+      - 状态清理
+  - code: ERROR_HANDLING_OR_VALIDATION_RISK
+    level: medium
+    title: 错误处理或校验不足
+    description: 异步失败、接口异常、认证失败、输入格式或边界值缺少明确处理，可能掩盖错误、误判成功或让无效数据进入流程。
+    primaryItem:
+      dimension: 风险控制与稳定性
+      item: 安全与边界意识
+    matchHints:
+      - 错误处理
+      - 异常处理
+      - 认证失败
+      - 误判成功
+      - 格式验证
+      - 输入校验
+      - 失败反馈
+      - 静默吞没
+      - 空 catch
+      - 仅 return 拦截
+      - 缺少用户提示
+      - 无确认对话框
+      - 误操作
+  - code: SECURITY_OR_PRIVACY_RISK
+    level: high
+    title: 安全或隐私风险
+    description: 敏感信息、用户隐私、凭据、权限或安全边界处理不充分，可能导致数据泄露、越权访问或不符合安全合规要求。
+    primaryItem:
+      dimension: 风险控制与稳定性
+      item: 安全与边界意识
+    matchHints:
+      - 安全
+      - 隐私
+      - 敏感信息
+      - 凭据
+      - token
+      - 权限
+      - 加密
+  - code: EXTERNAL_SERVICE_INTEGRATION_RISK
+    level: medium
+    title: 外部服务集成风险
+    description: 推送、地图、登录、支付等外部服务的配置、调用时机、参数、端侧与服务端职责划分或接入方式不完整，可能导致集成能力不可用或行为不符合预期。
+    primaryItem:
+      dimension: 平台规范符合度
+      item: HarmonyOS工程实践符合度
+    matchHints:
+      - 外部服务
+      - 服务集成
+      - 推送配置
+      - 模板参数
+      - 调用时机
+      - 服务端触发
+      - REST API
+  - code: OTHER_ISSUE
+    level: medium
+    title: 其他问题
+    description: 风险事实存在，但无法稳定归入现有 score taxonomy 代码；用于兜底承接未知或不规范风险代码。
+    primaryItem:
+      dimension: 风险控制与稳定性
+      item: 稳定性风险
+    matchHints:
+      - 其他问题
+      - 未知风险
+      - 未归类
+review_only_taxonomy:
+  - code: EVALUATION_METADATA_RISK
+    level: high
+    title: 评审元数据风险
+    description: 任务类型、评分上下文、rubric 元数据或评审输入与实际代码变更不一致，可能导致评分维度失配或风险判断基础错误。
+    matchHints:
+      - 任务类型
+      - 评分体系
+      - rubric
+      - 元数据
+      - 评审上下文
+      - 评分维度

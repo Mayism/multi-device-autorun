@@ -11,10 +11,30 @@
   "execution": {
     "casesRoot": "D:\\cases",
     "agent": "harmonyos-multi-device",
-    "model": "deepseek-v4-flash",
+    "model": "glm-5.2",
     "additionalPrompt": "",
     "concurrency": 3,
     "consoleMode": "dashboard"
+  },
+  "whiteboxEvaluation": {
+    "enabled": true,
+    "concurrency": 2,
+    "timeoutSec": 1800,
+    "failurePolicy": "record_only",
+    "judge": {
+      "providerId": "zhipuai-token-plan",
+      "modelId": "glm-5.2",
+      "basePort": 62400
+    },
+    "prompt": {
+      "includeAdditionalPrompt": true
+    },
+    "officialLinter": {
+      "enabled": false
+    },
+    "hvigorBuildCheck": {
+      "enabled": false
+    }
   },
   "ohosTest": {
     "paths": {
@@ -28,14 +48,14 @@
     "devices": [
       {
         "id": "phone",
-        "profile": "Pura 90",
+        "profile": "Pura 90 Pro",
         "target": "127.0.0.1:15001",
         "hdcPort": 15001,
         "startEmulator": true
       },
       {
         "id": "foldable",
-        "profile": "Mate X7",
+        "profile": "Mate X7_API24",
         "target": "127.0.0.1:15005",
         "hdcPort": 15005,
         "startEmulator": true

@@ -53,13 +53,21 @@ autorun/
 │   ├── run-opencode-serve.mjs  # 独立启动 OpenCode Server
 │   └── lib/                    # Autorun 内部模块
 ├── runner/                     # 内置 HarmonyOS ohosTest Runner
+├── whitebox-evaluation/         # 独立白盒评价子系统
 └── output/
-    ├── _runtime/opencode/      # OpenCode Server 运行数据和日志
+    ├── _runtime/opencode/      # 生成 Agent 的 OpenCode 运行数据
+    ├── _runtime/whitebox/      # 白盒裁判的独立 OpenCode 运行数据
     └── <batchId>/              # 正式批量运行结果
 ```
 
 工程仅提供 `.mjs` 入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行。当前自动化主链不会依赖平台专用的 `.bat`、`.ps1` 或 `.sh` 脚本。
-首次检出后需要执行 `npm --prefix runner install` 安装内置 Runner 的依赖。
+首次检出后需要安装内置 Runner 和白盒评价子系统的依赖并完成构建：
+
+```bash
+npm --prefix runner install
+npm --prefix whitebox-evaluation install
+npm --prefix whitebox-evaluation run build
+```
 
 ## 用例格式
 
@@ -98,6 +106,20 @@ autorun/
     "model": "deepseek-v4-flash",
     "additionalPrompt": "",
     "concurrency": 3
+  },
+  "whiteboxEvaluation": {
+    "enabled": true,
+    "concurrency": 2,
+    "timeoutSec": 1800,
+    "failurePolicy": "record_only",
+    "judge": {
+      "providerId": "deepseek",
+      "modelId": "deepseek-v4-flash",
+      "basePort": 62400
+    },
+    "prompt": {
+      "includeAdditionalPrompt": true
+    }
   },
   "ohosTest": {
     "paths": {
@@ -152,6 +174,12 @@ autorun/
 | `execution.idleTimeoutSec` | Agent 连续无活动的超时时间，默认 `600` 秒。 |
 | `execution.maxRuntimeSec` | 单个用例最大总运行时间，默认 `6000` 秒。 |
 | `execution.continueOnError` | 单个用例失败后是否继续执行剩余用例，默认 `true`。 |
+| `whiteboxEvaluation.enabled` | 是否启用白盒评价。启用后，白盒裁判与 ohosTest 并行执行。 |
+| `whiteboxEvaluation.concurrency` | 白盒评价并发数，默认 `2`。每个并发使用独立裁判 OpenCode 端口。 |
+| `whiteboxEvaluation.timeoutSec` | 单个白盒任务超时，默认 `1800` 秒。 |
+| `whiteboxEvaluation.failurePolicy` | 当前支持 `record_only`：白盒失败只记录，不改变原用例状态。 |
+| `whiteboxEvaluation.judge` | 选择裁判 Provider、模型和端口。`providerId` 必须与当前 OpenCode `opencode.json` 中的 Provider 名称完全一致；协议适配器、baseURL、API Key 和模型定义均从该 Provider 配置原样继承。 |
+| `whiteboxEvaluation.prompt.includeAdditionalPrompt` | 是否将 `execution.additionalPrompt` 作为有效业务要求交给裁判，默认 `true`。 |
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
 | `ohosTest.paths` | Runner 使用的 Hvigor、ohpm、hdc、模拟器和折叠屏服务脚本路径。 |
@@ -424,6 +452,16 @@ output/<batchId>/
     ├── metadata.json          # Agent 完成后从源 case 原样复制
     ├── test_patch.patch       # Agent 完成后从源 case复制
     ├── result.json            # 单用例最终结果
+    ├── whitebox/              # 白盒评价输入、结果、日志和单文件 HTML
+    │   ├── inputs/
+    │   │   ├── input.json
+    │   │   ├── original-prompt.md
+    │   │   └── effective-prompt.md
+    │   ├── outputs/
+    │   │   ├── result.json
+    │   │   └── agent-trace.json
+    │   ├── report.html
+    │   └── logs/
     ├── .ohostest-runs/        # harmonyos-ohostest-runner 自动生成
     │   └── <runId>/
     │       ├── machine.json   # 从 autorun.config.json 生成的本次设备配置
@@ -443,6 +481,12 @@ output/<batchId>/
         ├── opencode-polling.jsonl # 仅 Agent 失败、超时或中断时保留
         └── compile-attempts.json # Agent build attempt details; excludes ohosTest
 ```
+
+白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
+
+Agent 结束后，Autorun 会在 Patch、生成工程、白盒 Sandbox 和失败用例 ZIP 边界统一排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`。这些 Agent 工具链与临时证据不属于业务交付内容，也不参与 ohosTest 或白盒评分。
+
+生成 Agent 的 Hvigor 编译尝试会以结构化 `agentBuild` 输入交给白盒评价，保留每次真实任务、命令、退出码和顺序。白盒以最后一次有效尝试作为最终编译结果，报告来源显示为“生成 Agent 编译结果”，与 ohosTest 状态独立。
 
 ohosTest 执行期间会先创建 `<caseName>/work/` 作为实际编译工程；执行结束后统一重命名并保留为
 `<caseName>/ohostest-workdir/`。用例 `result.json` 的 `ohosTest.workDir` 会记录其绝对路径。

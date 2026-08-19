@@ -1,0 +1,66 @@
+name: ArkUI 补充工程规则
+version: v1.0.0
+summary: 基于人工评级与 AI 自动评分差异分析补充的 ArkUI 工程规则包，默认启用。
+rule_pack_meta:
+  pack_id: arkui-extra
+  source_name: HMOS-Score-Agent-ArkUI-Extra-Rules
+  source_version: gap-analysis-2026-05-26
+must_rules:
+  - id: ARKUI-MUST-001
+    rule: >-
+      配置 routerMap 的页面必须使用 NavDestination 作为页面根容器。若 module.json5 未配置 routerMap，判定为不涉及；若配置了 routerMap 但对应 profile
+      缺失或不可读，判定为不满足；若 route_map 指向页面未使用 NavDestination，判定为不满足。
+    rule_name: routerMap 页面必须使用 NavDestination
+    priority: P1
+    detector:
+      kind: static
+      mode: arkui_extra
+      config:
+        check: route_navdestination
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - module.json5 配置了 routerMap，且 route_map 指向页面均使用 NavDestination。
+      fail:
+        - module.json5 配置了 routerMap，但 profile 缺失、不可读，或 route_map 指向页面未使用 NavDestination。
+      notApplicable:
+        - module.json5 未配置 routerMap。
+      review:
+        - route_map 结构或页面构造方式无法静态确认，需要 agent 复审。
+    profile:
+      scoring: true
+      riskCode: API_USAGE_DEVIATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - harmony_engineering
+      impact: medium
+forbidden_patterns:
+  - id: ARKUI-FORBID-001
+    rule: 同一组件链式调用中不得配置多个 bindSheet。
+    rule_name: 同一组件不得多次 bindSheet
+    priority: P1
+    detector:
+      kind: static
+      mode: arkui_extra
+      config:
+        check: multi_bindsheet_same_component
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 未发现同一组件链式调用多个 bindSheet。
+      fail:
+        - 同一组件链式调用中出现多个 bindSheet。
+      notApplicable:
+        - 本次变更未涉及 bindSheet。
+      review:
+        - 组件链式调用边界无法静态确认，需要 agent 复审。
+    profile:
+      scoring: true
+      riskCode: API_USAGE_DEVIATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - arkui_organization
+        - harmony_engineering
+      impact: medium

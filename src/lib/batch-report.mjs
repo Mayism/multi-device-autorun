@@ -143,6 +143,24 @@ function buildOhosTestSummary(cases) {
   };
 }
 
+function buildWhiteboxSummary(results, enabled) {
+  const cases = results
+    .filter((item) => item?.whitebox)
+    .map((item) => ({ case: text(item.case), ...item.whitebox }));
+  const scores = cases
+    .map((item) => Number(item.totalScore))
+    .filter((value) => Number.isFinite(value));
+  return {
+    enabled: enabled === true,
+    completed: cases.filter((item) => item.status === "completed").length,
+    failed: cases.filter((item) => item.status !== "completed").length,
+    averageScore: scores.length
+      ? Math.round((scores.reduce((sum, value) => sum + value, 0) / scores.length) * 100) / 100
+      : null,
+    cases,
+  };
+}
+
 export async function writeBatchReport({ batchRoot, summary, uploadConfig }) {
   const results = Array.isArray(summary?.results) ? summary.results : [];
   const agentCases = await Promise.all(results.map(collectAgentCase));
@@ -159,6 +177,7 @@ export async function writeBatchReport({ batchRoot, summary, uploadConfig }) {
       ...agentSummary,
     },
     ohosTest: buildOhosTestSummary(ohosTestCases),
+    whitebox: buildWhiteboxSummary(results, summary?.whiteboxEvaluation?.enabled),
   };
   const jsonPath = path.join(batchRoot, "report.json");
   await fs.rm(path.join(batchRoot, "report.md"), { force: true });

@@ -18,6 +18,16 @@ import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling 
 import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 import { mergeOverview } from "./src/lib/merge-overview.mjs";
+import {
+  filterGeneratedArtifactPatch,
+  GENERATED_ARTIFACT_GIT_EXCLUDES,
+  pruneGeneratedArtifacts,
+} from "./src/lib/generated-artifact-filter.mjs";
+import {
+  createWhiteboxOrchestrator,
+  normalizeWhiteboxConfig,
+  prepareWhiteboxInput,
+} from "./src/lib/whitebox-orchestrator.mjs";
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
@@ -182,6 +192,10 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
   normalized.server.runtimeRoot = resolveFrom(
     baseDir,
     normalized.server.runtimeRoot || path.join(normalized.execution.outputRoot, "_runtime", "opencode"),
+  );
+  normalized.whiteboxEvaluation = normalizeWhiteboxConfig(
+    normalized.whiteboxEvaluation,
+    normalized.execution.outputRoot,
   );
   normalized.upload = { enabled: normalized.upload?.enabled === true };
   return normalized;
@@ -974,7 +988,14 @@ async function saveAgentLogs(client, sessionIds, generateDir) {
   await atomicWriteJson(messagesPath, sessions);
   await fs.writeFile(transcriptPath, renderAgentTranscript(sessions), "utf8");
   await atomicWriteJson(compileAttemptsPath, compileAttempts);
-  return { messagesPath, transcriptPath, compileAttemptsPath, tokenUsage, agentCompile };
+  return {
+    messagesPath,
+    transcriptPath,
+    compileAttemptsPath,
+    tokenUsage,
+    agentCompile,
+    agentCompileAttempts: compileAttempts.items,
+  };
 }
 
 async function initializeGitBaseline(projectDir) {
@@ -982,7 +1003,11 @@ async function initializeGitBaseline(projectDir) {
   await runCommand("git", ["config", "user.name", "autorun"], { cwd: projectDir });
   await runCommand("git", ["config", "user.email", "autorun@example.local"], { cwd: projectDir });
   const excludePath = path.join(projectDir, ".git", "info", "exclude");
-  await fs.appendFile(excludePath, "\n.opencode/\nnode_modules/\nbuild/\n", "utf8");
+  await fs.appendFile(
+    excludePath,
+    `\n.opencode/\nnode_modules/\nbuild/\n${GENERATED_ARTIFACT_GIT_EXCLUDES.join("\n")}\n`,
+    "utf8",
+  );
   await runCommand("git", ["add", "-A", "--", "."], { cwd: projectDir });
   await runCommand("git", ["commit", "--allow-empty", "-m", "autorun project baseline"], { cwd: projectDir });
   const rev = await runCommand("git", ["rev-parse", "HEAD"], { cwd: projectDir });
@@ -996,7 +1021,8 @@ async function generatePatch(projectDir, baseline, patchPath) {
     throw new Error(`生成 patch 失败: ${diff.stderr.toString("utf8")}`);
   }
   await fs.mkdir(path.dirname(patchPath), { recursive: true });
-  await fs.writeFile(patchPath, diff.stdout);
+  const filteredPatch = filterGeneratedArtifactPatch(diff.stdout.toString("utf8"));
+  await fs.writeFile(patchPath, filteredPatch, "utf8");
 }
 
 const GENERATED_PROJECT_DIRS = new Set([".git", ".hvigor", "build", "node_modules"]);
@@ -1031,6 +1057,8 @@ async function cleanupCaseArtifacts({
   generateDir = "",
   removeRawAgentLogs = false,
   pruneProject = false,
+  keepOriginal = false,
+  pruneTransientArtifacts = false,
 }) {
   const failures = [];
   const attempt = async (label, action) => {
@@ -1041,12 +1069,15 @@ async function cleanupCaseArtifacts({
     }
   };
 
-  if (originalDir && patchPath && await exists(patchPath)) {
+  if (!keepOriginal && originalDir && patchPath && await exists(patchPath)) {
     await attempt("删除 original", () => removeOutputPath(originalDir));
   }
   if (removeRawAgentLogs && generateDir) {
     await attempt("删除 SSE 日志", () => removeOutputPath(path.join(generateDir, "opencode-sse.jsonl")));
     await attempt("删除轮询日志", () => removeOutputPath(path.join(generateDir, "opencode-polling.jsonl")));
+  }
+  if (pruneTransientArtifacts && projectDir) {
+    await attempt("清理 Agent 临时产物", () => pruneGeneratedArtifacts(projectDir));
   }
   if (pruneProject && projectDir) {
     await attempt("清理工程构建缓存", () => pruneGeneratedProjectDirs(projectDir));
@@ -1056,7 +1087,19 @@ async function cleanupCaseArtifacts({
   }
 }
 
-async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTestEnabled, cloudTestEnabled, store, reporter, signal }) {
+async function runCase({
+  caseInfo,
+  batchRoot,
+  client,
+  model,
+  execution,
+  ohosTestEnabled,
+  cloudTestEnabled,
+  preserveForWhitebox,
+  store,
+  reporter,
+  signal,
+}) {
   const caseName = caseInfo.name;
   const deviceLeasePath = path.join(batchRoot, ".device-validation.lock");
   const caseRunDir = path.join(batchRoot, safeName(caseName));
@@ -1184,12 +1227,14 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       patchPath,
       generateDir,
       removeRawAgentLogs: true,
+      pruneTransientArtifacts: true,
       pruneProject: !ohosTestEnabled,
+      keepOriginal: preserveForWhitebox,
     });
 
     const agentFinishedAt = new Date();
     const agentElapsedSec = Math.round((agentFinishedAt.getTime() - startedAt.getTime()) / 1000);
-    const pendingStages = ohosTestEnabled || cloudTestEnabled;
+    const pendingStages = ohosTestEnabled || cloudTestEnabled || preserveForWhitebox;
     const result = {
       case: caseName,
       status: pendingStages ? "running" : "completed",
@@ -1206,6 +1251,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       finishReason: monitored.finishReason,
       tokenUsage,
       agentCompile,
+      agentCompileAttempts: agentLogs.agentCompileAttempts,
       projectName: caseInfo.projectName,
       projectDir,
       patchPath,
@@ -1221,6 +1267,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       },
       ...(ohosTestEnabled ? { ohosTest: { status: "queued" } } : {}),
       ...(cloudTestEnabled ? { cloudTest: { status: "queued" } } : {}),
+      ...(preserveForWhitebox ? { whitebox: { status: "queued" } } : {}),
     };
     const finalPreview = compactPreview(monitored.output, 500);
     if (finalPreview) await writeAgentConsole("final", finalPreview);
@@ -1230,7 +1277,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     if (pendingStages) {
       await updateState({
         status: "running",
-        stage: ohosTestEnabled ? "ohostest_queued" : "cloudtest_queued",
+        stage: ohosTestEnabled ? "ohostest_queued" : cloudTestEnabled ? "cloudtest_queued" : "whitebox_queued",
         agentStatus: "completed",
         agentFinishedAt: result.agentFinishedAt,
         resultPath,
@@ -1239,8 +1286,9 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
         agentCompile,
         ...(ohosTestEnabled ? { ohosTest: result.ohosTest } : {}),
         ...(cloudTestEnabled ? { cloudTest: result.cloudTest } : {}),
+        ...(preserveForWhitebox ? { whitebox: result.whitebox } : {}),
       });
-      reporter.caseOhosTestQueued(caseName, { agentTimedOut: false });
+      if (ohosTestEnabled) reporter.caseOhosTestQueued(caseName, { agentTimedOut: false });
     } else {
       await updateState({ status: "completed", stage: "completed", finishedAt: result.finishedAt, resultPath, patchPath, tokenUsage, agentCompile });
       reporter.caseFinished(result);
@@ -1250,7 +1298,14 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     if (baseline && await exists(projectDir)) {
       await generatePatch(projectDir, baseline, patchPath).catch(() => {});
     }
-    await cleanupCaseArtifacts({ caseName, originalDir, patchPath });
+    await cleanupCaseArtifacts({
+      caseName,
+      originalDir,
+      projectDir,
+      patchPath,
+      keepOriginal: preserveForWhitebox,
+      pruneTransientArtifacts: true,
+    });
     if (error.lastMessage) {
       await atomicWriteJson(path.join(generateDir, "last-message.json"), error.lastMessage).catch(() => {});
     }
@@ -1278,6 +1333,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
       elapsedSec: Math.round((Date.now() - startedAt.getTime()) / 1000),
       tokenUsage,
       agentCompile,
+      agentCompileAttempts: agentLogs?.agentCompileAttempts || [],
       projectName: caseInfo.projectName,
       projectDir,
       resultPath,
@@ -1295,7 +1351,7 @@ async function runCase({ caseInfo, batchRoot, client, model, execution, ohosTest
     await agentConsoleWriteChain.catch(() => {});
     await atomicWriteJson(resultPath, result);
     await updateState({ status, stage: status, error: error.message, finishedAt: result.finishedAt, resultPath, tokenUsage, agentCompile });
-    reporter.caseFinished(result);
+    if (!preserveForWhitebox) reporter.caseFinished(result);
     throw Object.assign(error, { caseResult: result });
   }
 }
@@ -1310,7 +1366,7 @@ async function canReuseSuccessfulAgent(previousResult, caseInfo) {
     && await exists(previousResult.patchPath);
 }
 
-async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, sourceBatchId, store }) {
+async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, sourceBatchId, preserveForWhitebox, store }) {
   if (!await exists(previousResult.projectDir)) {
     throw new Error(`历史 Agent 工程不存在，无法仅重试 ohosTest: ${previousResult.projectDir}`);
   }
@@ -1320,6 +1376,7 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
 
   const caseRunDir = path.join(batchRoot, safeName(caseInfo.name));
   const projectDir = path.join(caseRunDir, caseInfo.projectName);
+  const originalDir = path.join(caseRunDir, "original");
   const generateDir = path.join(caseRunDir, "generate");
   const diffDir = path.join(caseRunDir, "diff");
   const patchPath = path.join(diffDir, "changes.patch");
@@ -1329,8 +1386,11 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
 
   await fs.mkdir(generateDir, { recursive: true });
   await fs.mkdir(diffDir, { recursive: true });
+  if (preserveForWhitebox) await copyProject(caseInfo.projectDir, originalDir);
   await copyProject(previousResult.projectDir, projectDir);
-  await fs.copyFile(previousResult.patchPath, patchPath);
+  await pruneGeneratedArtifacts(projectDir);
+  const previousPatch = await fs.readFile(previousResult.patchPath, "utf8");
+  await fs.writeFile(patchPath, filterGeneratedArtifactPatch(previousPatch), "utf8");
 
   const result = {
     case: caseInfo.name,
@@ -1347,7 +1407,10 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     patchPath,
     resultPath,
     tokenUsage: emptyTokenUsage(),
-    agentCompile: emptyCompileUsage(),
+    agentCompile: previousResult.agentCompile || emptyCompileUsage(),
+    agentCompileAttempts: Array.isArray(previousResult.agentCompileAttempts)
+      ? previousResult.agentCompileAttempts
+      : [],
     retry: {
       sourceBatchId,
       sourceResultPath: previousResult.resultPath || "",
@@ -1358,6 +1421,7 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     logs: {
       transcriptPath: previousResult.logs?.transcriptPath || "",
       messagesPath: previousResult.logs?.messagesPath || "",
+      compileAttemptsPath: previousResult.logs?.compileAttemptsPath || "",
       consolePath: previousResult.logs?.consolePath || "",
       sourceResultPath: previousResult.resultPath || "",
     },
@@ -1384,7 +1448,17 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
   return result;
 }
 
-async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceLeasePath, store, reporter, signal, deferFinish = false }) {
+async function executeOhosTestForCase({
+  caseInfo,
+  agentResult,
+  settings,
+  deviceLeasePath,
+  deferProjectCleanup = false,
+  deferFinish = false,
+  store,
+  reporter,
+  signal,
+}) {
   const caseName = caseInfo.name;
   const caseRunDir = path.dirname(agentResult.resultPath);
   const statePath = path.join(caseRunDir, "state.json");
@@ -1439,7 +1513,7 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
   await cleanupCaseArtifacts({
     caseName,
     projectDir: agentResult.projectDir,
-    pruneProject: ohosTest.status === "completed" || Boolean(retainedOhosTestWorkDir),
+    pruneProject: !deferProjectCleanup && (ohosTest.status === "completed" || Boolean(retainedOhosTestWorkDir)),
   });
 
   const finishedAt = ohosTest.finishedAt || new Date().toISOString();
@@ -1488,7 +1562,7 @@ async function executeOhosTestForCase({ caseInfo, agentResult, settings, deviceL
 }
 
 // 云测试收尾：把云测试结果合并进用例 result.json，并完成状态/报告上报。
-async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store, reporter }) {
+async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store, reporter, deferFinish = false }) {
   const caseName = caseInfo.name;
   const caseRunDir = path.dirname(caseResult.resultPath);
   const resultPath = caseResult.resultPath;
@@ -1526,7 +1600,7 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
   });
   await store.setCase(caseName, { status, stage: status, error: final.error, finishedAt: final.finishedAt, cloudTest: cloud });
   await appendCaseLog(path.join(caseRunDir, "execution.jsonl"), status === "completed" ? "info" : "error", "cloudtest_finished", cloud);
-  reporter.caseFinished(final);
+  if (!deferFinish) reporter.caseFinished(final);
   return final;
 }
 
@@ -1606,6 +1680,19 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   }
   const displayCases = [...cases, ...skippedCases];
   const model = await validateServerConfig(client, execution, serverConfig, sourceMode, signal);
+  const whiteboxConfig = config.whiteboxEvaluation;
+  let whiteboxOrchestrator;
+  if (whiteboxConfig.enabled) {
+    const whiteboxSource = await resolveOpenCodeSource(config.server.opencodeSource);
+    whiteboxOrchestrator = await createWhiteboxOrchestrator({
+      config: whiteboxConfig,
+      serverConfig,
+      generationModel: model,
+      resourcesDir: whiteboxSource.resourcesDir,
+      repoRoot: AUTORUN_ROOT,
+      signal,
+    });
+  }
   throwIfInterrupted(signal);
   const ohosTestLabel = ohosTest.enabled
     ? "已启用（串行，内置 Runner）"
@@ -1621,10 +1708,13 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     console.log(`[check] softwareEngineering 仅加载 Skills，使用 OpenCode 内置 Agent=${execution.agent}（忽略 execution.agent=${configuredAgent}）`);
   }
   console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}；cloudTest=${cloudTestLabel}`);
+  if (whiteboxOrchestrator) {
+    console.log(`[check] 白盒评价已启用；裁判=${whiteboxOrchestrator.judge.providerId}/${whiteboxOrchestrator.judge.modelId}；并发=${whiteboxConfig.concurrency}`);
+  }
   if (retryPlan) {
     console.log(`[retry] 来源批次 ${retryPlan.sourceBatchId}；重试用例: ${retryPlan.selectedCaseNames.join(", ")}`);
   }
-  if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest };
+  if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest, whiteboxEvaluation: whiteboxConfig };
 
   const id = batchId();
   const batchRoot = path.join(execution.outputRoot, id);
@@ -1645,6 +1735,11 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     cloudTest: {
       enabled: cloudTest.enabled,
       testCategories: cloudTest.enabled ? cloudTest.settings.testCategories : [],
+    },
+    whiteboxEvaluation: {
+      enabled: whiteboxConfig.enabled,
+      concurrency: whiteboxConfig.enabled ? whiteboxConfig.concurrency : 0,
+      judge: whiteboxOrchestrator?.judge,
     },
     ...(retryPlan ? {
       retry: {
@@ -1679,9 +1774,45 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   const queue = [...cases];
   const results = [];
   const postValidationJobs = [];
+  const whiteboxJobsByCase = new Map();
   let ohosTestTail = Promise.resolve();
   let cloudSubmitTail = Promise.resolve();
   let stopQueue = false;
+
+  function startWhiteboxBranch(caseInfo, agentResult) {
+    if (!whiteboxOrchestrator || !agentResult?.projectDir || !agentResult?.patchPath) {
+      return Promise.resolve(null);
+    }
+    const job = (async () => {
+      try {
+        const prepared = await prepareWhiteboxInput({
+          batchId: id,
+          caseInfo,
+          agentResult,
+          execution,
+          config: whiteboxConfig,
+        });
+        await store.setCase(caseInfo.name, {
+          whitebox: { status: "queued", inputPath: prepared.inputPath, outputDir: prepared.outputDir },
+        });
+        const summary = await whiteboxOrchestrator.schedule(prepared);
+        const value = { ...summary, judge: whiteboxOrchestrator.judge };
+        await store.setCase(caseInfo.name, { whitebox: value }).catch(() => {});
+        return { case: caseInfo.name, ...value };
+      } catch (error) {
+        const failed = {
+          case: caseInfo.name,
+          status: "failed",
+          error: error.message,
+          judge: whiteboxOrchestrator.judge,
+        };
+        await store.setCase(caseInfo.name, { whitebox: failed }).catch(() => {});
+        return failed;
+      }
+    })();
+    whiteboxJobsByCase.set(caseInfo.name, job);
+    return job;
+  }
 
   // 云测试分支：远端执行，不占用本地设备。提交阶段（构建+上传+提交）跨用例串行
   // （规避频率限制与并发构建），轮询阶段各任务并行；返回云测试结果（不 reject）。
@@ -1720,6 +1851,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       agentResult,
       settings: ohosTest,
       deviceLeasePath: path.join(batchRoot, ".device-validation.lock"),
+      deferProjectCleanup: whiteboxConfig.enabled,
       store,
       reporter,
       signal,
@@ -1752,19 +1884,21 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     );
   }
 
-  // Agent 完成后：云测试（远端）与 ohosTest（本地设备）并行执行；
-  // 云测试上传后只需轮询等待，与模拟器测试互不抢占。两个分支都结束后
-  // 合并出用例最终状态、统一上报并计入批次结果。
-  function schedulePostValidation(caseInfo, agentResult) {
-    const cloudEnabled = cloudTest.enabled;
-    if (!cloudEnabled && !ohosTest.enabled) {
+  // Agent 完成后：白盒评价、云测试（远端）与 ohosTest（本地设备）并行执行。
+  // 三个分支互不依赖，全部结束后再合并结果、清理工程并统一上报。
+  function schedulePostValidation(caseInfo, agentResult, options = {}) {
+    const runCloud = options.runCloud ?? cloudTest.enabled;
+    const runOhos = options.runOhos ?? ohosTest.enabled;
+    const runWhitebox = options.runWhitebox ?? whiteboxConfig.enabled;
+    if (!runCloud && !runOhos && !runWhitebox) {
       results.push(agentResult);
       return;
     }
-    if (cloudEnabled) reporter.caseCloudTestQueued(caseInfo.name);
-    const cloudBranch = cloudEnabled ? startCloudBranch(caseInfo, agentResult) : Promise.resolve(null);
-    const ohosBranch = ohosTest.enabled ? startOhosBranch(caseInfo, agentResult) : Promise.resolve(null);
-    postValidationJobs.push(Promise.all([cloudBranch, ohosBranch]).then(async ([cloudOutcome, ohosOutcome]) => {
+    if (runCloud) reporter.caseCloudTestQueued(caseInfo.name);
+    const cloudBranch = runCloud ? startCloudBranch(caseInfo, agentResult) : Promise.resolve(null);
+    const ohosBranch = runOhos ? startOhosBranch(caseInfo, agentResult) : Promise.resolve(null);
+    const whiteboxBranch = runWhitebox ? startWhiteboxBranch(caseInfo, agentResult) : Promise.resolve(null);
+    const job = Promise.all([cloudBranch, ohosBranch, whiteboxBranch]).then(async ([cloudOutcome, ohosOutcome, whiteboxOutcome]) => {
       let merged = ohosOutcome || agentResult;
       if (cloudOutcome) {
         merged = await finalizeCloudTestCase({
@@ -1773,13 +1907,74 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
           cloudResult: cloudOutcome,
           store,
           reporter,
+          deferFinish: true,
         });
-      } else {
-        reporter.caseFinished(merged);
       }
+      if (whiteboxOutcome) merged = { ...merged, whitebox: whiteboxOutcome };
+      const finishedAt = new Date().toISOString();
+      const status = merged.status === "running" ? "completed" : merged.status;
+      merged = {
+        ...merged,
+        status,
+        error: status === "completed" ? "" : merged.error || "",
+        finishedAt,
+        elapsedSec: elapsedSeconds(merged.startedAt, finishedAt),
+      };
+      if (merged.resultPath) await atomicWriteJson(merged.resultPath, merged).catch(() => {});
+      if (merged.resultPath) {
+        const statePath = path.join(path.dirname(merged.resultPath), "state.json");
+        const currentState = await readJson(statePath) || { case: merged.case };
+        await atomicWriteJson(statePath, {
+          ...currentState,
+          status,
+          stage: status,
+          error: merged.error,
+          finishedAt,
+          ...(whiteboxOutcome ? { whitebox: whiteboxOutcome } : {}),
+          updatedAt: finishedAt,
+        }).catch(() => {});
+      }
+      await store.setCase(caseInfo.name, {
+        status,
+        stage: status,
+        error: merged.error,
+        finishedAt,
+        ...(whiteboxOutcome ? { whitebox: whiteboxOutcome } : {}),
+      }).catch(() => {});
+      if (runWhitebox && merged.resultPath) {
+        const caseDir = path.dirname(merged.resultPath);
+        await cleanupCaseArtifacts({
+          caseName: merged.case,
+          originalDir: path.join(caseDir, "original"),
+          projectDir: merged.projectDir,
+          patchPath: merged.patchPath,
+          pruneProject: true,
+        });
+      }
+      reporter.caseFinished(merged);
       results.push(merged);
       if (merged.status !== "completed" && !execution.continueOnError) stopQueue = true;
-    }));
+    }).catch(async (error) => {
+      const finishedAt = new Date().toISOString();
+      const failed = {
+        ...agentResult,
+        status: signal?.aborted ? "interrupted" : "failed",
+        error: `后置评价/测试编排异常: ${error.message}`,
+        finishedAt,
+        elapsedSec: elapsedSeconds(agentResult.startedAt, finishedAt),
+      };
+      if (failed.resultPath) await atomicWriteJson(failed.resultPath, failed).catch(() => {});
+      await store.setCase(caseInfo.name, {
+        status: failed.status,
+        stage: failed.status,
+        error: failed.error,
+        finishedAt,
+      }).catch(() => {});
+      reporter.caseFinished(failed);
+      results.push(failed);
+      if (!execution.continueOnError) stopQueue = true;
+    });
+    postValidationJobs.push(job);
   }
 
   async function worker(workerIndex) {
@@ -1790,17 +1985,18 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       try {
         const previousResult = retryPlan?.previousResults.get(next.name);
         if (await canReuseSuccessfulAgent(previousResult, next)) {
-          if (!ohosTest.enabled && !cloudTest.enabled) {
-            throw new Error(`用例 ${next.name} 的 Agent 已成功，只需重试设备测试，但当前 ohosTest.enabled=false 且 cloudTest.enabled=false`);
+          if (!ohosTest.enabled && !cloudTest.enabled && !whiteboxConfig.enabled) {
+            throw new Error(`用例 ${next.name} 的 Agent 已成功，但 ohosTest、cloudTest 和 whiteboxEvaluation 均未启用`);
           }
           const agentResult = await prepareReusedAgentResult({
             caseInfo: next,
             batchRoot,
             previousResult,
             sourceBatchId: retryPlan.sourceBatchId,
+            preserveForWhitebox: whiteboxConfig.enabled,
             store,
           });
-          reporter.caseOhosTestQueued(next.name);
+          if (ohosTest.enabled) reporter.caseOhosTestQueued(next.name);
           schedulePostValidation(next, agentResult);
           continue;
         }
@@ -1812,6 +2008,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
           execution,
           ohosTestEnabled: ohosTest.enabled,
           cloudTestEnabled: cloudTest.enabled,
+          preserveForWhitebox: whiteboxConfig.enabled,
           store,
           reporter,
           signal,
@@ -1827,11 +2024,19 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
           && agentResult.status === "timed_out"
           && agentResult.agentStatus === "timed_out"
         );
-        if (shouldValidateAfterAgentTimeout) {
-          reporter.caseOhosTestQueued(next.name, { agentTimedOut: true });
-          schedulePostValidation(next, agentResult);
+        if (shouldValidateAfterAgentTimeout || (whiteboxConfig.enabled && !signal?.aborted)) {
+          if (shouldValidateAfterAgentTimeout && ohosTest.enabled) {
+            reporter.caseOhosTestQueued(next.name, { agentTimedOut: true });
+          }
+          schedulePostValidation(next, agentResult, {
+            runCloud: shouldValidateAfterAgentTimeout && cloudTest.enabled,
+            runOhos: shouldValidateAfterAgentTimeout && ohosTest.enabled,
+            runWhitebox: whiteboxConfig.enabled,
+          });
+          if (!execution.continueOnError) stopQueue = true;
         } else {
           results.push(agentResult);
+          if (whiteboxConfig.enabled) reporter.caseFinished(agentResult);
           if (signal?.aborted || !execution.continueOnError) stopQueue = true;
         }
       }
@@ -1842,6 +2047,9 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     Array.from({ length: workerCount }, (_, index) => worker(index + 1)),
   );
   await Promise.all(postValidationJobs);
+  const whiteboxResults = whiteboxOrchestrator
+    ? await Promise.all([...whiteboxJobsByCase.values()])
+    : [];
 
   if ((stopQueue || signal?.aborted) && queue.length) {
     const interrupted = signal?.aborted;
@@ -1872,6 +2080,12 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     skipped: skippedCases.map((item) => ({ case: item.name, reason: item.skipReason })),
     tokenUsage,
     agentCompile,
+    whiteboxEvaluation: {
+      enabled: whiteboxConfig.enabled,
+      judge: whiteboxOrchestrator?.judge,
+      completed: whiteboxResults.filter((item) => item.status === "completed").length,
+      failed: whiteboxResults.filter((item) => item.status !== "completed").length,
+    },
     results,
     ...(retryPlan ? {
       retry: {

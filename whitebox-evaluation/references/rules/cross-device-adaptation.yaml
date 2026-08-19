@@ -1,0 +1,2072 @@
+name: HarmonyOS 一多适配通用规则
+version: v1.0.0
+summary: 基于一多适配通用规则整理的内部条件规则包，仅在任务理解判定涉及一多适配时启用。
+rule_pack_meta:
+  pack_id: cross-device-adaptation
+  source_name: HarmonyOS-Cross-Device-Adaptation-General-Rules
+  source_version: general-rules-2026-05-20
+must_rules:
+  - id: OM-CONFIG-MUST-01
+    rule: >-
+      module.json5 的 deviceTypes 必须包含多设备类型。扫描所有 HAP 包的 module.json5 deviceTypes 字段，并按工程维度汇总设备类型集合；汇总结果必须至少包含 phone 和
+      tablet，建议同时包含 phone、tablet、2in1。单个 HAP 可只声明某一类设备，但所有 HAP 汇总后仍缺少 phone 或 tablet 时判定失败；仅缺少 2in1 不作为失败条件。HAR 包不参与该规则判定
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: module_device_types_multi_device
+        targetPatterns:
+          - '**/module.json5'
+        kit:
+          - 'HarmonyOS: module.json5'
+        targetChecks:
+          - target: '**/module.json5'
+            astSignals: []
+            llmPrompt: module.json5 的 deviceTypes 必须包含多设备类型。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：所有 HAP 包的 module.json5 deviceTypes 汇总后同时包含 phone 和 tablet；缺少 2in1 但包含 phone/tablet 也视为符合
+      fail:
+        - 违反：所有 HAP 包的 module.json5 deviceTypes 汇总后缺少 phone 或 tablet
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: API_USAGE_DEVIATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: module.json5 的 deviceTypes 必须包含多设备类型
+    priority: P0
+  - id: OM-BREAKPOINT-MUST-01
+    rule: >-
+      横向断点划分范围必须符合系统推荐值。检查工程中自定义断点系统或 WidthBreakpointType 工具类的断点边界定义，横向断点划分必须为
+      xs:(0,320)、sm:[320,600)、md:[600,840)、lg:[840,1440)、xl:[1440,+∞)。若使用 GridRow 的 breakpoints.value，值必须为
+      ['320vp','600vp','840vp','1440vp']。本规则仅检查 ArkUI/Native 横向断点定义；未显式定义自定义断点且使用系统默认断点时判定为符合。断点边界值与系统推荐不一致即判定失败；断点值来自无法解析的运行时表达式时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: breakpoint_ranges_standard
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: GridRow / WidthBreakpoint'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 横向断点划分范围必须符合系统推荐值。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：自定义横向断点或 GridRow breakpoints.value 与 xs/sm/md/lg/xl 推荐边界一致，或未显式定义自定义断点而使用系统默认断点
+      fail:
+        - 违反：自定义横向断点或 GridRow breakpoints.value 的任一阈值与 320/600/840/1440 不一致
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: API_USAGE_DEVIATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 横向断点划分范围必须符合系统推荐值
+    priority: P0
+  - id: OM-BREAKPOINT-MUST-02
+    rule: >-
+      布局条件分支必须使用断点枚举值而非硬编码宽度。检查所有参与断点计算、断点派发、布局条件判断的代码，包括页面组件、组件、模型、工具类和常量类。不得使用硬编码宽度数值进行断点判断，例如 width < 600、width <
+      840、vp > 840、screenWidth >= 600。即使硬编码判断位于 BreakpointUtils、WindowModel、constants 等封装层，只要其结果用于布局断点，也判定失败。布局条件必须基于
+      WidthBreakpoint 枚举、GridRow 标准 breakpoints、mediaquery 查询结果，或已覆盖 sm/md/lg/xl 的断点枚举值。排除范围：断点系统自身的注册与初始化方法（如
+      BreakpointSystem.register）中使用宽度阈值设定初始断点值属于基础设施内部实现，不属于本规则检查范围
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: breakpoint_no_hardcoded_width
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: WidthBreakpoint'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 布局条件分支必须使用断点枚举值而非硬编码宽度。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：布局条件分支必须使用断点枚举值而非硬编码宽度
+      fail:
+        - 违反：布局条件分支必须使用断点枚举值而非硬编码宽度
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: API_USAGE_DEVIATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 布局条件分支必须使用断点枚举值而非硬编码宽度
+    priority: P0
+  - id: OM-BREAKPOINT-MUST-03
+    rule: >-
+      断点值分发工具类必须覆盖 sm/md/lg/xl 四个断点。检查所有充当断点值分发功能的工具类定义，包括但不限于系统 WidthBreakpointType 和工程自定义的断点值容器类（如
+      BreakpointType、BreakpointValue、ResponsiveValue 等命名模式）。识别标准：该类/接口的构造函数或工厂方法接受多个值参数，并提供方法根据断点枚举（WidthBreakpoint
+      或自定义断点枚举）返回对应值。仅当类/接口/函数同时具备多个断点值入参和按当前断点返回值的方法时，才视为断点值分发工具；普通配置对象、常量对象或不按当前断点返回值的模型不适用。无论工具类命名如何，只要功能是按断点分发值，就必须覆盖 sm、md、lg、xl 四个断点。缺失任一断点参数或值分发分支不完整即判定失败。如果工程未使用任何断点值分发工具类（直接在组件内通过
+      if/switch 处理断点），判定为不涉及
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: WidthBreakpoint'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 断点值分发工具类必须覆盖 sm/md/lg/xl 四个断点。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：已确认的断点值分发工具类覆盖 sm/md/lg/xl 四个断点
+      fail:
+        - 违反：已确认的断点值分发工具类缺失 sm/md/lg/xl 中任一断点参数或值分发分支
+      notApplicable:
+        - 工程未使用断点值分发工具类，或命中的对象只是普通配置/常量对象而非按当前断点返回值的工具。
+      review:
+        - 无法确认某个类/接口/函数是否具备断点值分发语义，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 断点值分发工具类必须覆盖 sm/md/lg/xl 四个断点
+    priority: P0
+  - id: OM-BREAKPOINT-MUST-04
+    rule: >-
+      页面组件必须通过断点系统获取当前断点值。检查页面组件获取当前断点值的来源。允许的来源：1. ArkUI/系统提供的 WidthBreakpoint、GridRow breakpoints、@Env 系统断点变量；2.
+      mediaquery.matchMediaSync 或 window.on('windowSizeChange') 驱动的断点状态；3. 项目封装的断点工具，但该工具底层必须来自上述系统断点或标准监听机制。不允许的来源：1.
+      组件 onAreaChange 回调直接读取 width 后自行计算断点；2. 自定义 calcBreakpoint(width) 使用 600、840 等宽度阈值推导断点；3. 页面或工具类自行用窗口宽度、组件宽度、px/vp
+      换算结果推导断点。仅当 onAreaChange 或尺寸换算结果被用于 sm/md/lg/xl 布局分支时判定失败；普通测量、动画、埋点或非布局断点用途不适用。命中任一不允许来源即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: breakpoint_source_standard
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: WidthBreakpoint'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 页面组件必须通过断点系统获取当前断点值。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：页面布局断点来自 WidthBreakpoint、GridRow breakpoints、@Env、mediaquery、windowSizeChange 或底层基于这些来源的项目封装
+      fail:
+        - 违反：onAreaChange、calcBreakpoint(width)、窗口宽度或组件宽度换算结果被用于 sm/md/lg/xl 布局分支
+      notApplicable:
+        - 命中的尺寸读取仅用于测量、动画、埋点或其他非布局断点用途。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 页面组件必须通过断点系统获取当前断点值
+    priority: P0
+  - id: OM-BREAKPOINT-MUST-05
+    rule: >-
+      窗口尺寸监听必须基于 on('windowSizeChange')、mediaquery.matchMediaSync 或 display.on('change')。检查断点更新逻辑是否通过
+      window.on('windowSizeChange') 回调、mediaquery.matchMediaSync 或 display.on('change') 监听断点变化。display.on('change') 可在
+      callback 中通过 Display 实例获取屏幕的宽度、高度和方向等信息，从而感知屏幕尺寸变化。该监听白名单也适用于 Web 组件断点同步场景。使用 foldStatusChange 或设备方向 API 驱动断点更新即判定失败；若监听代码用途不是断点更新，判定为不涉及
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: breakpoint_listener_source_standard
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Window / display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 窗口尺寸监听必须基于 on('windowSizeChange')、mediaquery.matchMediaSync 或 display.on('change')。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：断点更新由 window.on('windowSizeChange')、mediaquery.matchMediaSync 或 display.on('change') 驱动
+      fail:
+        - 违反：断点更新由 foldStatusChange、设备方向 API 或其他非尺寸监听来源驱动
+      notApplicable:
+        - 命中的监听代码不用于断点更新。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 窗口尺寸监听必须基于 on('windowSizeChange')、mediaquery.matchMediaSync 或 display.on('change')
+    priority: P0
+  - id: OM-BREAKPOINT-MUST-06
+    rule: >-
+      断点监听注册必须在内容加载完成后调用。本规则检查断点监听注册的时序是否安全。如果工程没有使用 window.on('windowSizeChange') 或 mediaquery.matchMediaSync
+      注册断点监听，本规则判定为不涉及；监听方式是否合规由 OM-BREAKPOINT-MUST-05 判定。合理的注册时机包括以下任一情况：1. 在 EntryAbility 的 windowStage.loadContent 成功回调内注册；2. 在
+      loadContent 所加载的入口页面组件的 aboutToAppear 生命周期中注册（aboutToAppear 在 loadContent 加载内容、组件树构建之后触发，属于安全时机）；3. 在由入口页面导航到的子页面的
+      aboutToAppear 中注册。不合理的注册时机：1. 在 EntryAbility 的 onCreate 或 onWindowStageCreate 中直接注册（此时 loadContent 尚未完成）；2.
+      在模块级/文件级顶层语句中注册。组件 onAreaChange 的注册时序不作为本规则检查对象，但其作为断点来源的合规性由 OM-BREAKPOINT-MUST-04 判定
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: breakpoint_listener_after_load_content
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 断点监听注册必须在内容加载完成后调用。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：断点监听注册必须在内容加载完成后调用
+      fail:
+        - 违反：断点监听注册必须在内容加载完成后调用
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 断点监听注册必须在内容加载完成后调用
+    priority: P0
+  - id: OM-GRIDROW-MUST-01
+    rule: >-
+      GridRow 的 breakpoints.value 必须与系统断点一致。检查所有 GridRow 组件的 breakpoints.value 配置，值必须为
+      ['320vp','600vp','840vp','1440vp']。自定义栅格断点阈值（如 ['400vp','700vp']）会导致与全局断点系统不同步即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: gridrow_breakpoints_standard
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: GridRow 的 breakpoints.value 必须与系统断点一致。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：GridRow 的 breakpoints.value 必须与系统断点一致
+      fail:
+        - 违反：GridRow 的 breakpoints.value 必须与系统断点一致
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: GridRow 的 breakpoints.value 必须与系统断点一致
+    priority: P0
+  - id: OM-LIST-MUST-01
+    rule: >-
+      List lanes 必须按断点非递减设置列数。检查使用 List 组件展示重复内容的页面，lanes 属性必须按断点从小到大非递减设置列数。对同一个 List，sm/md/lg/xl
+      的列数序列不得下降，允许相邻断点列数相同。例如 1/2/3 满足，2/2/3 满足，1/2/2 满足，2/2/2 满足，4/4/3 不满足，4/3/3 不满足。较大断点列数小于较小断点即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: list_lanes_non_decreasing
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: List lanes 必须按断点非递减设置列数。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：List lanes 必须按断点非递减设置列数
+      fail:
+        - 违反：List lanes 必须按断点非递减设置列数
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: List lanes 必须按断点非递减设置列数
+    priority: P0
+  - id: OM-WATERFLOW-MUST-01
+    rule: >-
+      WaterFlow columnsTemplate 必须按断点非递减设置列数。检查 WaterFlow 组件的 columnsTemplate 是否按断点从小到大非递减设置列数。对同一个
+      WaterFlow，sm/md/lg/xl 的列数序列不得下降，允许相邻断点列数相同。例如 2/3/4 满足，3/3/4 满足，2/2/2 满足，4/4/3 不满足，3/2/2 不满足。较大断点列数小于较小断点即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: waterflow_columns_template_non_decreasing
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: WaterFlow columnsTemplate 必须按断点非递减设置列数。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：WaterFlow columnsTemplate 必须按断点非递减设置列数
+      fail:
+        - 违反：WaterFlow columnsTemplate 必须按断点非递减设置列数
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: WaterFlow columnsTemplate 必须按断点非递减设置列数
+    priority: P0
+  - id: OM-SWIPER-MUST-01
+    rule: >-
+      Swiper displayCount 必须按断点非递减设置。检查 Swiper 组件的 displayCount 是否按断点从小到大非递减设置。对同一个 Swiper，sm/md/lg/xl 的 displayCount
+      序列不得下降，允许相邻断点值相同。例如 1/2/3 满足，2/2/3 满足，1/1/1 满足，3/2/2 不满足，2/1/1 不满足。较大断点值小于较小断点即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: swiper_display_count_non_decreasing
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Swiper displayCount 必须按断点非递减设置。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：Swiper displayCount 必须按断点非递减设置
+      fail:
+        - 违反：Swiper displayCount 必须按断点非递减设置
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Swiper displayCount 必须按断点非递减设置
+    priority: P0
+  - id: OM-SWIPER-MUST-02
+    rule: >-
+      Swiper indicator 必须按 displayCount 正确显隐。检查 Swiper 组件的 indicator 属性：displayCount 为 1（单元素展示）时应显示圆点指示器
+      Indicator.dot()，displayCount >= 2（多元素展示）时必须设为
+      false。多元素展示时仍显示圆点指示器会导致指示点位置错乱即判定失败。排除范围：全屏滑动切换场景（如短视频上滑下滑切换视频、Swiper 撑满整个页面且每个子项为全屏内容），此类场景下 Swiper
+      用于全屏页面间切换而非轮播展示，无论 displayCount 为何值均不要求显示指示器
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: swiper_indicator_by_display_count
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Swiper indicator 必须按 displayCount 正确显隐。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：Swiper indicator 必须按 displayCount 正确显隐
+      fail:
+        - 违反：Swiper indicator 必须按 displayCount 正确显隐
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Swiper indicator 必须按 displayCount 正确显隐
+    priority: P0
+  - id: OM-SWIPER-MUST-03
+    rule: >-
+      Swiper 多元素展示必须设置至少一侧边距。检查 Swiper 组件在 displayCount >= 2（多元素展示）时是否设置了 prevMargin 或 nextMargin。displayCount 固定为
+      1 时无需设置边距，判定为不涉及；displayCount >= 2 且 Swiper 可滑动、需要提示横向滑动能力时，prevMargin 和 nextMargin 至少配置一个即可，用于露出相邻内容并提示可横向滑动。两者都缺失即判定失败。disableSwipe(true)、全屏滑动切换、静态多卡片展示等场景进入 Agent 复核或判定为不涉及
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: swiper_margins_for_multi_display
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Swiper 多元素展示必须设置至少一侧边距。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：Swiper 多元素展示时设置了 prevMargin 或 nextMargin 至少一侧边距
+      fail:
+        - 违反：Swiper 可滑动多元素展示时 prevMargin 和 nextMargin 都缺失
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Swiper 多元素展示必须设置至少一侧边距
+    priority: P0
+  - id: OM-GRID-MUST-01
+    rule: >-
+      Grid columnsTemplate 必须按断点非递减设置列数。检查 Grid 组件的 columnsTemplate 是否按断点从小到大非递减设置列数。对同一个 Grid，sm/md/lg/xl 的列数序列不得下降。例如
+      1/2/3 满足，2/2/3 满足，4/4/4 满足，4/4/3 不满足，4/3/3 不满足。较大断点列数小于较小断点即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: grid_columns_template_non_decreasing
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Grid columnsTemplate 必须按断点非递减设置列数。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：Grid columnsTemplate 必须按断点非递减设置列数
+      fail:
+        - 违反：Grid columnsTemplate 必须按断点非递减设置列数
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Grid columnsTemplate 必须按断点非递减设置列数
+    priority: P0
+  - id: OM-SIDEBAR-MUST-01
+    rule: >-
+      SideBarContainer showSideBar 必须按断点动态控制。检查 SideBarContainer 组件的 showSideBar 属性是否根据断点动态设置：sm 断点默认 false（隐藏侧边栏），md/lg
+      断点默认 true（显示侧边栏，充分利用横向空间展示辅助内容）。本规则适用于页面级辅助导航、筛选侧栏或主从布局侧栏；局部抽屉、临时面板、业务明确要求始终隐藏或始终展示的侧栏进入人工复核。确认适用后，所有断点 showSideBar 值固定不变即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: sidebar_show_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: SideBarContainer showSideBar 必须按断点动态控制。静态层仅提取组件和属性证据；Agent 需结合源码上下文判断该组件是否为页面级侧栏、显隐是否属于业务交互状态，以及不同断点下是否确实固定不变。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：页面级 SideBarContainer 的 showSideBar 按断点动态控制
+      fail:
+        - 违反：已确认适用的页面级 SideBarContainer 在所有断点下 showSideBar 固定不变
+      notApplicable:
+        - SideBarContainer 仅作为局部抽屉、临时面板，或业务明确要求固定显隐。
+      review:
+        - 无法确认 SideBarContainer 是否承担页面级辅助导航、筛选侧栏或主从布局侧栏职责。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: SideBarContainer showSideBar 必须按断点动态控制
+    priority: P0
+  - id: OM-SIDEBAR-MUST-02
+    rule: >-
+      SideBarContainer sideBarWidth 必须按断点设置不同宽度。检查页面级 SideBarContainer 组件的 sideBarWidth 是否根据断点设置不同值。本规则适用于承载可读文本、列表、筛选条件等内容的侧栏；纯图标侧栏、固定窄侧栏或局部抽屉进入人工复核。确认适用后，所有断点 sideBarWidth
+      值相同即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: sidebar_width_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: SideBarContainer sideBarWidth 必须按断点设置不同宽度。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：已确认适用的页面级 SideBarContainer sideBarWidth 按断点设置不同宽度
+      fail:
+        - 违反：承载可读文本、列表或筛选条件的页面级 SideBarContainer 在所有断点下 sideBarWidth 值相同
+      notApplicable:
+        - SideBarContainer 为纯图标侧栏、固定窄侧栏、局部抽屉或业务明确要求固定宽度。
+      review:
+        - 无法确认侧栏内容类型或页面级职责，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: SideBarContainer sideBarWidth 必须按断点设置不同宽度
+    priority: P0
+  - id: OM-SIDEBAR-MUST-03
+    rule: >-
+      SideBarContainer 类型必须按断点区分 Overlay 和 Embed。检查 SideBarContainer 组件的构造参数是否根据断点区分：sm 使用
+      SideBarContainerType.Overlay（浮层模式，侧边栏浮在内容区上），md/lg 使用 SideBarContainerType.Embed（嵌入模式，侧边栏和内容区并列展示）。本规则适用于页面级主从布局侧栏；局部抽屉、临时面板、业务明确固定交互模型的侧栏进入人工复核。确认适用后，所有断点使用相同类型即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: sidebar_type_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: SideBarContainer 类型必须按断点区分 Overlay 和 Embed。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：页面级主从布局 SideBarContainer 按断点区分 Overlay 和 Embed
+      fail:
+        - 违反：已确认适用的页面级主从布局 SideBarContainer 在所有断点使用相同类型
+      notApplicable:
+        - SideBarContainer 是局部抽屉、临时面板，或业务明确要求固定 Overlay/Embed。
+      review:
+        - 无法确认 SideBarContainer 是否为页面级主从布局侧栏。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: SideBarContainer 类型必须按断点区分 Overlay 和 Embed
+    priority: P0
+  - id: OM-TABS-MUST-01
+    rule: >-
+      Tabs vertical 必须按断点切换横向和纵向。检查主导航 Tabs 组件的 vertical 属性是否根据断点动态设置：sm/md 断点 vertical 为 false（底部横向导航），lg 断点 vertical 为
+      true（侧边纵向导航）。本规则仅适用于页面级主导航 Tabs：通常位于页面顶层，包含多个 TabContent，并承担一级页面切换。局部筛选、详情页分段、内容区 Tabs 不适用；无法确认是否主导航时进入人工复核。确认适用后，所有断点 vertical 值相同即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: tabs_vertical_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Tabs vertical 必须按断点切换横向和纵向。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：页面级主导航 Tabs 的 vertical 按断点切换横向和纵向
+      fail:
+        - 违反：已确认适用的页面级主导航 Tabs 在所有断点 vertical 值相同
+      notApplicable:
+        - Tabs 仅用于局部筛选、详情页分段或内容区切换。
+      review:
+        - 无法通过组件层级和 TabContent 内容确认 Tabs 是否为页面级主导航。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Tabs vertical 必须按断点切换横向和纵向
+    priority: P0
+  - id: OM-TABS-MUST-02
+    rule: >-
+      Tabs barPosition 必须按断点切换 End 和 Start。检查 Tabs 组件的 barPosition 属性是否根据断点动态设置：sm/md 断点为 BarPosition.End（底部），lg 断点为
+      BarPosition.Start（左侧）。本规则仅适用于页面级主导航 Tabs；局部筛选、详情页分段、内容区 Tabs 不适用；无法确认是否主导航时进入人工复核。确认适用后，barPosition 与 vertical 不匹配（如 vertical:true 但 barPosition:End）即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: tabs_bar_position_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Tabs barPosition 必须按断点切换 End 和 Start。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：页面级主导航 Tabs 的 barPosition 按断点在 End 和 Start 之间切换，且与 vertical 匹配
+      fail:
+        - 违反：已确认适用的页面级主导航 Tabs barPosition 未按断点切换，或与 vertical 不匹配
+      notApplicable:
+        - Tabs 仅用于局部筛选、详情页分段或内容区切换。
+      review:
+        - 无法通过组件层级和 TabContent 内容确认 Tabs 是否为页面级主导航。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Tabs barPosition 必须按断点切换 End 和 Start
+    priority: P0
+  - id: OM-TABS-MUST-03
+    rule: Tabs barWidth 和 barHeight 必须按断点设置。检查页面级主导航 Tabs 组件的 barWidth 和 barHeight 是否根据断点动态设置。lg/xl 侧边导航推荐 barWidth=96、barHeight='100%'；sm/md 底部导航允许固定底栏高度。局部筛选、详情页分段、内容区 Tabs 不适用；无法确认是否主导航时进入人工复核。确认适用后，barWidth/barHeight 在所有断点保持固定值且不符合底部/侧边导航差异即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: tabs_bar_size_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Tabs barWidth 和 barHeight 必须按断点设置。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：页面级主导航 Tabs 的 barWidth/barHeight 按底部导航与侧边导航形态设置
+      fail:
+        - 违反：已确认适用的页面级主导航 Tabs barWidth/barHeight 在所有断点固定，且不符合 sm/md 底部导航与 lg/xl 侧边导航差异
+      notApplicable:
+        - Tabs 仅用于局部筛选、详情页分段或内容区切换。
+      review:
+        - 无法通过组件层级和 TabContent 内容确认 Tabs 是否为页面级主导航。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Tabs barWidth 和 barHeight 必须按断点设置
+    priority: P0
+  - id: OM-GRIDROW-MUST-02
+    rule: >-
+      GridRow columns 必须按断点非递减设置列数。检查 GridRow 组件的 columns 属性是否按断点从小到大非递减设置列数。当 columns 用于响应式列数配置时，应设置为按断点区分的对象（如 {sm:4, md:8, lg:12,
+      xl:12}），且 sm/md/lg/xl 的列数序列不得下降，允许相邻断点列数相同。固定 columns:12 不因 columns 固定直接判定失败；此类场景由 GridCol 的 span/offset 等规则继续判断实际布局响应。仅对跨断点复用的同一 GridRow 配置直接判定；若 GridRow 位于 if/switch 等单断点条件分支内，进入 Agent 复核。较大断点列数小于较小断点即判定失败；columns 值来自无法解析的运行时表达式时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: gridrow_columns_non_decreasing
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: GridRow columns 必须按断点非递减设置列数。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：GridRow columns 按断点配置且序列非递减，或使用固定 columns:12 且不以 columns 作为响应式列数手段
+      fail:
+        - 违反：GridRow columns 已按断点配置，但较大断点列数小于较小断点
+      notApplicable:
+        - GridRow 使用固定 columns，实际布局响应由 GridCol span/offset 等规则判断。
+      review:
+        - columns 值来自无法解析的运行时表达式，需要人工复核。
+        - GridRow 位于断点条件分支内，需结合实际渲染分支判断该 columns 配置是否跨断点复用。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: GridRow columns 必须按断点非递减设置列数
+    priority: P0
+  - id: OM-GRIDCOL-MUST-01
+    rule: >-
+      GridCol 实际布局占比应按断点体现响应式差异。检查需要响应式适配的 GridCol 组件，sm/md/lg 断点下的实际布局占比应随断点变化，以实现挪移或缩进等响应式布局效果。判定条件：如果 GridCol 所在
+      GridRow 的 columns 按断点变化（即 GridRow 本身是响应式的），则 GridCol 的 span 或 span/columns 比值应在断点间体现差异；如果 GridCol
+      在所有断点都占据全部列数（如全宽横幅），或 GridRow 的 columns 在所有断点都相同，则判定为不涉及。满足以下任一条件即视为合规：1. span 值在不同断点间不同；2. span 值相同但 GridRow 的
+      columns 不同（此时 span/columns 实际占比不同，如 md 断点 span=8/columns=8 占满全宽，lg 断点 span=8/columns=12 留白居中，效果不同）。仅在 GridRow
+      columns 按断点变化、且 GridCol 的 span 值在所有断点完全相同且 span/columns 占比也完全相同时，才判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: gridcol_span_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: GridCol 实际布局占比应按断点体现响应式差异。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：GridCol 的 span 值或 span/columns 实际占比在断点间体现响应式差异
+      fail:
+        - 违反：GridRow columns 按断点变化，且 GridCol 的 span 值和 span/columns 实际占比在所有断点完全相同
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: GridCol 实际布局占比应按断点体现响应式差异
+    priority: P0
+  - id: OM-FLEX-MUST-01
+    rule: >-
+      Flex 拉伸布局必须合理设置 flexGrow 和 flexShrink。检查 Flex 拉伸布局中，需要随容器伸缩的内容区子组件是否设置了 flexGrow(>=1)，需要固定尺寸的留白区子组件是否设置了
+      flexShrink(0)。本规则仅适用于 Flex 内同时存在弹性内容区和固定留白/操作区的拉伸布局；单一均分工具栏、普通横排按钮组或没有弹性/固定区域区分的 Flex 不适用。确认适用后，所有子组件使用相同的 flexGrow/flexShrink 值或未设置拉伸/收缩属性即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: flex_grow_shrink_required
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Flex / flexGrow / flexShrink'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Flex 拉伸布局必须合理设置 flexGrow 和 flexShrink。请优先阅读静态扫描提供的 Flex 源码片段，判断子组件是否分别承担弹性内容区与固定留白/操作区职责；无源码片段或职责无法确认时判定为需复核。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：已确认适用的 Flex 拉伸布局中，弹性内容区设置 flexGrow，固定留白/操作区设置 flexShrink(0)
+      fail:
+        - 违反：已确认适用的 Flex 拉伸布局中所有子组件使用相同 flexGrow/flexShrink，或未区分弹性内容区与固定区域
+      notApplicable:
+        - Flex 是单一均分工具栏、普通横排按钮组，或没有弹性/固定区域区分。
+      review:
+        - 无法确认 Flex 子组件是否承担弹性内容区或固定区域职责。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Flex 拉伸布局必须合理设置 flexGrow 和 flexShrink
+    priority: P0
+  - id: OM-HOVER-MUST-01
+    rule: >-
+      悬停态页面布局必须将展示类组件置于上半屏、交互类组件置于下半屏。检查悬停态页面的布局结构，展示类组件包括视频画面、图片预览、游戏画面、XComponent、Canvas、Web 等主要展示区域，交互类组件包括播放控制、返回按钮、滑块、输入框、操作手柄、控制栏等。展示类组件必须位于上半屏区域，交互类组件必须位于下半屏区域。能够明确分类的交互类组件出现在上半屏或展示类组件出现在下半屏即判定失败；组件语义无法分类时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: FolderStack / FoldSplitContainer / display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 悬停态页面布局必须将展示类组件置于上半屏、交互类组件置于下半屏。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：可明确分类的展示类组件位于上半屏，交互类组件位于下半屏
+      fail:
+        - 违反：可明确分类的交互类组件位于上半屏，或展示类组件位于下半屏
+      notApplicable:
+        - 未使用 FolderStack、FoldSplitContainer、半折 posture 或折痕区域 API，且没有自定义悬停态布局证据。
+      review:
+        - 组件语义无法明确归类为展示类或交互类，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 悬停态页面布局必须将展示类组件置于上半屏、交互类组件置于下半屏
+    priority: P0
+  - id: OM-HOVER-MUST-02
+    rule: >-
+      悬停态布局必须避让折叠屏折痕区域。检查悬停态布局是否对折痕区域进行了避让处理：使用 FolderStack 或 FoldSplitContainer 时组件会自动避让，自定义实现时必须通过
+      display.getCurrentFoldCreaseRegion() 获取折痕位置和大小，并据此计算上下半屏组件的位置和尺寸。本规则检查避让机制，不要求静态证明最终视觉覆盖结果。未使用 FolderStack/FoldSplitContainer，且自定义实现未读取折痕区域并参与尺寸或位置计算，即判定失败
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: FolderStack / FoldSplitContainer / display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 悬停态布局必须避让折叠屏折痕区域。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：使用 FolderStack/FoldSplitContainer 自动避让，或自定义实现读取折痕区域并参与尺寸/位置计算
+      fail:
+        - 违反：自定义悬停态未读取折痕区域，或读取后未用于上下半屏尺寸/位置计算
+      notApplicable:
+        - 未使用 FolderStack、FoldSplitContainer、半折 posture 或折痕区域 API，且没有自定义悬停态布局证据。
+      review:
+        - 仅发现 display 等弱锚点，或无法确认折痕区域是否参与上下半屏尺寸/位置计算。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 悬停态布局必须避让折叠屏折痕区域
+    priority: P0
+  - id: OM-HOVER-MUST-03
+    rule: >-
+      FolderStack 必须撑满页面全屏。检查 FolderStack 组件是否撑满页面全屏。满足以下任一条件即视为合规：1. FolderStack 自身显式设置 .width('100%') 和
+      .height('100%') 或通过 .expandSafeArea() 撑满全屏；2. FolderStack 内部子组件设置了 .width('100%') 和 .height('100%')，FolderStack
+      作为父容器被子组件撑满；3. 页面通过 windowClass.setWindowLayoutFullScreen(true) 设置了全局沉浸式全屏布局。以上三种方式均能使 FolderStack
+      占满页面区域，具备悬停态布局能力。未满足任一条件即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: folderstack_fullscreen
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: FolderStack'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: FolderStack 必须撑满页面全屏。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：FolderStack 必须撑满页面全屏
+      fail:
+        - 违反：FolderStack 必须撑满页面全屏
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: FolderStack 必须撑满页面全屏
+    priority: P0
+  - id: OM-HOVER-MUST-04
+    rule: >-
+      FolderStack upperItems 必须正确注册展示类组件 ID。检查 FolderStack 的 upperItems 数组，只应包含需要在悬停态时置于上半屏的展示类组件 ID，交互类组件（按钮、滑块、输入框等）的
+      ID 不得出现在 upperItems 中。展示类组件包括视频画面、图片预览、游戏画面、XComponent、Canvas、Web 等主要展示区域；交互类组件包括按钮、滑块、输入框、控制栏等。upperItems 中包含可明确分类的交互类组件 ID 即判定失败；无法确认展示类组件是否遗漏时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: FolderStack'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: FolderStack upperItems 必须正确注册展示类组件 ID。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：upperItems 仅包含可明确分类的展示类组件 ID
+      fail:
+        - 违反：upperItems 中包含可明确分类的交互类组件 ID
+      notApplicable:
+        - 未发现 FolderStack 或 upperItems 配置。
+      review:
+        - 无法确认 upperItems 是否遗漏展示类组件，或无法判断某个 ID 对应组件语义。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: FolderStack upperItems 必须正确注册展示类组件 ID
+    priority: P0
+  - id: OM-HOVER-MUST-05
+    rule: >-
+      FolderStack upperItems 中的组件必须设置 id 属性。检查 FolderStack 中需要注册到 upperItems 的子组件是否通过 .id('xxx') 设置了唯一标识，且 id 字符串值与
+      upperItems 数组中的字符串一致。子组件未设置 id 或 id 值与 upperItems 中的字符串不匹配即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: folderstack_upper_items_ids
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: FolderStack'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: FolderStack upperItems 中的组件必须设置 id 属性。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：FolderStack upperItems 中的组件必须设置 id 属性
+      fail:
+        - 违反：FolderStack upperItems 中的组件必须设置 id 属性
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: FolderStack upperItems 中的组件必须设置 id 属性
+    priority: P0
+  - id: OM-HOVER-MUST-06
+    rule: >-
+      FoldSplitContainer 的 primary 必须用于上半屏内容、secondary 必须用于下半屏内容。检查 FoldSplitContainer 组件的 primary
+      回调中是否放置展示类组件（上半屏），secondary 回调中是否放置交互类组件（下半屏）。展示类组件包括视频画面、图片预览、游戏画面、XComponent、Canvas、Web 等主要展示区域；交互类组件包括按钮、滑块、输入框、操作手柄、控制栏等。能够明确分类时，primary 中放置交互类控件或 secondary 中放置展示类内容即判定失败；无法分类时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: FoldSplitContainer'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: FoldSplitContainer 的 primary 必须用于上半屏内容、secondary 必须用于下半屏内容。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：FoldSplitContainer primary 放置可明确分类的展示类内容，secondary 放置交互类内容
+      fail:
+        - 违反：primary 中放置可明确分类的交互类控件，或 secondary 中放置可明确分类的展示类内容
+      notApplicable:
+        - 未发现 FoldSplitContainer。
+      review:
+        - primary/secondary 内容语义无法明确分类，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: FoldSplitContainer 的 primary 必须用于上半屏内容、secondary 必须用于下半屏内容
+    priority: P0
+  - id: OM-HOVER-MUST-07
+    rule: >-
+      自定义悬停态必须同时判断半折叠状态和横屏方向。检查自定义悬停态的判断逻辑，必须同时满足两个条件：display.on('foldStatusChange') 回调中 foldStatus 为
+      FOLD_STATUS_HALF_FOLDED，且 display.getDefaultDisplaySync().orientation 为 LANDSCAPE 或
+      LANDSCAPE_INVERTED。仅判断折叠状态不判断横屏方向，或仅判断横屏方向不判断折叠状态即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: custom_hover_fold_and_landscape
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 自定义悬停态必须同时判断半折叠状态和横屏方向。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：自定义悬停态必须同时判断半折叠状态和横屏方向
+      fail:
+        - 违反：自定义悬停态必须同时判断半折叠状态和横屏方向
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 自定义悬停态必须同时判断半折叠状态和横屏方向
+    priority: P0
+  - id: OM-HOVER-MUST-08
+    rule: >-
+      自定义悬停态必须通过 getCurrentFoldCreaseRegion 获取折痕区域。检查自定义悬停态布局中折痕区域的获取方式，必须使用 display.getCurrentFoldCreaseRegion()
+      接口获取折痕位置（rect.top）和高度（rect.height），并通过 px2vp 转换为 vp 值。使用硬编码数值作为折痕区域或未调用该接口即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: custom_hover_crease_region_api
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 自定义悬停态必须通过 getCurrentFoldCreaseRegion 获取折痕区域。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：自定义悬停态必须通过 getCurrentFoldCreaseRegion 获取折痕区域
+      fail:
+        - 违反：自定义悬停态必须通过 getCurrentFoldCreaseRegion 获取折痕区域
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 自定义悬停态必须通过 getCurrentFoldCreaseRegion 获取折痕区域
+    priority: P0
+  - id: OM-HOVER-MUST-09
+    rule: >-
+      自定义悬停态退出页面时必须取消 foldStatusChange 监听。检查使用 display.on('foldStatusChange')
+      注册监听的页面，必须在页面销毁（aboutToDisappear）或退出悬停态场景时调用 display.off('foldStatusChange') 取消监听。未在适当时机调用 off 取消监听即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: custom_hover_fold_listener_cleanup
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 自定义悬停态退出页面时必须取消 foldStatusChange 监听。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：自定义悬停态退出页面时必须取消 foldStatusChange 监听
+      fail:
+        - 违反：自定义悬停态退出页面时必须取消 foldStatusChange 监听
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: 自定义悬停态退出页面时必须取消 foldStatusChange 监听
+    priority: P0
+  - id: OM-WEB-MUST-01
+    rule: >-
+      Web 组件容器尺寸必须按断点动态设置。检查 Web 组件的 width 和 height 属性是否根据断点动态设置，不得使用固定 vp 值。Web
+      组件容器必须随断点变化自适应调整尺寸。width('100%')、height('100%')、layoutWeight 或父容器自适应约束可视为合规自适应证据；仅使用固定 vp 宽高且没有响应式或自适应约束时判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: web_container_size_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 组件容器尺寸必须按断点动态设置。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：Web 容器尺寸按断点动态设置，或使用 100%/layoutWeight/父容器自适应约束
+      fail:
+        - 违反：Web 容器仅使用固定 vp 宽高，且没有响应式或自适应约束
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Web 组件容器尺寸必须按断点动态设置
+    priority: P0
+  - id: OM-WEB-MUST-02
+    rule: >-
+      Native 侧断点变化时必须将断点信息同步至 Web 组件。检查使用 Web 组件的页面，当断点发生变化时，是否通过 WebController.runJavaScript() 或 javaScriptProxy
+      将当前断点值（sm/md/lg/xl）同步给 Web 侧。本规则仅在 Web 内容依赖 Native 注入断点，或静态可见证据表明 Web 侧没有独立媒体查询/自适应布局时适用。若 Web 资源不可见、无法确认 Web 侧是否已有独立自适应能力，进入人工复核；确认依赖 Native 断点但未同步时判定失败
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web / runJavaScript'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Native 侧断点变化时必须将断点信息同步至 Web 组件。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：已确认 Web 内容依赖 Native 断点，且断点变化通过 runJavaScript 或 javaScriptProxy 同步给 Web 侧
+      fail:
+        - 违反：已确认 Web 内容依赖 Native 断点，但 Native 侧断点变化后未同步给 Web 侧
+      notApplicable:
+        - 未发现 Web 组件、Web controller、runJavaScript、javaScriptProxy 或本地 Web 资源入口。
+        - 可见证据表明 Web 侧已有独立媒体查询或自适应布局，不依赖 Native 注入断点。
+      review:
+        - Web 资源不可见，或无法确认 Web 侧是否依赖 Native 注入断点。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Native 侧断点变化时必须将断点信息同步至 Web 组件
+    priority: P0
+  - id: OM-WEB-MUST-03
+    rule: >-
+      Web 组件必须通过 on('windowSizeChange') 驱动断点同步而非 foldStatusChange。检查 Web 组件所在页面的断点监听方式，必须通过
+      window.on('windowSizeChange')、mediaquery.matchMediaSync 或 display.on('change') 驱动断点变化后同步给 Web 组件，与 OM-BREAKPOINT-MUST-05 保持一致。使用 foldStatusChange 或设备方向 API 驱动
+      Web 组件断点更新即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: web_breakpoint_sync_source
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web / Window'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 组件必须通过 windowSizeChange、mediaquery 或 display.on('change') 驱动断点同步而非 foldStatusChange。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：Web 组件断点同步由 window.on('windowSizeChange')、mediaquery.matchMediaSync 或 display.on('change') 驱动
+      fail:
+        - 违反：Web 组件断点同步由 foldStatusChange、设备方向 API 或其他非尺寸监听来源驱动
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Web 组件必须通过标准尺寸监听驱动断点同步而非 foldStatusChange
+    priority: P0
+  - id: OM-WEB-MUST-04
+    rule: >-
+      Web 侧媒体查询断点范围必须与系统断点一致。检查 Web 组件加载的页面资源中 CSS 媒体查询断点范围，横向断点应与 ArkUI/Native 口径保持一致：sm:[320px,600px)、md:[600px,840px)、lg:[840px,1440px)、xl:[1440px,+∞)。仅当 ETS 中能定位并读取 Web 资源断点证据时进行判定；Web 资源不可见或无法确认媒体查询范围时进入人工复核。可见 Web
+      侧媒体查询使用与系统断点不一致的范围（如 sm:[300px,500px)）即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: web_media_query_breakpoints_standard
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 侧媒体查询断点范围必须与系统断点一致。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：可见 Web 资源中的媒体查询断点范围与 sm/md/lg/xl 系统断点一致
+      fail:
+        - 违反：可见 Web 资源中的媒体查询断点范围与 320/600/840/1440 边界不一致
+      notApplicable:
+        - Web 组件不加载需要检查的本地页面资源，或 Web 内容不使用媒体查询断点。
+      review:
+        - Web 资源不可见，或无法从 ETS 静态证据确认媒体查询断点范围。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Web 侧媒体查询断点范围必须与系统断点一致
+    priority: P0
+  - id: OM-WEB-MUST-05
+    rule: >-
+      Web 侧纵向断点必须使用宽高比（aspect-ratio）而非高宽比。检查 Web 组件加载的页面资源中涉及纵向断点判断的 CSS 媒体查询，必须使用 aspect-ratio（宽高比，如 min-aspect-ratio:
+      1/1.2）而非 HarmonyOS 侧的高宽比。仅当 ETS 中能定位并读取 Web 资源中的纵向断点媒体查询时进行判定；Web 资源不可见或无法确认纵向断点表达式时进入人工复核。可见 Web 侧使用 height/width 形式或使用 orientation 区分纵向断点即判定失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: web_vertical_breakpoint_aspect_ratio
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 侧纵向断点必须使用宽高比（aspect-ratio）而非高宽比。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 符合：可见 Web 资源中的纵向断点媒体查询使用 aspect-ratio
+      fail:
+        - 违反：可见 Web 资源中的纵向断点使用 height/width 形式或 orientation 区分
+      notApplicable:
+        - Web 组件不加载需要检查的本地页面资源，或 Web 内容不涉及纵向断点媒体查询。
+      review:
+        - Web 资源不可见，或无法从 ETS 静态证据确认纵向断点表达式。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - type_safety
+      impact: medium
+    rule_name: Web 侧纵向断点必须使用宽高比（aspect-ratio）而非高宽比
+    priority: P0
+should_rules:
+  - id: OM-LIST-SHOULD-01
+    rule: >-
+      List space 建议按断点设置不同间距。仅检查承担重复卡片、商品或内容列表且 lanes 或外层布局存在响应式多列证据的 List。List 组件的 space 属性建议根据当前断点动态设置不同值，避免在多设备多列布局上始终使用固定常量。推荐值：sm 断点单列列表行间距为 8vp，md 断点双列列表列间距为 12vp 且行间距为
+      12vp，lg 断点三列列表列间距为 12vp 且行间距为 16vp。无 lanes/多列布局证据的普通单列 List 判定为不涉及；断点分支、横向列表或业务状态影响布局时进入 Agent 复核。space 使用固定值（如 space: 12）且不随断点变化时，记录为不满足建议，不作为 P0 硬失败
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: list_space_by_breakpoint
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: List space 建议按断点设置不同间距。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：List space 按断点设置不同间距，或固定间距有明确业务理由
+      fail:
+        - 不满足建议：存在响应式多列列表证据时，List space 使用固定值且无响应式间距证据
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: List space 建议按断点设置不同间距
+    priority: P1
+  - id: OM-LIST-SHOULD-02
+    rule: >-
+      List 多列时 divider 建议设为 undefined。检查 List 组件在 lanes >= 2 时是否将 .divider() 设为 undefined。未设置 divider 或显式设为 undefined 均视为满足建议；多列 List 显式保留 divider
+      可能导致分割线在列间错乱，记录为不满足建议
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: list_divider_by_lanes
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: List 多列时 divider 建议设为 undefined。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：List 多列时未设置 divider，或 divider 显式设为 undefined
+      fail:
+        - 不满足建议：List 在 lanes >= 2 时显式保留 divider
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: List 多列时 divider 建议设为 undefined
+    priority: P1
+  - id: OM-WATERFLOW-SHOULD-01
+    rule: >-
+      WaterFlow 动态切换列数建议使用 SLIDING_WINDOW 模式。动态设置列数时建议采用瀑布流的移动窗口布局模式，即取值为 WaterFlowLayoutMode 枚举说明中的
+      SLIDING_WINDOW，从而实现更快速的列数转换。仅当 columnsTemplate 可静态确认按断点或多个模板动态切换列数时直接检查 layoutMode；列数未动态切换时判定为不涉及；列数模板来自三元表达式、helper、状态变量或无法解析常量时进入 Agent 复核；动态切换列数但未使用 SLIDING_WINDOW 模式时，记录为不满足建议
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: waterflow_sliding_window_mode
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: WaterFlow 动态切换列数建议使用 SLIDING_WINDOW 模式。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：WaterFlow 动态切换列数时使用 SLIDING_WINDOW 模式
+      fail:
+        - 不满足建议：可静态确认 WaterFlow 动态切换列数，但未使用 SLIDING_WINDOW 模式
+      notApplicable:
+        - WaterFlow 未动态切换列数。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: WaterFlow 动态切换列数建议使用 SLIDING_WINDOW 模式
+    priority: P1
+  - id: OM-WATERFLOW-SHOULD-02
+    rule: >-
+      WaterFlow 建议通过 itemConstraintSize 设置子组件约束尺寸。检查图片或卡片类 WaterFlow 是否通过 itemConstraintSize 或等效的子项尺寸约束控制卡片尺寸。本规则适用于 FlowItem 根节点包含 Image、卡片容器或固定比例展示内容的图片/卡片瀑布流。若未设置
+      itemConstraintSize，但每个 FlowItem 或其根容器已通过明确的 maxWidth/maxHeight/constraintSize/width/height 控制尺寸，可判定为满足。仅
+      padding、文本内容自适应或 aspectRatio 单独存在，不视为等效约束，记录为不满足建议。如果 WaterFlow 不是图片或卡片瀑布流，判定为不涉及；无法确认内容类型时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: waterflow_item_constraint_size
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: WaterFlow 建议通过 itemConstraintSize 设置子组件约束尺寸。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：图片或卡片类 WaterFlow 使用 itemConstraintSize，或 FlowItem 根容器有明确尺寸约束
+      fail:
+        - 不满足建议：图片或卡片类 WaterFlow 缺少 itemConstraintSize 或等效尺寸约束
+      notApplicable:
+        - WaterFlow 不是图片或卡片瀑布流。
+      review:
+        - 无法确认 WaterFlow 内容是否为图片或卡片瀑布流。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: WaterFlow 建议通过 itemConstraintSize 设置子组件约束尺寸
+    priority: P1
+  - id: OM-NAVIGATION-SHOULD-01
+    rule: >-
+      Navigation Split 双栏模式建议显式设置 navBarWidth。检查 Navigation 组件在 Split 模式下是否设置了 navBarWidth，以避免导航栏占比不可控。双栏时未设置 navBarWidth
+      记录为不满足建议；无法确认是否处于 Split 双栏模式时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: navigation_nav_bar_width_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Navigation Split 双栏模式建议显式设置 navBarWidth。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：Navigation Split 双栏模式显式设置 navBarWidth
+      fail:
+        - 不满足建议：Navigation Split 双栏模式未显式设置 navBarWidth
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 无法确认 Navigation 是否处于 Split 双栏模式。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Navigation Split 双栏模式建议显式设置 navBarWidth
+    priority: P1
+  - id: OM-GRIDROW-SHOULD-01
+    rule: >-
+      GridRow 建议配置 gutter 属性。仅检查包含多个 GridCol 且这些 GridCol 之间存在栅格间距需求的 GridRow。GridRow 子组件之间的栅格间距应优先通过 gutter
+      控制，建议同时包含 gutter.x 和 gutter.y；单个 GridCol、全宽结构容器或无多列间距需求的 GridRow 判定为不涉及。页面容器外边距 padding 不视为替代 gutter 的失败证据；未配置 gutter，或仅使用 GridRow 子项 padding/margin 模拟栅格间距时，记录为不满足建议
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: gridrow_gutter_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: GridRow 建议配置 gutter 属性。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：GridRow 显式配置 gutter.x 和 gutter.y，或页面外边距 padding 与 gutter 并存
+      fail:
+        - 不满足建议：包含多个 GridCol 且存在栅格间距需求的 GridRow 未配置 gutter，或仅使用 GridRow 子项 padding/margin 模拟栅格间距
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: GridRow 建议配置 gutter 属性
+    priority: P1
+  - id: OM-GRIDCOL-SHOULD-01
+    rule: >-
+      缩进布局建议使用 GridCol offset 实现居中留白。仅当 GridRow/GridCol 已用于大屏居中布局，或存在断点条件下两侧留白逻辑时适用。检查需要在大屏居中展示的内容区域是否通过 GridCol 的 offset 属性实现两侧留白。使用硬编码 margin/padding 模拟缩进而非栅格 offset
+      记录为不满足建议；无法确认是否为大屏居中缩进布局时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: gridcol_offset_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 缩进布局建议使用 GridCol offset 实现居中留白。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：大屏居中缩进布局通过 GridCol offset 实现两侧留白
+      fail:
+        - 不满足建议：已确认的大屏居中缩进布局使用硬编码 margin/padding 模拟缩进
+      notApplicable:
+        - 未发现 GridRow/GridCol 大屏居中缩进布局，或内容区域不需要居中留白。
+      review:
+        - 无法确认内容区域是否为大屏居中缩进布局。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: 缩进布局建议使用 GridCol offset 实现居中留白
+    priority: P1
+  - id: OM-GRIDROW-SHOULD-02
+    rule: >-
+      大屏居中布局建议使用栅格系统而非动态 constraintSize 限制宽度。检查需要在大屏（md/lg/xl 断点）居中展示且两侧留白的内容区域，是否通过 constraintSize 的
+      maxWidth/width/height 属性根据断点值条件判断来设置不同的尺寸限制，从而实现大屏居中效果。典型反模式包括：constraintSize({ maxWidth: breakpoint ===
+      LG ? 840 : undefined })、constraintSize({ maxWidth: BreakpointUtils.getValue(...) })、constraintSize({ width:
+      condition ? fixedValue : '100%' }) 等根据断点条件动态切换 constraintSize 值的写法。这种做法本质是硬编码宽度，无法随不同大屏尺寸自适应。应使用 GridRow/GridCol
+      栅格布局，通过 columns 控制总列数、span 控制内容占据列数、offset 控制两侧留白来实现居中。constraintSize 的属性值中存在根据断点条件（if/三元表达式/断点工具类取值）动态设置
+      width/maxWidth 的记录为不满足建议。如果 constraintSize 的值不依赖断点条件（如固定的 minHeight: '100%' 或固定的 maxWidth 用于限制最大行宽），判定为不涉及
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: gridrow_no_dynamic_constraint_size_centering
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: GridRow / GridCol'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 大屏居中布局建议使用栅格系统而非动态 constraintSize 限制宽度。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：大屏居中布局使用 GridRow/GridCol 栅格实现两侧留白，或 constraintSize 不依赖断点条件
+      fail:
+        - 不满足建议：已确认的大屏居中布局通过断点条件动态切换 constraintSize 的 width/maxWidth 模拟居中
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: 大屏居中布局建议使用栅格系统而非动态 constraintSize 限制宽度
+    priority: P1
+  - id: OM-FLEX-SHOULD-01
+    rule: >-
+      Flex 均分布局建议使用 FlexAlign.SpaceEvenly。检查 Flex 等间距均分布局（如工具栏、菜单栏中多个同类子项均分）是否将 justifyContent 属性设置为 FlexAlign.SpaceEvenly。其他 Flex 布局不适用。使用固定
+      margin/padding 手动计算间距来实现均分时，记录为不满足建议
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: flex_space_evenly_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Flex 均分布局建议使用 FlexAlign.SpaceEvenly。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：Flex 等间距均分布局使用 FlexAlign.SpaceEvenly
+      fail:
+        - 不满足建议：已确认的 Flex 等间距均分布局使用固定 margin/padding 手动计算间距
+      notApplicable:
+        - Flex 不是工具栏、菜单栏等多个同类子项均分布局。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Flex 均分布局建议使用 FlexAlign.SpaceEvenly
+    priority: P1
+  - id: OM-FLEX-SHOULD-02
+    rule: 'Flex 折行布局建议设置 wrap 为 FlexWrap.Wrap。检查多个固定宽子项横向排列且可能溢出容器宽度的 Flex 布局是否设置了 wrap: FlexWrap.Wrap，或是否提供横向滚动能力。使用固定列数或手动计算换行位置时，记录为不满足建议；无法判断是否可能溢出时进入人工复核'
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: flex_wrap_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Flex 折行布局建议设置 wrap 为 FlexWrap.Wrap。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - '满足建议：多个固定宽子项横向排列的 Flex 设置 wrap: FlexWrap.Wrap，或提供横向滚动能力'
+      fail:
+        - 不满足建议：已确认可能溢出的 Flex 使用固定列数或手动计算换行位置，且未设置 wrap 或横向滚动
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 无法判断 Flex 内容是否可能溢出容器宽度。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Flex 折行布局建议设置 wrap 为 FlexWrap.Wrap
+    priority: P1
+  - id: OM-ROWCOLUMN-SHOULD-01
+    rule: >-
+      Row/Column 占比布局中子组件建议使用 layoutWeight。检查 Row/Column/Flex 容器中需要按比例分配空间的兄弟子组件是否使用 layoutWeight 属性或百分比（%）形式的
+      width/height。仅当兄弟子组件承担比例布局且固定 vp 宽高导致无法随容器自适应时，记录为不满足建议；无法确认是否为比例布局时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: row_column_layout_weight_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Row/Column 占比布局中子组件建议使用 layoutWeight。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：已确认的占比布局使用 layoutWeight 或百分比 width/height
+      fail:
+        - 不满足建议：已确认的占比布局使用固定 vp 宽高导致无法随容器自适应
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 无法确认 Row/Column/Flex 子组件是否承担比例布局。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Row/Column 占比布局中子组件建议使用 layoutWeight
+    priority: P1
+  - id: OM-ROWCOLUMN-SHOULD-02
+    rule: >-
+      Row/Column 中随尺寸变化的显隐子组件建议设置 displayPriority。检查 Row/Column/Flex 容器中需要随容器尺寸变化自动显示或隐藏的子组件是否设置了 displayPriority
+      属性控制显隐优先级。断点条件显隐也可作为合规方案；仅当固定显隐或不稳定显隐导致尺寸变化时内容截断、重叠风险明显时，记录为不满足建议
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: row_column_display_priority_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Row/Column 中随尺寸变化的显隐子组件建议设置 displayPriority。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：随尺寸变化显隐的子组件使用 displayPriority，或使用清晰的断点条件显隐
+      fail:
+        - 不满足建议：需要随尺寸变化显隐的子组件缺少 displayPriority 或断点显隐方案，且存在截断、重叠风险
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Row/Column 中随尺寸变化的显隐子组件建议设置 displayPriority
+    priority: P1
+  - id: OM-ROWCOLUMN-SHOULD-03
+    rule: >-
+      Row/Column/Flex 中固定元素间的空白建议使用 Blank 或等效弹性占位组件填充。检查 Row/Column/Flex 中固定元素（如文字与开关）之间的空白区域是否使用 Blank 或等效弹性占位填充剩余空间。使用固定
+      width/height 的空容器模拟空白区域时，记录为不满足建议
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: blank_spacing_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Row/Column/Flex 中固定元素间的空白建议使用 Blank 或等效弹性占位组件填充。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：固定元素间空白使用 Blank 或等效弹性占位填充
+      fail:
+        - 不满足建议：使用固定 width/height 的空容器模拟固定元素间空白
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 静态证据不足，需要人工复核。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Row/Column/Flex 中固定元素间的空白建议使用 Blank 或等效弹性占位组件填充
+    priority: P1
+  - id: OM-SCROLL-SHOULD-01
+    rule: >-
+      横向延伸内容建议使用横向滚动容器实现。检查横向可延伸的内容列表是否使用 Scroll 组件配合 Row/Column（设置 scrollable(ScrollDirection.Horizontal)）或使用
+      List 的 listDirection(Axis.Horizontal) 实现延伸能力。内容已确认会超出容器宽度但未使用可滚动容器时，记录为不满足建议；无法确认是否会超出时进入人工复核
+    detector:
+      kind: static
+      mode: arkui_static
+      config:
+        check: horizontal_scroll_required
+        targetPatterns:
+          - '**/*.ets'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 横向延伸内容建议使用横向滚动容器实现。静态扫描已覆盖组件和属性，Agent 仅复核中间态证据。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：横向延伸内容使用 Scroll 横向滚动或 List 横向方向实现
+      fail:
+        - 不满足建议：已确认横向内容会超出容器宽度，但未使用横向滚动容器
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 无法确认横向内容是否会超出容器宽度。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: 横向延伸内容建议使用横向滚动容器实现
+    priority: P1
+  - id: OM-ASPECTRATIO-SHOULD-01
+    rule: >-
+      需要保持宽高比的视觉内容容器建议设置 aspectRatio。检查需要随容器尺寸变化但保持固定宽高比的子组件（如图片、视频、封面、地图、预览卡片等视觉内容容器）是否设置了 aspectRatio 属性，同时宽或高使用百分比或自适应尺寸。普通文本卡片不适用。已确认需要保持比例的视觉内容容器宽高都使用固定 vp
+      值且未设置 aspectRatio 时，记录为不满足建议；无法确认内容类型时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: aspectRatio'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 需要保持宽高比的视觉内容容器建议设置 aspectRatio。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：已确认需要保持宽高比的视觉内容容器设置 aspectRatio，或使用等效比例约束；仅发现已有 aspectRatio 配置不自动视为全部满足。
+      fail:
+        - 不满足建议：已确认需要保持比例的视觉内容容器固定宽高且未设置 aspectRatio 或等效比例约束
+      notApplicable:
+        - 普通文本卡片或不需要保持固定宽高比的容器。
+      review:
+        - 无法确认容器内容类型或是否需要保持固定宽高比；仅发现 aspectRatio 弱锚点但未覆盖候选视觉容器。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: 需要保持宽高比的视觉内容容器建议设置 aspectRatio
+    priority: P1
+  - id: OM-ASPECTRATIO-SHOULD-02
+    rule: >-
+      容器子组件的 aspectRatio 在不同断点设计要求不同比例时，建议根据断点设置不同宽高比。检查设置了 aspectRatio 的子组件是否存在明确的断点比例切换需求（如 sm 断点使用 4:3 适配竖屏，lg 断点使用 16:9 适配宽屏）。头像、图标、固定比例视频、固定比例商品图等需要保持统一比例的内容不适用。仅当已确认不同断点需要不同比例但所有断点
+      aspectRatio 值相同时，记录为不满足建议；无法确认设计比例需求时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: aspectRatio'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 容器子组件的 aspectRatio 在不同断点设计要求不同比例时，建议根据断点设置不同宽高比。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：已确认需要断点比例切换的容器按断点设置不同 aspectRatio，或内容本身需要保持统一比例
+      fail:
+        - 不满足建议：已确认不同断点需要不同比例，但所有断点 aspectRatio 值相同
+      notApplicable:
+        - 头像、图标、固定比例视频、固定比例商品图等需要保持统一比例的内容。
+      review:
+        - 无法确认该容器在不同断点是否需要不同宽高比；仅发现固定 aspectRatio 但没有断点布局上下文或动态表达式。
+    profile:
+      scoring: true
+      riskCode: UI_LAYOUT_OR_BREAKPOINT_MISMATCH
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: 容器子组件的 aspectRatio 在不同比例需求下建议按断点设置
+    priority: P1
+  - id: OM-HOVER-SHOULD-01
+    rule: >-
+      自定义悬停态建议根据折痕区域动态调整组件尺寸和位置。本规则是 OM-HOVER-MUST-02/08 的细化建议：检查自定义悬停态实现中，上半屏展示组件的 height
+      是否根据折痕区域顶部位置（rect.top）动态设置，下半屏交互组件是否根据折痕区域底部（rect.top + rect.height）计算起始位置。使用固定 vp
+      值设置组件位置而非基于折痕区域计算时，记录为不满足建议
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: display'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: 自定义悬停态建议根据折痕区域动态调整组件尺寸和位置。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：自定义悬停态基于 rect.top 和 rect.height 动态计算上下半屏组件尺寸和位置
+      fail:
+        - 不满足建议：自定义悬停态使用固定 vp 值设置上下半屏组件位置，未基于折痕区域计算
+      notApplicable:
+        - 未发现自定义半折、折痕区域读取或基于 rect.top/rect.height 的尺寸位置计算。
+      review:
+        - 仅发现 display 等弱锚点，无法确认是否为自定义悬停态布局。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: 自定义悬停态建议根据折痕区域动态调整组件尺寸和位置
+    priority: P1
+  - id: OM-WEB-SHOULD-01
+    rule: >-
+      Web 侧布局属性建议使用相对单位而非固定像素值。仅当 ETS 中能定位并读取 Web 组件加载的页面资源时检查。检查元素的关键布局属性（width、height、margin、padding、gap、grid/flex basis 等）是否使用百分比（%）、rem、vw/vh 等相对单位而非固定 px 值。可见 Web 资源中关键布局属性全部使用固定 px
+      值导致无法随容器自适应时，记录为不满足建议；Web 资源不可见时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 侧布局属性建议使用相对单位而非固定像素值。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：可见 Web 资源中的关键布局属性使用相对单位或响应式单位
+      fail:
+        - 不满足建议：可见 Web 资源中的关键布局属性全部使用固定 px 值
+      notApplicable:
+        - Web 组件不加载需要检查的本地页面资源。
+      review:
+        - Web 资源不可见，无法确认关键布局属性单位。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Web 侧布局属性建议使用相对单位而非固定像素值
+    priority: P1
+  - id: OM-WEB-SHOULD-02
+    rule: >-
+      Web 侧宫格布局列数建议按断点非递减或使用自适应列数。仅当 ETS 中能定位并读取 Web 组件加载的页面资源时检查。检查 Web 资源中使用 CSS Grid 宫格布局的区域，grid-template-columns 的列数是否在不同断点下非递减（如
+      sm:repeat(4,1fr)、md:repeat(6,1fr)、lg:repeat(8,1fr)），或是否使用 auto-fit/auto-fill 等自适应列数。可见 Web 资源中所有断点宫格列数相同且未使用自适应列数时，记录为不满足建议；Web 资源不可见或无法确认 Grid 布局时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 侧宫格布局列数建议按断点非递减或使用自适应列数。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：可见 Web 资源中的 Grid 宫格列数按断点非递减，或使用 auto-fit/auto-fill 自适应列数
+      fail:
+        - 不满足建议：可见 Web 资源中的 Grid 宫格列数在所有断点相同，且未使用自适应列数
+      notApplicable:
+        - Web 组件不加载需要检查的本地页面资源，或 Web 内容不使用 CSS Grid 宫格布局。
+      review:
+        - Web 资源不可见，或无法确认 Web 侧是否存在宫格布局。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Web 侧宫格布局列数建议按断点非递减或使用自适应列数
+    priority: P1
+  - id: OM-WEB-SHOULD-03
+    rule: >-
+      Web 侧轮播布局 displayCount 建议按断点非递减且按条件显隐指示器。仅当 ETS 中能定位并读取 Web 组件加载的页面资源，且能识别可见的 Web 轮播实现时检查：sm 断点建议显示单张轮播元素并展示圆点指示器，md/lg
+      断点建议同时显示多张轮播元素（displayCount >= 2）并隐藏圆点指示器。可见 Web 轮播在所有断点轮播元素显示数量相同或指示器显隐策略不随 displayCount 变化时，记录为不满足建议；无法识别轮播库或 Web 资源不可见时进入人工复核
+    detector:
+      kind: static
+      mode: case_constraint_precheck
+      config:
+        targetPatterns:
+          - '**/*.ets'
+        kit:
+          - 'ArkUI: Web'
+        targetChecks:
+          - target: '**/*.ets'
+            astSignals: []
+            llmPrompt: Web 侧轮播布局 displayCount 建议按断点非递减且按条件显隐指示器。请基于静态证据复核是否满足该约束。
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 满足建议：可见 Web 轮播 displayCount 按断点非递减，且指示器随 displayCount 条件显隐
+      fail:
+        - 不满足建议：可见 Web 轮播在所有断点显示数量相同，或指示器显隐策略不随 displayCount 变化
+      notApplicable:
+        - Web 组件不加载需要检查的本地页面资源，或 Web 内容不包含可识别的轮播布局。
+      review:
+        - Web 资源不可见，或无法识别 Web 侧轮播库/轮播实现。
+    profile:
+      scoring: true
+      riskCode: LANGUAGE_CONSTRAINT_VIOLATION
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - static_quality
+      impact: light
+    rule_name: Web 侧轮播布局 displayCount 建议按断点非递减且按条件显隐指示器
+    priority: P1
+forbidden_patterns: []

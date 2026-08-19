@@ -1,0 +1,40 @@
+{
+  "name": "multi-device-whitebox-evaluation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/localCli.js",
+    "evaluate": "node dist/localCli.js",
+    "dev:evaluate": "tsx src/localCli.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"*.json\" \"*.mjs\"",
+    "format:fix": "prettier --write \"src/**/*.ts\" \"*.json\" \"*.mjs\""
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.40",
+    "@langchain/langgraph": "^1.2.8",
+    "@types/yauzl": "^2.10.3",
+    "ajv": "^8.18.0",
+    "arkanalyzer": "^1.0.90",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "js-yaml": "^4.1.1",
+    "yauzl": "^3.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.6.0",
+    "eslint": "^10.2.0",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.58.2"
+  }
+}

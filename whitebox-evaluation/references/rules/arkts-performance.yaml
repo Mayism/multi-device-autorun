@@ -1,0 +1,315 @@
+name: ArkTS 高性能编程实践
+version: v1.0.0
+summary: 基于 ArkTS 高性能编程实践规则整理的内部规则包，按 should / forbidden 分类，用于识别 HarmonyOS NEXT 生成代码中的常见性能风险。
+rule_pack_meta:
+  pack_id: arkts-performance
+  source_name: Huawei-ArkTS-High-Performance-Programming-Practices
+  source_version: performance-rules-2026-04-17
+must_rules: []
+should_rules:
+  - id: ARKTS-PERF-SHOULD-001
+    rule: 不变变量推荐使用 const 声明。
+    detector:
+      kind: static
+      mode: arkts_static
+      config:
+        check: let_never_reassigned
+        fileExtensions:
+          - .ets
+        patchOnly: true
+        violationWhen: never_reassigned
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：不变变量推荐使用 const 声明。
+      fail:
+        - 存在违反规则的证据：不变变量推荐使用 const 声明。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: READABILITY_OR_MAINTAINABILITY_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: light
+  - id: ARKTS-PERF-SHOULD-002
+    rule: number 类型变量初始化后应避免整型与浮点型混用。
+    detector:
+      kind: static
+      mode: regex
+      config:
+        fileExtensions:
+          - .ets
+        patterns:
+          - \blet\s+([A-Za-z_$][\w$]*)\s*=\s*\d+\s*;[\s\S]{0,200}?\b\1\s*=\s*\d+\.\d+\b
+          - \blet\s+([A-Za-z_$][\w$]*)\s*=\s*\d+\.\d+\s*;[\s\S]{0,200}?\b\1\s*=\s*\d+\b
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：number 类型变量初始化后应避免整型与浮点型混用。
+      fail:
+        - 存在违反规则的证据：number 类型变量初始化后应避免整型与浮点型混用。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: READABILITY_OR_MAINTAINABILITY_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: light
+  - id: ARKTS-PERF-SHOULD-003
+    rule: 数值计算应避免溢出到 INT32 范围外。
+    detector:
+      kind: none
+      config: {}
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：数值计算应避免溢出到 INT32 范围外。
+      fail:
+        - 存在违反规则的证据：数值计算应避免溢出到 INT32 范围外。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: READABILITY_OR_MAINTAINABILITY_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: light
+  - id: ARKTS-PERF-SHOULD-004
+    rule: 循环中应提取不变量，减少重复属性访问次数。
+    detector:
+      kind: none
+      config: {}
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：循环中应提取不变量，减少重复属性访问次数。
+      fail:
+        - 存在违反规则的证据：循环中应提取不变量，减少重复属性访问次数。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: READABILITY_OR_MAINTAINABILITY_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: light
+  - id: ARKTS-PERF-SHOULD-005
+    rule: 性能敏感场景中建议通过参数传递替代闭包捕获函数外变量。
+    detector:
+      kind: none
+      config: {}
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：性能敏感场景中建议通过参数传递替代闭包捕获函数外变量。
+      fail:
+        - 存在违反规则的证据：性能敏感场景中建议通过参数传递替代闭包捕获函数外变量。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: READABILITY_OR_MAINTAINABILITY_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: light
+  - id: ARKTS-PERF-SHOULD-006
+    rule: 涉及纯数值计算时推荐使用 TypedArray。
+    detector:
+      kind: none
+      config: {}
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：涉及纯数值计算时推荐使用 TypedArray。
+      fail:
+        - 存在违反规则的证据：涉及纯数值计算时推荐使用 TypedArray。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: READABILITY_OR_MAINTAINABILITY_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: light
+forbidden_patterns:
+  - id: ARKTS-PERF-FORBID-001
+    rule: 禁止使用可选参数 ? 作为性能敏感函数参数形式。
+    detector:
+      kind: static
+      mode: regex
+      config:
+        fileExtensions:
+          - .ets
+        patterns:
+          - \bfunction\s+[A-Za-z_$][\w$]*\s*\([^)]*\?:[^)]*\)
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：禁止使用可选参数 ? 作为性能敏感函数参数形式。
+      fail:
+        - 存在违反规则的证据：禁止使用可选参数 ? 作为性能敏感函数参数形式。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: PERFORMANCE_OR_LIFECYCLE_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: heavy
+  - id: ARKTS-PERF-FORBID-002
+    rule: 禁止使用联合类型数组。
+    detector:
+      kind: static
+      mode: regex
+      config:
+        fileExtensions:
+          - .ets
+        patterns:
+          - \([^\)]*\|[^\)]*\)\s*\[\]
+          - \bArray\s*<[^>]*\|[^>]*>
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：禁止使用联合类型数组。
+      fail:
+        - 存在违反规则的证据：禁止使用联合类型数组。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: PERFORMANCE_OR_LIFECYCLE_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: heavy
+  - id: ARKTS-PERF-FORBID-003
+    rule: 禁止在数值数组字面量中混用整型和浮点型。
+    detector:
+      kind: static
+      mode: regex
+      config:
+        fileExtensions:
+          - .ets
+        patterns:
+          - \[[^\]\n]*\b\d+\.\d+\b[^\]\n]*\b\d+\b[^\]\n]*\]
+          - \[[^\]\n]*\b\d+\b[^\]\n]*\b\d+\.\d+\b[^\]\n]*\]
+        stripStringLiteralContents: true
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：禁止在数值数组字面量中混用整型和浮点型。
+      fail:
+        - 存在违反规则的证据：禁止在数值数组字面量中混用整型和浮点型。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: PERFORMANCE_OR_LIFECYCLE_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: heavy
+  - id: ARKTS-PERF-FORBID-004
+    rule: 禁止通过超大容量初始化或大跨度下标写入制造稀疏/退化数组。
+    detector:
+      kind: static
+      mode: regex
+      config:
+        fileExtensions:
+          - .ets
+        patterns:
+          - \bnew\s+Array\s*\(\s*(?:102[5-9]|10[3-9]\d|1[1-9]\d\d|[2-9]\d{3,})\s*\)
+          - \b[A-Za-z_$][\w$]*\s*\[\s*(?:102[4-9]|10[3-9]\d|1[1-9]\d\d|[2-9]\d{3,})\s*\]\s*=
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：禁止通过超大容量初始化或大跨度下标写入制造稀疏/退化数组。
+      fail:
+        - 存在违反规则的证据：禁止通过超大容量初始化或大跨度下标写入制造稀疏/退化数组。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: PERFORMANCE_OR_LIFECYCLE_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: heavy
+  - id: ARKTS-PERF-FORBID-005
+    rule: 禁止在循环等热点路径中直接抛出异常。
+    detector:
+      kind: static
+      mode: regex
+      config:
+        fileExtensions:
+          - .ets
+        patterns:
+          - \b(?:for|while)\s*\([^)]*\)\s*\{[\s\S]{0,400}?\bthrow\s+new\s+Error\b
+    fallback:
+      policy: agent_assisted
+    decisionCriteria:
+      pass:
+        - 已确认符合规则：禁止在循环等热点路径中直接抛出异常。
+      fail:
+        - 存在违反规则的证据：禁止在循环等热点路径中直接抛出异常。
+      notApplicable:
+        - 本次改动不涉及该规则约束场景。
+      review:
+        - 证据不足，无法稳定判断该规则。
+    profile:
+      scoring: true
+      riskCode: PERFORMANCE_OR_LIFECYCLE_RISK
+      suppressRubricRiskCodes: []
+      metricGroups:
+        - performance
+        - static_quality
+      impact: heavy
