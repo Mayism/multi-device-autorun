@@ -116,6 +116,8 @@ export class ConsoleReporter {
     this.startedAt = Date.now();
     this.timer = null;
     this.lastRendered = "";
+    this.lastRenderedLines = [];
+    this.lastTerminalColumns = 0;
     this.renderedLineCount = 0;
     this.dashboardPaused = false;
     this.cases = new Map(cases.map((item) => [item.name, {
@@ -160,7 +162,6 @@ export class ConsoleReporter {
     item.cloudTestStatus = "not_started";
     Object.assign(item, { status: "preparing", phase: "agent", activity: "复制并初始化工程", startedAt: Date.now(), worker });
     if (this.mode !== "dashboard") this.write(`[case:${caseName}] 开始执行（Worker ${worker}）`);
-    this.render();
   }
 
   caseProgress(caseName, activity) {
@@ -171,21 +172,18 @@ export class ConsoleReporter {
     item.phase = "agent";
     item.activity = String(activity || "Agent 运行中");
     if (this.mode === "verbose") this.write(`[case:${caseName}] ${item.activity}`);
-    this.render();
   }
 
   caseTokenUsage(caseName, usage) {
     const item = this.cases.get(caseName);
     if (!item || !usage) return;
     item.tokenUsage = { ...usage };
-    this.render();
   }
 
   caseCompileUsage(caseName, usage) {
     const item = this.cases.get(caseName);
     if (!item || !usage) return;
     item.compileUsage = { ...usage };
-    this.render();
   }
 
   caseOhosTestQueued(caseName, { agentTimedOut = false } = {}) {
@@ -224,7 +222,6 @@ export class ConsoleReporter {
     if (!item) return;
     item.cloudTestStatus = "queued";
     item.finishedAt = null;
-    this.render();
   }
 
   caseCloudTestProgress(caseName, activity, status = "running") {
@@ -233,7 +230,6 @@ export class ConsoleReporter {
     // 只更新云测试列，不占用“当前操作”列（那里留给 ohosTest 等本地阶段）
     item.cloudTestStatus = status;
     if (this.mode === "verbose") this.write(`[case:${caseName}] ${String(activity || "云测试执行中")}`);
-    this.render();
   }
 
   caseFinished(result) {
@@ -274,13 +270,18 @@ export class ConsoleReporter {
   }
 
   clearDashboard() {
-    if (this.mode !== "dashboard" || !this.renderedLineCount) return;
-    // 使用 Node 的 TTY 光标 API，让 Windows Console、Windows Terminal 和
-    // VS Code Terminal 分别走其支持的控制方式，避免原始 VT 序列被当成普通输出。
-    process.stdout.moveCursor(0, -this.renderedLineCount);
-    process.stdout.cursorTo(0);
-    process.stdout.clearScreenDown();
+    if (this.mode !== "dashboard") return;
+    if (this.renderedLineCount) {
+      // 使用 Node 的 TTY 光标 API，让 Windows Console、Windows Terminal 和
+      // VS Code Terminal 分别走其支持的控制方式，避免原始 VT 序列被当成普通输出。
+      process.stdout.moveCursor(0, -this.renderedLineCount);
+      process.stdout.cursorTo(0);
+      process.stdout.clearScreenDown();
+    }
     this.renderedLineCount = 0;
+    this.lastRendered = "";
+    this.lastRenderedLines = [];
+    this.lastTerminalColumns = 0;
   }
 
   pauseDashboard() {
@@ -290,7 +291,6 @@ export class ConsoleReporter {
       this.timer = null;
     }
     this.clearDashboard();
-    this.lastRendered = "";
     this.dashboardPaused = true;
   }
 
@@ -325,7 +325,9 @@ export class ConsoleReporter {
     const fixedWidth = caseWidth + agentStatusWidth + ohosTestStatusWidth + cloudTestStatusWidth + elapsedWidth
       + tokenColumns.reduce((sum, column) => sum + column.width, 0)
       + compileColumns.reduce((sum, column) => sum + column.width, 0);
-    const separatorWidth = 2 * (4 + tokenColumns.length + compileColumns.length);
+    // 固定列为：用例、生成状态、测试状态、云测试、耗时、当前操作，
+    // 因此基础分隔符有 5 个；每增加一个可选列再增加一个分隔符。
+    const separatorWidth = 2 * (5 + tokenColumns.length + compileColumns.length);
     const activityWidth = Math.max(10, terminalWidth - fixedWidth - separatorWidth);
     const columns = [
       { title: "用例", width: caseWidth, value: (item) => item.name },
@@ -347,13 +349,52 @@ export class ConsoleReporter {
     }
     const output = lines.join("\n");
     if (!force && output === this.lastRendered) return;
-    this.clearDashboard();
+
+    const changedLineIndexes = [];
+    if (lines.length === this.lastRenderedLines.length) {
+      for (let index = 0; index < lines.length; index += 1) {
+        if (lines[index] !== this.lastRenderedLines[index]) changedLineIndexes.push(index);
+      }
+    }
+    if (!changedLineIndexes.length && output === this.lastRendered) return;
+
+    // 表格宽度足够时每个逻辑行都只占一个终端行，可以只改写发生变化的
+    // 用例行，避免每秒清除并重画表头和整张表格。窄终端发生自动换行、
+    // 终端尺寸变化或表格行数变化时，仍回退到完整重绘以保证光标位置可靠。
+    const canUpdateChangedLines = this.renderedLineCount > 0
+      && terminalColumns === this.lastTerminalColumns
+      && lines.length === this.lastRenderedLines.length
+      && lines.every((line) => renderedRows([line], terminalColumns) === 1)
+      && this.lastRenderedLines.every((line) => renderedRows([line], terminalColumns) === 1);
+
+    if (canUpdateChangedLines) {
+      let cursorLine = lines.length;
+      for (const lineIndex of changedLineIndexes) {
+        process.stdout.moveCursor(0, lineIndex - cursorLine);
+        process.stdout.cursorTo(0);
+        if (typeof process.stdout.clearLine === "function") {
+          process.stdout.clearLine(0);
+        } else {
+          process.stdout.write(" ".repeat(Math.max(1, terminalWidth)));
+          process.stdout.cursorTo(0);
+        }
+        process.stdout.write(lines[lineIndex]);
+        cursorLine = lineIndex;
+      }
+      process.stdout.moveCursor(0, lines.length - cursorLine);
+      process.stdout.cursorTo(0);
+    } else {
+      this.clearDashboard();
+      // Keep the cursor on the line immediately after the dashboard. The next
+      // refresh moves up exactly renderedLineCount lines; without this trailing
+      // newline it moves one line above the dashboard and erases earlier logs.
+      process.stdout.write(`${output}\n`);
+      this.renderedLineCount = renderedRows(lines, terminalColumns);
+    }
+
     this.lastRendered = output;
-    // Keep the cursor on the line immediately after the dashboard. The next
-    // refresh moves up exactly renderedLineCount lines; without this trailing
-    // newline it moves one line above the dashboard and erases earlier logs.
-    process.stdout.write(`${output}\n`);
-    this.renderedLineCount = renderedRows(lines, terminalColumns);
+    this.lastRenderedLines = lines;
+    this.lastTerminalColumns = terminalColumns;
   }
 
   finish(summary) {

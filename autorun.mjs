@@ -1598,6 +1598,7 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
     updatedAt: new Date().toISOString(),
   });
   await store.setCase(caseName, { status, stage: status, error: final.error, finishedAt: final.finishedAt, cloudTest: cloud });
+  await appendCaseLog(path.join(caseRunDir, "execution.jsonl"), status === "completed" ? "info" : "error", "cloudtest_finished", cloud);
   if (!deferFinish) reporter.caseFinished(final);
   return final;
 }
