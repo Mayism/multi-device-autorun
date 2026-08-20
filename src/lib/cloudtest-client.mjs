@@ -6,7 +6,9 @@
 //   → business/device/list(真机列表) → quota/predictConfirm → task/submit(逐台尝试)
 //   → task/taskgroups(轮询任务组状态)
 //
-// 鉴权方式（与控制台 py 脚本一致）：
+// OBS 上传代理：配置 cloudTest.proxy（http://user:pass@host:port）时走认证代理
+// （HTTPS 经 CONNECT 隧道），未配置则直连；obs 签名头在 putObject 原样透传。
+
 //   每次运行先调 GET edge/oauth2/v1/refresh（GET+JSON body，显式 Content-Length，
 //   cookie 为 agc_authInfo URL 编码单对）——新 authInfo 在响应 Set-Cookie 的
 //   agc_authInfo 项中，csrfToken 在响应 body 中；之后所有接口只带四个鉴权头：
@@ -120,7 +122,7 @@ function normalizeCookieLine(value) {
   return [...pairs].map(([key, pairValue]) => `${key}=${pairValue}`).join("; ");
 }
 
-/** 解析代理地址：支持 http://host:port 或 host:port，返回 URL 或 null。 */
+/** 解析代理地址：支持 http://user:pass@host:port 或 host:port，返回 URL 或 null。 */
 function parseProxyUrl(proxy) {
   const raw = String(proxy || "").trim();
   if (!raw) return null;
@@ -129,6 +131,14 @@ function parseProxyUrl(proxy) {
   } catch {
     return null;
   }
+}
+
+/** 代理 Basic 认证头（URL 中的 user:pass，特殊字符需在配置里 URL 编码）。 */
+function proxyAuthorization(proxyUrl) {
+  if (!proxyUrl?.username && !proxyUrl?.password) return "";
+  const user = decodeURIComponent(proxyUrl.username || "");
+  const password = decodeURIComponent(proxyUrl.password || "");
+  return `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
 }
 
 /**
@@ -169,6 +179,7 @@ export function sendRequest({ url, method, headers = {}, body, timeoutMs = 30_00
       clearTimeout(timer);
       resolve(value);
     };
+    const registerError = fail;
     const issue = (options, customTransport) => {
       const req = (customTransport || transport).request(options, (res) => {
         const chunks = [];
@@ -178,9 +189,9 @@ export function sendRequest({ url, method, headers = {}, body, timeoutMs = 30_00
           text: Buffer.concat(chunks).toString("utf8"),
           setCookies: res.headers["set-cookie"] || [],
         }));
-        res.on("error", fail);
+        res.on("error", registerError);
       });
-      req.once("error", fail);
+      req.once("error", registerError);
       if (bodyBuffer !== null) req.write(bodyBuffer);
       req.end();
       return req;
@@ -198,22 +209,31 @@ export function sendRequest({ url, method, headers = {}, body, timeoutMs = 30_00
 
     if (!isTls) {
       // http 目标：直接向代理发起，使用绝对 URL
+      const proxyAuth = proxyAuthorization(proxyUrl);
       issue({
         ...baseOptions,
         hostname: proxyUrl.hostname,
         port: proxyUrl.port || 80,
         path: target.href,
-        headers: { ...finalHeaders, Host: target.host },
+        headers: {
+          ...finalHeaders,
+          Host: target.host,
+          ...(proxyAuth ? { "Proxy-Authorization": proxyAuth } : {}),
+        },
       });
       return;
     }
     // https 目标：先向代理建立 CONNECT 隧道，再在隧道上做 TLS 与请求
+    const proxyAuth = proxyAuthorization(proxyUrl);
     const connectReq = http.request({
       hostname: proxyUrl.hostname,
       port: proxyUrl.port || 80,
       method: "CONNECT",
       path: `${target.hostname}:${baseOptions.port}`,
-      headers: { Host: `${target.hostname}:${baseOptions.port}` },
+      headers: {
+        Host: `${target.hostname}:${baseOptions.port}`,
+        ...(proxyAuth ? { "Proxy-Authorization": proxyAuth } : {}),
+      },
       timeout: timeoutMs,
     });
     connectReq.once("connect", (res, socket) => {

@@ -190,7 +190,7 @@ npm --prefix whitebox-evaluation run build
 | `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |
 | `cloudTest.testCategories` | 测试类别配置，数组每项 `{ "category": 24, "timeSpan": 40 }`（类别 + 执行时长分钟）。设备列表查询、配额预检与任务提交共用该配置；未配置时默认 `[{ category: 24, timeSpan: 60 }]`。 |
 | `cloudTest.pollIntervalSec` | 任务状态轮询间隔（秒），默认 60（1 分钟）。 |
-| `cloudTest.proxy` | **OBS 直传专用代理**（`http://host:port`，也支持 `host:port`），云测试 API 与 refresh 始终直连；也可用环境变量 `AGC_PROXY`。HTTPS 上传经 HTTP CONNECT 隧道传输；配置代理时默认跳过证书校验（兼容企业 MITM 自签证书）。 |
+| `cloudTest.proxy` | **OBS 直传专用代理**（`http://user:pass@host:port`，也支持 `host:port`；用户名密码含特殊字符时需 URL 编码），云测试 API 与 refresh 始终直连；也可用环境变量 `AGC_PROXY`。HTTPS 上传经 HTTP CONNECT 隧道传输；配置代理时默认跳过证书校验（兼容企业 MITM 自签证书）。 |
 | `cloudTest.taskTimeoutSec` | 单个云测试任务的轮询总时长（秒），默认 7200（2 小时）；超时退出但任务仍在云端继续执行。 |
 | `cloudTest.bundleName` | 补充签名：打包前替换工程 `AppScope/app.json5` 的 `bundleName`（需与签名 profile 匹配；不配置则保留工程原值）。 |
 | `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库在 `config/test.cer|p12|p7b` 提供了一套参考证书，该配置与各环境相关，默认不入库、自行填写。 |
