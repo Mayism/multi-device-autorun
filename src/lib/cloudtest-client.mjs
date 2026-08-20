@@ -472,13 +472,15 @@ export class CloudTestClient {
     return obs;
   }
 
-  /** 直传 OBS。Host/Content-Length 由 fetch 自动生成，其余签名头原样透传。 */
+  /** 直传 OBS。nsp/upload 返回的 headers 是完整的签名头集合（SignedHeaders 覆盖
+   *  host/content-length/content-type/x-amz-*），必须原样透传，剥离任何签名头
+   *  都会导致 OBS 端计算的签名不一致（403 SignatureDoesNotMatch）。 */
   async putObject(obs, bytes) {
     const headers = obs.headers || {};
     const forward = {};
     for (const [key, value] of Object.entries(headers)) {
       const lower = key.toLowerCase();
-      if (["host", "content-length", "connection"].includes(lower)) continue;
+      if (lower === "connection") continue;
       forward[key] = value;
     }
     // OBS 直传可配置代理（cloudTest.proxy），其余 AGC 接口始终直连。
