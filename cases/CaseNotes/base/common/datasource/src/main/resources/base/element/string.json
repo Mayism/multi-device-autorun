@@ -1,0 +1,32 @@
+{
+  "string": [
+    {
+      "name": "page_show",
+      "value": "page from package"
+    },
+    {
+      "name": "sort_by_create_time",
+      "value": "按创建时间排序"
+    },
+    {
+      "name": "sort_by_update_time",
+      "value": "按修改时间排序"
+    },
+    {
+      "name": "sort_order",
+      "value": "排序方式"
+    },
+    {
+      "name": "show_by_card",
+      "value": "按卡片展示"
+    },
+    {
+      "name": "show_by_list",
+      "value": "按列表展示"
+    },
+    {
+      "name": "agcit_huawei_notes",
+      "value": "1.0.5"
+    }
+  ]
+}

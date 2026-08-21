@@ -1,0 +1,61 @@
+{
+  "case_id": "case-tourist-attraction-ticket-derive-base",
+  "mode": "derive_base",
+  "source_base_commit": null,
+  "source_answer_commit": "e897ca0513331e7a70d80e50c10527aad40cd96c",
+  "removal_commits": [
+    "8f9729dd7b871f1311c7a38334bf13f16659ffe4"
+  ],
+  "golden_commits": [],
+  "test_commits": [
+    "8380594635756d38facd0fdf84186a6d22d3b7de"
+  ],
+  "generated_base_commit": "6d55404b3c348f17f20c530bf4757c87de3db071",
+  "generated_answer_commit": "e897ca0513331e7a70d80e50c10527aad40cd96c",
+  "generated_test_commit": "c34f22de4dc9a6c2ed12160916e95eb5b5505428",
+  "golden_patch": "golden_patch.patch",
+  "test_patch": "test_patch.patch",
+  "base_project": "base",
+  "fail_to_pass": [
+    "should_ticket_list_be_double_on_LG_breakpoint",
+    "should_ticket_reserve_span_eight_columns_on_LG_breakpoint",
+    "should_function_list_be_double_on_LG_breakpoint",
+    "should_personal_info_span_eight_columns_on_LG_breakpoint",
+    "should_address_list_be_double_on_LG_breakpoint",
+    "should_tourist_list_be_double_on_LG_breakpoint",
+    "should_hotline_span_eight_columns_on_LG_breakpoint",
+    "should_ticket_order_list_be_double_on_LG_breakpoint",
+    "should_order_detail_span_eight_columns_on_LG_breakpoint"
+  ],
+  "pass_to_pass": [
+    "should_ticket_list_be_single_on_SM_MD_breakpoint",
+    "should_ticket_reserve_be_full_width_on_SM_MD_breakpoint",
+    "should_function_list_be_single_on_SM_MD_breakpoint",
+    "should_personal_info_be_full_width_on_SM_MD_breakpoint",
+    "should_address_list_be_single_on_SM_MD_breakpoint",
+    "should_tourist_list_be_single_on_SM_MD_breakpoint",
+    "should_hotline_be_full_width_on_SM_MD_breakpoint",
+    "should_ticket_order_list_be_single_on_SM_MD_breakpoint",
+    "should_order_detail_be_full_width_on_SM_MD_breakpoint"
+  ],
+  "device_test_suites": {
+    "phone": [
+      {
+        "suite": "SmPassToPassTest",
+        "file":"products/phone/src/ohosTest/ets/test/SmPassToPass.test.ets"
+      }
+    ],
+    "foldable": [
+      {
+        "suite": "MdPassToPassTest",
+        "file":"products/phone/src/ohosTest/ets/test/MdPassToPass.test.ets"
+      }
+    ],
+     "tablet": [
+      {
+        "suite": "LgFailToPassTest",
+        "file":"products/phone/src/ohosTest/ets/test/LgFailToPass.test.ets"
+      }
+    ]
+  }
+}

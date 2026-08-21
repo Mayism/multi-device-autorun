@@ -45,6 +45,7 @@ export interface RawExecutionConfig {
     testTask?: string;
   };
   paths?: {
+    node?: string;
     hvigorw?: string;
     ohpm?: string;
     hdc?: string;
@@ -87,6 +88,7 @@ export interface ExecutionConfig {
     testTask: string;
   };
   paths: {
+    node?: string;
     hvigorw: string;
     ohpm: string;
     hdc: string;

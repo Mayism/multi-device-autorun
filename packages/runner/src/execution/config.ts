@@ -1,4 +1,5 @@
 import path from "node:path";
+import process from "node:process";
 import { configFileError, readJsonConfigFile } from "../configFile.js";
 import type { ExecutionConfig, RawExecutionConfig } from "./types/index.js";
 import { AA_TEST_CASE_TIMEOUT_MS } from "./ohostest.js";
@@ -149,6 +150,7 @@ function readResolvedPaths(
   paths: ExecutionConfig["paths"],
 ): ExecutionConfig["paths"] {
   return {
+    ...(paths.node ? { node: paths.node } : {}),
     hvigorw: paths.hvigorw,
     ohpm: paths.ohpm,
     hdc: paths.hdc,
@@ -181,6 +183,7 @@ function readToolPaths(
   rawPaths: RawExecutionConfig["paths"],
 ): ExecutionConfig["paths"] {
   return {
+    node: rawPaths?.node?.trim() || process.execPath,
     hvigorw: rawPaths?.hvigorw?.trim() || "hvigorw",
     ohpm: rawPaths?.ohpm?.trim() || "ohpm",
     hdc: rawPaths?.hdc?.trim() || "hdc",

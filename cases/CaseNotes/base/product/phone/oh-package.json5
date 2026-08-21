@@ -1,0 +1,24 @@
+{
+  "name": "phone",
+  "version": "1.0.3",
+  "description": "Please describe the basic information.",
+  "main": "",
+  "author": "",
+  "license": "",
+  "dependencies": {
+    "@ohos_agcit/notes_utils": "../../common/utils",
+    "@ohos_agcit/notes_datasource": "../../common/datasource",
+    "secretlock": "../../components/secretlock",
+    "login": "../../components/login",
+    "richeditor": "../../components/richeditor",
+    "check_app_update": "../../components/check_app_update",
+    "feed_back": "../../components/feed_back",
+    "serializer": "../../components/serializer",
+    "grabthransfer": "../../common/grabthransfer",
+    "continue": "../../common/continue",
+    "aggregated_ads": "../../components/aggregated_ads"
+
+
+  }
+}
+

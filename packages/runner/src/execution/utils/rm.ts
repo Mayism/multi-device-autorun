@@ -30,11 +30,12 @@ function daemonStopResult(result: { stdout: string; stderr: string }): {
 export async function stopHvigorDaemon(
   hvigorw: string,
   workProject: string,
+  nodePath?: string,
   options: { settleMs?: number; logger?: (line: string) => void } = {},
 ): Promise<void> {
   const settleMs = options.settleMs ?? 2000;
   const log = options.logger ?? (() => {});
-  const quotedHvigorw = hvigorCommand(hvigorw);
+  const quotedHvigorw = hvigorCommand(hvigorw, nodePath);
   const commands = [
     `${quotedHvigorw} --stop-daemon`,
     `${quotedHvigorw} --stop-daemon-all`,

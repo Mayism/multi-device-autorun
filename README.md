@@ -116,7 +116,12 @@ npm run build
       "mode": "softwareEngineering",
       "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
     },
-    "devecoHome": "D:\\deveco\\DevEco Studio"
+    "devecoHome": "D:\\deveco\\DevEco Studio",
+    "node": "D:/deveco/DevEco Studio/tools/node/node.exe",
+    "sdkHome": "D:/deveco/DevEco Studio/sdk",
+    "javaHome": "D:/deveco/DevEco Studio/jbr",
+    "hvigorw": "D:/deveco/DevEco Studio/tools/hvigor/bin/hvigorw.js",
+    "ohpm": "D:/deveco/DevEco Studio/tools/ohpm/bin/ohpm.bat"
   },
   "execution": {
     "casesRoot": "D:\\cases",
@@ -133,6 +138,7 @@ npm run build
   },
   "ohosTest": {
     "paths": {
+      "hdc": "D:/deveco/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe",
       "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
       "emulatorDeployedDir": "D:/deveco/Images"
     },
@@ -165,8 +171,9 @@ npm run build
 | `server.opencodeSource.mode` | OpenCode 来源模式，只支持 `harmonyBot` 或 `softwareEngineering`，二者互斥且不会合并、回退。 |
 | `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
-| `server.hvigorw` / `server.ohpm` | ohosTest 与云测试共用的机器级工具覆盖项。`hvigorw` 可填 hvigorw.js 路径（自动以当前 node 运行）或可执行命令，`ohpm` 可填 ohpm 命令；含空格路径会自动加引号。未配置时分别使用 PATH 中的 `hvigorw`、`ohpm`。历史 `ohosTest.paths` 写法继续兼容，但新配置不应重复填写。 |
-| `server.sdkHome` / `server.javaHome` | 可选：设置后注入 `DEVECO_SDK_HOME`/`JAVA_HOME`（云测试构建），未设置继承当前环境。 |
+| `server.node` | 显式指定机器级 Node.js 可执行文件。用于启动 OpenCode Server、白盒评价子进程，以及执行 ohosTest/云测试的 `hvigorw.js`；测试机建议配置 DevEco Studio 自带且版本不低于 22.5.0 的 Node。未配置时使用启动 Autorun 的当前 Node。 |
+| `server.hvigorw` / `server.ohpm` | ohosTest 与云测试共用的机器级工具路径。测试机建议显式配置：`hvigorw` 可填 hvigorw.js 路径（自动以 `server.node` 运行）或可执行命令，`ohpm` 可填 ohpm 命令；含空格路径会自动加引号。未配置时分别使用 PATH 中的 `hvigorw`、`ohpm`。历史 `ohosTest.paths` 写法继续兼容，但新配置不应重复填写。 |
+| `server.sdkHome` / `server.javaHome` | HarmonyOS SDK 和 JDK/JBR 路径。设置后向 ohosTest 与云测试构建分别注入 `DEVECO_SDK_HOME`、`JAVA_HOME`；测试机建议显式配置，未设置时继承当前环境。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server，默认 `true`。启动前已存在的 Server 不会被关闭。 |
 | `server.loadAgents` | 指定自动启动的 Server 只加载这些 Agent（字符串数组）。留空（默认）加载 `opencode.json` 中的全部 Agent；配置后仅加载列出的 Agent，且 `execution.agent` 必须在列表中，否则启动即报错中止并提示修改配置。仅对 Autorun 自动启动的 Server 生效；复用已运行的 Server 时不重新过滤。 |
 | `execution.casesRoot` | 用例根目录。 |
@@ -187,7 +194,7 @@ npm run build
 | `whiteboxEvaluation.prompt.includeAdditionalPrompt` | 是否将 `execution.additionalPrompt` 作为有效业务要求交给裁判，默认 `true`。 |
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
-| `ohosTest.paths` | Runner 的模块专用路径。通常只需配置 `emulatorBin` 和 `emulatorDeployedDir`；`hdc` 默认使用 PATH 中的命令，`foldServerScript` 默认使用 Runner 内置脚本。Hvigor、ohpm 的共享覆盖项统一配置在 `server`。 |
+| `ohosTest.paths` | Runner 的模块专用路径。测试机建议显式配置 `hdc`、`emulatorBin` 和 `emulatorDeployedDir`；`hdc` 未配置时使用 PATH 中的命令，`foldServerScript` 默认使用 Runner 内置脚本。Hvigor、ohpm 的共享路径统一配置在 `server`。 |
 | `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
 | `cloudTest.enabled` | 云测试是否作为主流程的一部分默认执行（Agent → ohosTest → 云测试）。默认 `true`；设为 `false` 关闭整个云测试流程（主批次与独立指令均不可用）。配置不完整时主批次会告警并跳过该阶段，独立指令则直接报错。 |
 | `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |

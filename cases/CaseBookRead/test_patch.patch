@@ -1,0 +1,2398 @@
+diff --git a/entry/src/ohosTest/ets/test/Ability.test.ets b/entry/src/ohosTest/ets/test/Ability.test.ets
+deleted file mode 100644
+index 85c78f6..0000000
+--- a/entry/src/ohosTest/ets/test/Ability.test.ets
++++ /dev/null
+@@ -1,35 +0,0 @@
+-import { hilog } from '@kit.PerformanceAnalysisKit';
+-import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
+-
+-export default function abilityTest() {
+-  describe('ActsAbilityTest', () => {
+-    // Defines a test suite. Two parameters are supported: test suite name and test suite function.
+-    beforeAll(() => {
+-      // Presets an action, which is performed only once before all test cases of the test suite start.
+-      // This API supports only one parameter: preset action function.
+-    })
+-    beforeEach(() => {
+-      // Presets an action, which is performed before each unit test case starts.
+-      // The number of execution times is the same as the number of test cases defined by **it**.
+-      // This API supports only one parameter: preset action function.
+-    })
+-    afterEach(() => {
+-      // Presets a clear action, which is performed after each unit test case ends.
+-      // The number of execution times is the same as the number of test cases defined by **it**.
+-      // This API supports only one parameter: clear action function.
+-    })
+-    afterAll(() => {
+-      // Presets a clear action, which is performed after all test cases of the test suite end.
+-      // This API supports only one parameter: clear action function.
+-    })
+-    it('assertContain', 0, () => {
+-      // Defines a test case. This API supports three parameters: test case name, filter parameter, and test case function.
+-      hilog.info(0x0000, 'testTag', '%{public}s', 'it begin');
+-      let a = 'abc';
+-      let b = 'b';
+-      // Defines a variety of assertion methods, which are used to declare expected boolean conditions.
+-      expect(a).assertContain(b);
+-      expect(a).assertEqual(a);
+-    })
+-  })
+-}
+\ No newline at end of file
+diff --git a/entry/src/ohosTest/ets/test/LgFailToPass.test.ets b/entry/src/ohosTest/ets/test/LgFailToPass.test.ets
+new file mode 100644
+index 0000000..ccd1c3c
+--- /dev/null
++++ b/entry/src/ohosTest/ets/test/LgFailToPass.test.ets
+@@ -0,0 +1,534 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  Sid,
++  startAbility,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++  getBounds,
++  getWindowBounds,
++  countComponentsInBounds,
++  countFirstRowItems,
++  cleanupToRoot,
++  injectLoggedIn,
++  currentBreakpoint,
++  goToTab,
++  goToPreference,
++  goToWelfare,
++  goToRecharge,
++  goToRechargeRecord,
++  goToAbout,
++  goToReadPage,
++  scrollGuessLikeIntoView,
++  passLaunchAndReachHome,
++} from './TestHelper';
++
++/**
++ * 套件：LG 断点一多适配用例（对应综合用例.md 的 LgFailToPass 行）。
++ * 断言 .md 的期望值，"FailToPass" 表示现状 Fail、待业务修复后 Pass。
++ * 仅在 currentBreakpoint() === 'lg' 时执行。
++ */
++export default function lgFailToPassTest() {
++  describe('LgFailToPass', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('LG_FAIL_TO_PASS');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'EntryAbility');
++        await driver.delayMs(1000);
++        injectLoggedIn();
++        await passLaunchAndReachHome(driver);
++      } catch (e) {
++        err('LgFailToPass beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        await cleanupToRoot(driver);
++      } catch (e) {
++        err('LgFailToPass afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    // 1. 书籍列表（LG）：期望书架 grid 每行展示 6 列。断言书架 grid 首行列数 = 6。
++    it('should_book_grid_be_six_lanes_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书架');
++        const grid = await getBounds(driver, ON.id(Sid.BOOK_SHELF_GRID), '书架grid');
++        if (grid === null) {
++          dbg('LG_平板: 书架 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.BOOK_SHELF_GRID_ITEM), grid, '书架列数');
++        dbg(`LG_平板: 书架首行列数=${lanes}（期望 =6）`);
++        expect(lanes === 6).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 2. 首页 Tabs（LG）：期望 tab 栏在左侧，宽 < 高。
++    it('should_tabs_be_left_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        const b = await getBounds(driver, ON.id(Sid.HOME_TABBAR), '首页tab栏');
++        dbg(`LG_平板: tabbar=${b ? JSON.stringify(b) : 'null'}`);
++        if (b === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const w = b.right - b.left;
++        const h = b.bottom - b.top;
++        dbg(`LG_平板: tabbar w=${w} h=${h}（期望 w<h，左侧）`);
++        expect(w < h).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 3. 书城 banner（LG）：期望一屏展示 7 个 card。断言 banner 容器内可见卡片数 = 7。
++    it('should_banner_be_seven_card_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        const banner = await getBounds(driver, ON.id(Sid.BOOK_BANNER), 'banner容器');
++        if (banner === null) {
++          dbg('LG_平板: banner 容器未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(800);
++        const count = await countComponentsInBounds(driver, ON.id(Sid.BOOK_BANNER_CARD), banner, 'banner卡片');
++        dbg(`LG_平板: banner内卡片数=${count}（期望 =7）`);
++        expect(count === 7).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 4. 今日力荐（LG）：期望每行展示 8 列。断言今日力荐 grid 首行列数 = 8。
++    it('should_recommend_be_eight_items_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        const grid = await getBounds(driver, ON.id(Sid.RECOMMEND_GRID), '今日力荐grid');
++        if (grid === null) {
++          dbg('LG_平板: 今日力荐 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.RECOMMEND_GRID_ITEM), grid, '今日力荐列数');
++        dbg(`LG_平板: 今日力荐首行列数=${lanes}（期望 =8）`);
++        expect(lanes === 8).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 5. 猜你喜欢（LG）：横滑列表一屏完整展示 8 张卡片。断言 list 容器内完整可见卡片数 = 8。
++    it('should_guess_like_grid_be_eight_items_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        await scrollGuessLikeIntoView(driver);
++        const grid = await getBounds(driver, ON.id(Sid.GUESS_LIKE_LIST), '猜你喜欢grid');
++        if (grid === null) {
++          dbg('LG_平板: 猜你喜欢 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.GUESS_LIKE_ITEM), grid, '猜你喜欢列数');
++        dbg(`LG_平板: 猜你喜欢首行列数=${lanes}（期望 =8）`);
++        expect(lanes === 8).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 6. 阅读详情页（LG）：期望书籍信息与简介左右布局，两 card 的 top 相同。
++    it('should_book_info_and_intro_be_horizontal_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToReadPage(driver);
++        const info = await getBounds(driver, ON.id(Sid.BOOK_INFO_CARD), '书籍信息card');
++        const desc = await getBounds(driver, ON.id(Sid.BOOK_DESC_CARD), '书籍简介card');
++        dbg(`LG_平板: info=${info ? JSON.stringify(info) : 'null'} desc=${desc ? JSON.stringify(desc) : 'null'}`);
++        if (info === null || desc === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameTop = Math.abs(info.top - desc.top) <= 2;
++        dbg(`LG_平板: info.top=${info.top} desc.top=${desc.top} sameTop=${sameTop}（左右布局期望 true）`);
++        expect(sameTop).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 7. 分类页右侧列表（LG）：期望每行展示 10 列。断言分类 list 首行列数 = 10。
++    it('should_category_list_be_ten_items_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '分类');
++        const list = await getBounds(driver, ON.id(Sid.CATEGORY_LIST), '分类list');
++        if (list === null) {
++          dbg('LG_平板: 分类 list 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.CATEGORY_ITEM), list, '分类列数');
++        dbg(`LG_平板: 分类首行列数=${lanes}（期望 =10）`);
++        expect(lanes === 10).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 8. 我的 tab 登录与账户（LG）：期望左右布局，两 card 的 top 相同。
++    it('should_login_and_account_be_horizontal_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '我的');
++        const login = await getBounds(driver, ON.id(Sid.LOGIN_CARD), '登录card');
++        const account = await getBounds(driver, ON.id(Sid.ACCOUNT_CARD), '账户card');
++        dbg(`LG_平板: login=${login ? JSON.stringify(login) : 'null'} account=${account ? JSON.stringify(account) : 'null'}`);
++        if (login === null || account === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameTop = Math.abs(login.top - account.top) <= 2;
++        dbg(`LG_平板: login.top=${login.top} account.top=${account.top} sameTop=${sameTop}（左右布局期望 true）`);
++        expect(sameTop).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 9. 我的 tab 常用服务（LG）：期望展示 2 列，父宽 ≥ 2 × 子宽。
++    it('should_common_service_be_two_items_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '我的');
++        const list = await getBounds(driver, ON.id(Sid.SERVICE_LIST), '常用服务list');
++        const item = await getBounds(driver, ON.id(Sid.SERVICE_ITEM), '常用服务item');
++        if (list === null || item === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const listW = list.right - list.left;
++        const itemW = item.right - item.left;
++        // 双列：item 宽 ≈ list 宽的一半（占比 ≤0.6）。
++        const ratio = listW > 0 ? itemW / listW : 0;
++        dbg(`LG_平板: listW=${listW} itemW=${itemW} ratio=${ratio}（期望 ≤0.6，双列）`);
++        expect(ratio <= 0.6).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 10. 阅读偏好设置页面（LG）：期望占据 8/12 栅格，内容宽在窗口宽 60%~70% 之间。
++    it('should_reading_preference_be_eight_twelfths_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToPreference(driver);
++        const content = await getBounds(driver, ON.id(Sid.PREFERENCE_CONTENT), '偏好内容容器');
++        const win = await getWindowBounds(driver);
++        dbg(`LG_平板: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`LG_平板: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 0.60~0.70，约 8/12）`);
++        expect(ratio >= 0.60 && ratio <= 0.70).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 11. 阅读偏好想看频道列表（LG）：期望每行展示 8 列。断言频道 list 首行列数 = 8。
++    it('should_want_read_channel_be_eight_items_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToPreference(driver);
++        const list = await getBounds(driver, ON.id(Sid.PREFERENCE_CHANNEL_LIST), '频道列表');
++        if (list === null) {
++          dbg('LG_平板: 频道 list 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.PREFERENCE_CHANNEL_ITEM), list, '频道列数');
++        dbg(`LG_平板: 频道首行列数=${lanes}（期望 =8）`);
++        expect(lanes === 8).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 12. 福利中心（LG）：期望签到与阅读赚书币左右布局，两 card 的 top 相同。
++    it('should_signin_and_earn_be_horizontal_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToWelfare(driver);
++        const signin = await getBounds(driver, ON.id(Sid.SIGNIN_CARD), '签到card');
++        const earn = await getBounds(driver, ON.id(Sid.EARN_CARD), '赚书币card');
++        dbg(`LG_平板: signin=${signin ? JSON.stringify(signin) : 'null'} earn=${earn ? JSON.stringify(earn) : 'null'}`);
++        if (signin === null || earn === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameTop = Math.abs(signin.top - earn.top) <= 2;
++        dbg(`LG_平板: signin.top=${signin.top} earn.top=${earn.top} sameTop=${sameTop}（左右布局期望 true）`);
++        expect(sameTop).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 13. 充值页面（LG）：期望占据 8/12 栅格，内容宽在窗口宽 60%~70% 之间。
++    it('should_recharge_package_be_eight_twelfths_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRecharge(driver);
++        const content = await getBounds(driver, ON.id(Sid.RECHARGE_LIST), '充值套餐区');
++        const win = await getWindowBounds(driver);
++        dbg(`LG_平板: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`LG_平板: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 0.60~0.70，约 8/12）`);
++        expect(ratio >= 0.60 && ratio <= 0.70).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 14. 充值套餐列表（LG）：期望每行展示 5 列。断言充值套餐 grid 首行列数 = 5。
++    it('should_recharge_list_be_five_items_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRecharge(driver);
++        const grid = await getBounds(driver, ON.id(Sid.RECHARGE_LIST), '充值套餐grid');
++        if (grid === null) {
++          dbg('LG_平板: 充值套餐 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.RECHARGE_ITEM), grid, '充值套餐列数');
++        dbg(`LG_平板: 充值套餐首行列数=${lanes}（期望 =5）`);
++        expect(lanes === 5).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 15. 充值记录页（LG）：期望占据 8/12 栅格，内容宽在窗口宽 60%~70% 之间。
++    it('should_recharge_record_be_eight_twelfths_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRechargeRecord(driver);
++        const content = await getBounds(driver, ON.id(Sid.RECHARGE_RECORD_CONTENT), '充值记录内容');
++        const win = await getWindowBounds(driver);
++        dbg(`LG_平板: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`LG_平板: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 0.60~0.70，约 8/12）`);
++        expect(ratio >= 0.60 && ratio <= 0.70).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 16. 关于页（LG）：期望占据 8/12 栅格，内容宽在窗口宽 60%~70% 之间。
++    it('should_about_be_eight_twelfths_on_lg_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'lg') {
++        dbg('LG_平板：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToAbout(driver);
++        const content = await getBounds(driver, ON.id(Sid.ABOUT_CONTENT), '关于内容');
++        const win = await getWindowBounds(driver);
++        dbg(`LG_平板: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`LG_平板: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 0.60~0.70，约 8/12）`);
++        expect(ratio >= 0.60 && ratio <= 0.70).assertTrue();
++      } catch (e) {
++        err('LG_平板 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++  });
++}
+diff --git a/entry/src/ohosTest/ets/test/List.test.ets b/entry/src/ohosTest/ets/test/List.test.ets
+index 794c7dc..b132dc8 100644
+--- a/entry/src/ohosTest/ets/test/List.test.ets
++++ b/entry/src/ohosTest/ets/test/List.test.ets
+@@ -1,5 +1,11 @@
+-import abilityTest from './Ability.test';
++import smPassToPassTest from './SmPassToPass.test';
++import mdPassToPassTest from './MdPassToPass.test';
++import mdFailToPassTest from './MdFailToPass.test';
++import lgFailToPassTest from './LgFailToPass.test';
+ 
+ export default function testsuite() {
+-  abilityTest();
+-}
+\ No newline at end of file
++  smPassToPassTest();
++  mdPassToPassTest();
++  mdFailToPassTest();
++  lgFailToPassTest();
++}
+diff --git a/entry/src/ohosTest/ets/test/MdFailToPass.test.ets b/entry/src/ohosTest/ets/test/MdFailToPass.test.ets
+new file mode 100644
+index 0000000..71c44c9
+--- /dev/null
++++ b/entry/src/ohosTest/ets/test/MdFailToPass.test.ets
+@@ -0,0 +1,379 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  Sid,
++  startAbility,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++  getBounds,
++  countComponentsInBounds,
++  countFirstRowItems,
++  cleanupToRoot,
++  injectLoggedIn,
++  currentBreakpoint,
++  goToTab,
++  goToPreference,
++  goToWelfare,
++  goToRecharge,
++  goToReadPage,
++  scrollGuessLikeIntoView,
++  passLaunchAndReachHome,
++} from './TestHelper';
++
++/**
++ * 套件：MD 断点一多适配用例（对应综合用例.md 的 MdFailToPass 行）。
++ * 断言 .md 的期望值，"FailToPass" 表示现状 Fail、待业务修复后 Pass。
++ * 仅在 currentBreakpoint() === 'md' 时执行。
++ */
++export default function mdFailToPassTest() {
++  describe('MdFailToPass', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('MD_FAIL_TO_PASS');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'EntryAbility');
++        await driver.delayMs(1000);
++        injectLoggedIn();
++        await passLaunchAndReachHome(driver);
++      } catch (e) {
++        err('MdFailToPass beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        await cleanupToRoot(driver);
++      } catch (e) {
++        err('MdFailToPass afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    // 1. 书籍列表（MD）：期望书架 grid 每行展示 4 列。断言书架 grid 首行列数 = 4。
++    it('should_book_grid_be_four_lanes_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书架');
++        const grid = await getBounds(driver, ON.id(Sid.BOOK_SHELF_GRID), '书架grid');
++        if (grid === null) {
++          dbg('MD_折叠屏: 书架 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.BOOK_SHELF_GRID_ITEM), grid, '书架列数');
++        dbg(`MD_折叠屏: 书架首行列数=${lanes}（期望 =4）`);
++        expect(lanes === 4).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 2. 书城 banner（MD）：期望一屏展示 5 个 card。断言 banner 容器内可见卡片数 = 5。
++    it('should_banner_be_five_card_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        const banner = await getBounds(driver, ON.id(Sid.BOOK_BANNER), 'banner容器');
++        if (banner === null) {
++          dbg('MD_折叠屏: banner 容器未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(800);
++        const count = await countComponentsInBounds(driver, ON.id(Sid.BOOK_BANNER_CARD), banner, 'banner卡片');
++        dbg(`MD_折叠屏: banner内卡片数=${count}（期望 =5）`);
++        expect(count === 5).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 3. 今日力荐（MD）：期望每行展示 5 列。断言今日力荐 grid 首行列数 = 5。
++    it('should_recommend_be_five_items_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        const grid = await getBounds(driver, ON.id(Sid.RECOMMEND_GRID), '今日力荐grid');
++        if (grid === null) {
++          dbg('MD_折叠屏: 今日力荐 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.RECOMMEND_GRID_ITEM), grid, '今日力荐列数');
++        dbg(`MD_折叠屏: 今日力荐首行列数=${lanes}（期望 =5）`);
++        expect(lanes === 5).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 4. 猜你喜欢（MD）：横滑列表一屏完整展示 5 张卡片。断言 list 容器内完整可见卡片数 = 5。
++    it('should_guess_like_grid_be_five_items_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        await scrollGuessLikeIntoView(driver);
++        const grid = await getBounds(driver, ON.id(Sid.GUESS_LIKE_LIST), '猜你喜欢grid');
++        if (grid === null) {
++          dbg('MD_折叠屏: 猜你喜欢 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.GUESS_LIKE_ITEM), grid, '猜你喜欢列数');
++        dbg(`MD_折叠屏: 猜你喜欢首行列数=${lanes}（期望 =5）`);
++        expect(lanes === 5).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 5. 阅读详情页（MD）：期望书籍信息与简介左右布局，两 card 的 top 相同。
++    it('should_book_info_and_intro_be_horizontal_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToReadPage(driver);
++        const info = await getBounds(driver, ON.id(Sid.BOOK_INFO_CARD), '书籍信息card');
++        const desc = await getBounds(driver, ON.id(Sid.BOOK_DESC_CARD), '书籍简介card');
++        dbg(`MD_折叠屏: info=${info ? JSON.stringify(info) : 'null'} desc=${desc ? JSON.stringify(desc) : 'null'}`);
++        if (info === null || desc === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameTop = Math.abs(info.top - desc.top) <= 2;
++        dbg(`MD_折叠屏: info.top=${info.top} desc.top=${desc.top} sameTop=${sameTop}（左右布局期望 true）`);
++        expect(sameTop).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 6. 分类页右侧列表（MD）：期望每行展示 6 列。断言分类 list 首行列数 = 6。
++    it('should_category_list_be_six_items_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '分类');
++        const list = await getBounds(driver, ON.id(Sid.CATEGORY_LIST), '分类list');
++        if (list === null) {
++          dbg('MD_折叠屏: 分类 list 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.CATEGORY_ITEM), list, '分类列数');
++        dbg(`MD_折叠屏: 分类首行列数=${lanes}（期望 =6）`);
++        expect(lanes === 6).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 7. 我的 tab 登录与账户（MD）：期望左右布局，两 card 的 top 相同。
++    it('should_login_and_account_be_horizontal_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '我的');
++        const login = await getBounds(driver, ON.id(Sid.LOGIN_CARD), '登录card');
++        const account = await getBounds(driver, ON.id(Sid.ACCOUNT_CARD), '账户card');
++        dbg(`MD_折叠屏: login=${login ? JSON.stringify(login) : 'null'} account=${account ? JSON.stringify(account) : 'null'}`);
++        if (login === null || account === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameTop = Math.abs(login.top - account.top) <= 2;
++        dbg(`MD_折叠屏: login.top=${login.top} account.top=${account.top} sameTop=${sameTop}（左右布局期望 true）`);
++        expect(sameTop).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 8. 我的 tab 常用服务（MD）：期望双列布局，item 宽约占 list 宽一半。
++    it('should_common_service_be_two_items_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '我的');
++        const list = await getBounds(driver, ON.id(Sid.SERVICE_LIST), '常用服务list');
++        const item = await getBounds(driver, ON.id(Sid.SERVICE_ITEM), '常用服务item');
++        if (list === null || item === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const listW = list.right - list.left;
++        const itemW = item.right - item.left;
++        // 双列：item 宽 ≈ list 宽的一半（占比 ≤0.6）。
++        const ratio = listW > 0 ? itemW / listW : 0;
++        dbg(`MD_折叠屏: listW=${listW} itemW=${itemW} ratio=${ratio}（期望 ≤0.6，双列）`);
++        expect(ratio <= 0.6).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 9. 阅读偏好想看频道列表（MD）：期望每行展示 8 列。断言频道 list 首行列数 = 8。
++    it('should_want_read_channel_be_eight_items_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToPreference(driver);
++        const list = await getBounds(driver, ON.id(Sid.PREFERENCE_CHANNEL_LIST), '频道列表');
++        if (list === null) {
++          dbg('MD_折叠屏: 频道 list 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.PREFERENCE_CHANNEL_ITEM), list, '频道列数');
++        dbg(`MD_折叠屏: 频道首行列数=${lanes}（期望 =8）`);
++        expect(lanes === 8).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 10. 福利中心（MD）：期望签到与阅读赚书币左右布局，两 card 的 top 相同。
++    it('should_signin_and_earn_be_horizontal_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToWelfare(driver);
++        const signin = await getBounds(driver, ON.id(Sid.SIGNIN_CARD), '签到card');
++        const earn = await getBounds(driver, ON.id(Sid.EARN_CARD), '赚书币card');
++        dbg(`MD_折叠屏: signin=${signin ? JSON.stringify(signin) : 'null'} earn=${earn ? JSON.stringify(earn) : 'null'}`);
++        if (signin === null || earn === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameTop = Math.abs(signin.top - earn.top) <= 2;
++        dbg(`MD_折叠屏: signin.top=${signin.top} earn.top=${earn.top} sameTop=${sameTop}（左右布局期望 true）`);
++        expect(sameTop).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 11. 充值套餐列表（MD）：期望每行展示 5 列。断言充值套餐 grid 首行列数 = 5。
++    it('should_recharge_list_be_five_items_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRecharge(driver);
++        const grid = await getBounds(driver, ON.id(Sid.RECHARGE_LIST), '充值套餐grid');
++        if (grid === null) {
++          dbg('MD_折叠屏: 充值套餐 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.RECHARGE_ITEM), grid, '充值套餐列数');
++        dbg(`MD_折叠屏: 充值套餐首行列数=${lanes}（期望 =5）`);
++        expect(lanes === 5).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++  });
++}
+diff --git a/entry/src/ohosTest/ets/test/MdPassToPass.test.ets b/entry/src/ohosTest/ets/test/MdPassToPass.test.ets
+new file mode 100644
+index 0000000..3e52027
+--- /dev/null
++++ b/entry/src/ohosTest/ets/test/MdPassToPass.test.ets
+@@ -0,0 +1,205 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  Sid,
++  startAbility,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++  getBounds,
++  getWindowBounds,
++  cleanupToRoot,
++  injectLoggedIn,
++  currentBreakpoint,
++  goToPreference,
++  goToRecharge,
++  goToRechargeRecord,
++  goToAbout,
++  passLaunchAndReachHome,
++} from './TestHelper';
++
++/**
++ * 套件：MD 断点（折叠屏展开）一多适配用例。对应综合用例.md 各场景的 MdPassToPass 行。
++ * 仅在 currentBreakpoint() === 'md' 时执行，其余断点跳过。
++ */
++export default function mdPassToPassTest() {
++  describe('MdPassToPass', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('MD_PASS_TO_PASS');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'EntryAbility');
++        await driver.delayMs(1000);
++        injectLoggedIn();
++        await passLaunchAndReachHome(driver);
++      } catch (e) {
++        err('MdPassToPass beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        await cleanupToRoot(driver);
++      } catch (e) {
++        err('MdPassToPass afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    // 1. 首页 Tabs（MD）：tab 栏在底部，宽 > 高。
++    it('should_tabs_be_bottom_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        const b = await getBounds(driver, ON.id(Sid.HOME_TABBAR), '首页tab栏');
++        dbg(`MD_折叠屏: tabbar=${b ? JSON.stringify(b) : 'null'}`);
++        if (b === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const w = b.right - b.left;
++        const h = b.bottom - b.top;
++        dbg(`MD_折叠屏: tabbar w=${w} h=${h}（期望 w>h）`);
++        expect(w > h).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 2. 阅读偏好设置页面（MD）：内容占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_reading_preference_be_full_width_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToPreference(driver);
++        const content = await getBounds(driver, ON.id(Sid.PREFERENCE_CONTENT), '偏好内容容器');
++        const win = await getWindowBounds(driver);
++        dbg(`MD_折叠屏: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`MD_折叠屏: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 3. 充值页面（MD）：选择充值套餐部分占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_recharge_package_be_full_width_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRecharge(driver);
++        const content = await getBounds(driver, ON.id(Sid.RECHARGE_LIST), '充值套餐区');
++        const win = await getWindowBounds(driver);
++        dbg(`MD_折叠屏: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`MD_折叠屏: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 4. 充值记录页（MD）：内容占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_recharge_record_be_full_width_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRechargeRecord(driver);
++        const content = await getBounds(driver, ON.id(Sid.RECHARGE_RECORD_CONTENT), '充值记录内容');
++        const win = await getWindowBounds(driver);
++        dbg(`MD_折叠屏: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`MD_折叠屏: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 5. 关于页（MD）：内容占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_about_be_full_width_on_md_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'md') {
++        dbg('MD_折叠屏：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToAbout(driver);
++        const content = await getBounds(driver, ON.id(Sid.ABOUT_CONTENT), '关于内容');
++        const win = await getWindowBounds(driver);
++        dbg(`MD_折叠屏: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`MD_折叠屏: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('MD_折叠屏 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++  });
++}
+diff --git a/entry/src/ohosTest/ets/test/SmPassToPass.test.ets b/entry/src/ohosTest/ets/test/SmPassToPass.test.ets
+new file mode 100644
+index 0000000..7d6efb3
+--- /dev/null
++++ b/entry/src/ohosTest/ets/test/SmPassToPass.test.ets
+@@ -0,0 +1,534 @@
++import { describe, beforeAll, afterAll, it, expect, Level } from '@ohos/hypium';
++import {
++  Driver,
++  ON,
++  Sid,
++  startAbility,
++  getBundleName,
++  setCaseTag,
++  dbg,
++  err,
++  getBounds,
++  getWindowBounds,
++  countComponentsInBounds,
++  countFirstRowItems,
++  cleanupToRoot,
++  injectLoggedIn,
++  currentBreakpoint,
++  goToTab,
++  goToPreference,
++  goToWelfare,
++  goToRecharge,
++  goToRechargeRecord,
++  goToAbout,
++  goToReadPage,
++  scrollGuessLikeIntoView,
++  passLaunchAndReachHome,
++} from './TestHelper';
++
++/**
++ * 套件：SM 断点（直板机）一多适配用例。对应综合用例.md 各场景的 SmPassToPass 行。
++ * 仅在 currentBreakpoint() === 'sm' 时执行，其余断点跳过。
++ */
++export default function smPassToPassTest() {
++  describe('SmPassToPass', () => {
++    let driver: Driver;
++
++    beforeAll(async () => {
++      try {
++        setCaseTag('SM_PASS_TO_PASS');
++        driver = Driver.create();
++        const bundleName = getBundleName();
++        await startAbility(driver, bundleName, 'EntryAbility');
++        await driver.delayMs(1000);
++        injectLoggedIn();
++        await passLaunchAndReachHome(driver);
++      } catch (e) {
++        err('SmPassToPass beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterAll(async () => {
++      try {
++        await cleanupToRoot(driver);
++      } catch (e) {
++        err('SmPassToPass afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    // 1. 书籍列表（SM）：期望书架 grid 每行展示 3 列。断言书架 grid 首行列数 = 3。
++    it('should_book_grid_be_three_lanes_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书架');
++        const grid = await getBounds(driver, ON.id(Sid.BOOK_SHELF_GRID), '书架grid');
++        if (grid === null) {
++          dbg('SM_直板机: 书架 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.BOOK_SHELF_GRID_ITEM), grid, '书架列数');
++        dbg(`SM_直板机: 书架首行列数=${lanes}（期望 =3）`);
++        expect(lanes === 3).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 2. 首页 Tabs（SM）：tab 栏在底部，宽 > 高。
++    it('should_tabs_be_bottom_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        const b = await getBounds(driver, ON.id(Sid.HOME_TABBAR), '首页tab栏');
++        dbg(`SM_直板机: tabbar=${b ? JSON.stringify(b) : 'null'}`);
++        if (b === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const w = b.right - b.left;
++        const h = b.bottom - b.top;
++        dbg(`SM_直板机: tabbar w=${w} h=${h}（期望 w>h）`);
++        expect(w > h).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 3. 书城 banner（SM）：一屏展示 3 个 card。断言 banner 容器内可见卡片数 = 3。
++    it('should_banner_be_three_card_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        const banner = await getBounds(driver, ON.id(Sid.BOOK_BANNER), 'banner容器');
++        if (banner === null) {
++          dbg('SM_直板机: banner 容器未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        // 等待 swiper 渲染稳定后统计落在 banner 边界内的卡片数。
++        await driver.delayMs(800);
++        const count = await countComponentsInBounds(driver, ON.id(Sid.BOOK_BANNER_CARD), banner, 'banner卡片');
++        dbg(`SM_直板机: banner内卡片数=${count}（期望 =3）`);
++        expect(count === 3).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 4. 今日力荐（SM）：期望每行展示 3 列。断言今日力荐 grid 首行列数 = 3。
++    it('should_recommend_be_three_items_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        const grid = await getBounds(driver, ON.id(Sid.RECOMMEND_GRID), '今日力荐grid');
++        if (grid === null) {
++          dbg('SM_直板机: 今日力荐 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.RECOMMEND_GRID_ITEM), grid, '今日力荐列数');
++        dbg(`SM_直板机: 今日力荐首行列数=${lanes}（期望 =3）`);
++        expect(lanes === 3).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 5. 猜你喜欢（SM）：期望每行展示 3 列。断言猜你喜欢 grid 首行列数 = 3。
++    it('should_guess_like_grid_be_three_items_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '书城');
++        await scrollGuessLikeIntoView(driver);
++        const grid = await getBounds(driver, ON.id(Sid.GUESS_LIKE_LIST), '猜你喜欢grid');
++        if (grid === null) {
++          dbg('SM_直板机: 猜你喜欢 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.GUESS_LIKE_ITEM), grid, '猜你喜欢列数');
++        dbg(`SM_直板机: 猜你喜欢首行列数=${lanes}（期望 =3）`);
++        expect(lanes === 3).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 6. 阅读详情页（SM）：书籍信息与书籍简介上下布局，两 card 的 left 相同。
++    it('should_book_info_and_intro_be_vertical_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToReadPage(driver);
++        const info = await getBounds(driver, ON.id(Sid.BOOK_INFO_CARD), '书籍信息card');
++        const desc = await getBounds(driver, ON.id(Sid.BOOK_DESC_CARD), '书籍简介card');
++        dbg(`SM_直板机: info=${info ? JSON.stringify(info) : 'null'} desc=${desc ? JSON.stringify(desc) : 'null'}`);
++        if (info === null || desc === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameLeft = Math.abs(info.left - desc.left) <= 2;
++        dbg(`SM_直板机: info.left=${info.left} desc.left=${desc.left} sameLeft=${sameLeft}（上下布局期望 true）`);
++        expect(sameLeft).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 7. 分类页右侧列表（SM）：期望每行展示 3 列。断言分类 list 首行列数 = 3。
++    it('should_category_list_be_three_items_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '分类');
++        const list = await getBounds(driver, ON.id(Sid.CATEGORY_LIST), '分类list');
++        if (list === null) {
++          dbg('SM_直板机: 分类 list 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.CATEGORY_ITEM), list, '分类列数');
++        dbg(`SM_直板机: 分类首行列数=${lanes}（期望 =3）`);
++        expect(lanes === 3).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 8. 我的 tab 登录与账户（SM）：上下布局，两 card 的 left 相同。
++    it('should_login_and_account_be_vertical_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '我的');
++        const login = await getBounds(driver, ON.id(Sid.LOGIN_CARD), '登录card');
++        const account = await getBounds(driver, ON.id(Sid.ACCOUNT_CARD), '账户card');
++        dbg(`SM_直板机: login=${login ? JSON.stringify(login) : 'null'} account=${account ? JSON.stringify(account) : 'null'}`);
++        if (login === null || account === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameLeft = Math.abs(login.left - account.left) <= 2;
++        dbg(`SM_直板机: login.left=${login.left} account.left=${account.left} sameLeft=${sameLeft}（上下布局期望 true）`);
++        expect(sameLeft).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 9. 我的 tab 常用服务（SM）：单列布局，item 占满 list 宽度。
++    it('should_common_service_be_one_item_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToTab(driver, '我的');
++        const list = await getBounds(driver, ON.id(Sid.SERVICE_LIST), '常用服务list');
++        const item = await getBounds(driver, ON.id(Sid.SERVICE_ITEM), '常用服务item');
++        if (list === null || item === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const listW = list.right - list.left;
++        const itemW = item.right - item.left;
++        // 单列：item 宽 ≈ list 宽（占比 ≥0.9）。
++        const ratio = listW > 0 ? itemW / listW : 0;
++        dbg(`SM_直板机: listW=${listW} itemW=${itemW} ratio=${ratio}（期望 ≥0.9，单列占满）`);
++        expect(ratio >= 0.9).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 10. 阅读偏好设置页面（SM）：内容占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_reading_preference_be_full_width_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToPreference(driver);
++        const content = await getBounds(driver, ON.id(Sid.PREFERENCE_CONTENT), '偏好内容容器');
++        const win = await getWindowBounds(driver);
++        dbg(`SM_直板机: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`SM_直板机: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 11. 阅读偏好想看频道列表（SM）：期望每行展示 4 列。断言频道 list 首行列数 = 4。
++    it('should_want_read_channel_be_four_items_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToPreference(driver);
++        const list = await getBounds(driver, ON.id(Sid.PREFERENCE_CHANNEL_LIST), '频道列表');
++        if (list === null) {
++          dbg('SM_直板机: 频道 list 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.PREFERENCE_CHANNEL_ITEM), list, '频道列数');
++        dbg(`SM_直板机: 频道首行列数=${lanes}（期望 =4）`);
++        expect(lanes === 4).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 12. 福利中心（SM）：签到与阅读赚书币上下布局，两 card 的 left 相同。
++    it('should_signin_and_earn_be_vertical_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToWelfare(driver);
++        const signin = await getBounds(driver, ON.id(Sid.SIGNIN_CARD), '签到card');
++        const earn = await getBounds(driver, ON.id(Sid.EARN_CARD), '赚书币card');
++        dbg(`SM_直板机: signin=${signin ? JSON.stringify(signin) : 'null'} earn=${earn ? JSON.stringify(earn) : 'null'}`);
++        if (signin === null || earn === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const sameLeft = Math.abs(signin.left - earn.left) <= 2;
++        dbg(`SM_直板机: signin.left=${signin.left} earn.left=${earn.left} sameLeft=${sameLeft}（上下布局期望 true）`);
++        expect(sameLeft).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 13. 充值页面（SM）：选择充值套餐部分占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_recharge_package_be_full_width_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRecharge(driver);
++        const content = await getBounds(driver, ON.id(Sid.RECHARGE_LIST), '充值套餐区');
++        const win = await getWindowBounds(driver);
++        dbg(`SM_直板机: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`SM_直板机: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 14. 充值套餐列表（SM）：期望每行展示 3 列。断言充值套餐 grid 首行列数 = 3。
++    it('should_recharge_list_be_three_items_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRecharge(driver);
++        const grid = await getBounds(driver, ON.id(Sid.RECHARGE_LIST), '充值套餐grid');
++        if (grid === null) {
++          dbg('SM_直板机: 充值套餐 grid 未找到');
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        await driver.delayMs(500);
++        const lanes = await countFirstRowItems(driver, ON.id(Sid.RECHARGE_ITEM), grid, '充值套餐列数');
++        dbg(`SM_直板机: 充值套餐首行列数=${lanes}（期望 =3）`);
++        expect(lanes === 3).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 15. 充值记录页（SM）：内容占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_recharge_record_be_full_width_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToRechargeRecord(driver);
++        const content = await getBounds(driver, ON.id(Sid.RECHARGE_RECORD_CONTENT), '充值记录内容');
++        const win = await getWindowBounds(driver);
++        dbg(`SM_直板机: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`SM_直板机: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++
++    // 16. 关于页（SM）：内容占据整屏宽度，内容宽 > 窗口宽 90%。
++    it('should_about_be_full_width_on_sm_breakpoint', Level.LEVEL1, async (done: Function) => {
++      if (currentBreakpoint() !== 'sm') {
++        dbg('SM_直板机：当前断点不符，跳过');
++        done();
++        return;
++      }
++      try {
++        await goToAbout(driver);
++        const content = await getBounds(driver, ON.id(Sid.ABOUT_CONTENT), '关于内容');
++        const win = await getWindowBounds(driver);
++        dbg(`SM_直板机: content=${content ? JSON.stringify(content) : 'null'} win=${win ? JSON.stringify(win) : 'null'}`);
++        if (content === null || win === null) {
++          expect(false).assertTrue();
++          done();
++          return;
++        }
++        const contentW = content.right - content.left;
++        const winW = win.right - win.left;
++        const ratio = winW === 0 ? 0 : contentW / winW;
++        dbg(`SM_直板机: contentW=${contentW} winW=${winW} ratio=${ratio}（期望 ≥0.90，整屏）`);
++        expect(ratio >= 0.90).assertTrue();
++      } catch (e) {
++        err('SM_直板机 test error: ' + JSON.stringify(e));
++        expect(false).assertTrue();
++      } finally {
++        await cleanupToRoot(driver);
++      }
++      done();
++    });
++  });
++}
+diff --git a/entry/src/ohosTest/ets/test/TestHelper.ets b/entry/src/ohosTest/ets/test/TestHelper.ets
+new file mode 100644
+index 0000000..6fd3112
+--- /dev/null
++++ b/entry/src/ohosTest/ets/test/TestHelper.ets
+@@ -0,0 +1,625 @@
++/*
++ * 一多适配 UI 测试公共辅助。
++ * 提供断点判定、窗口/组件查询、点击、日志、状态恢复等基础能力，并 re-export TestKit API。
++ * 锚点 id 与业务源码中 .id('xxx') 保持一致，详见各被测页面。
++ */
++import { Want } from '@kit.AbilityKit';
++import { abilityDelegatorRegistry, Driver, ON, On, Component, UiWindow } from '@kit.TestKit';
++import display from '@ohos.display';
++
++// ============================ 常量 ============================
++
++/** 被测应用 bundleName（接入时替换为真实包名，见 AppScope/app.json5）。 */
++export const BUNDLE_NAME = 'ydts.1.xxxxxx';
++
++/** 断点分界点（vp）：SM < 600 | MD 600–840 | LG ≥ 840。 */
++export const BP_SM_MAX = 600;
++export const BP_MD_MAX = 840;
++
++// ============================ 类型 ============================
++
++export type Breakpoint = 'sm' | 'md' | 'lg';
++
++/** UiTest Rect 的本地接口（SDK Rect 类型为 any）。 */
++export interface Bounds {
++  left: number;
++  top: number;
++  right: number;
++  bottom: number;
++}
++
++/** 被测组件测试 ID。与业务源码中 .id('xxx') 一一对应。 */
++export enum Sid {
++  // 首页
++  HOME_TABBAR = 'home_tabbar',
++  // 书架
++  BOOK_SHELF_GRID = 'book_shelf_grid',
++  BOOK_SHELF_GRID_ITEM = 'book_shelf_grid_item',
++  // 书城 banner
++  BOOK_BANNER = 'book_banner',
++  BOOK_BANNER_CARD = 'book_banner_card',
++  // 今日力荐
++  RECOMMEND_GRID = 'recommend_grid',
++  RECOMMEND_GRID_ITEM = 'recommend_grid_item',
++  // 猜你喜欢
++  GUESS_LIKE_LIST = 'guess_like_list',
++  GUESS_LIKE_ITEM = 'guess_like_item',
++  // 阅读详情页
++  BOOK_INFO_CARD = 'book_info_card',
++  BOOK_DESC_CARD = 'book_desc_card',
++  // 分类页
++  CATEGORY_LIST = 'category_list',
++  CATEGORY_ITEM = 'category_item',
++  // 我的 tab
++  LOGIN_CARD = 'login_card',
++  ACCOUNT_CARD = 'account_card',
++  SERVICE_LIST = 'service_list',
++  SERVICE_ITEM = 'service_item',
++  MINE_SETTING_ENTRY = 'mine_setting_entry',
++  // 阅读偏好设置
++  PREFERENCE_CONTENT = 'preference_content',
++  PREFERENCE_CHANNEL_LIST = 'preference_channel_list',
++  PREFERENCE_CHANNEL_ITEM = 'preference_channel_item',
++  // 福利中心
++  SIGNIN_CARD = 'signin_card',
++  EARN_CARD = 'earn_card',
++  // 充值
++  RECHARGE_LIST = 'recharge_list',
++  RECHARGE_ITEM = 'recharge_item',
++  // 充值记录
++  RECHARGE_RECORD_CONTENT = 'recharge_record_content',
++  // 关于
++  ABOUT_CONTENT = 'about_content',
++}
++
++// ============================ 断点 ============================
++
++/** 读取屏幕宽度（vp），基于 display 的 densityPixels 换算。 */
++export function getWindowWidthVp(): number {
++  const d = display.getDefaultDisplaySync();
++  const density = d.densityPixels;
++  const px = d.width;
++  const vp = density > 0 ? px / density : px;
++  console.info(`[BR] getWindowWidthVp: ${px}px / density=${density} → ${vp}vp`);
++  return vp;
++}
++
++/** 由窗口宽判定断点。 */
++export function breakpointOf(widthVp: number): Breakpoint {
++  if (widthVp < BP_SM_MAX) {
++    return 'sm';
++  }
++  if (widthVp < BP_MD_MAX) {
++    return 'md';
++  }
++  return 'lg';
++}
++
++/** 各断点的页面左右边距（vp），用于 banner 卡片断言时扣除容器内边距。 */
++export function pagePaddingOf(bp: Breakpoint): number {
++  switch (bp) {
++    case 'sm': return 16;
++    case 'md': return 24;
++    case 'lg': return 32;
++    default: return 32;
++  }
++}
++
++/**
++ * 当前断点，在 it 内部调用（主窗口已就绪）。
++ * 基于显示屏宽换算 vp 判定，不依赖工程代码。
++ */
++export function currentBreakpoint(): Breakpoint {
++  try {
++    const bp = breakpointOf(getWindowWidthVp());
++    console.info(`[BR] currentBreakpoint = ${bp}`);
++    return bp;
++  } catch (e) {
++    console.error(`[BR] currentBreakpoint 读取失败，回退 'sm'：${(e as Error).message}`);
++    return 'sm';
++  }
++}
++
++// ============================ Delegator & 日志 ============================
++
++export const delegator: abilityDelegatorRegistry.AbilityDelegator =
++  abilityDelegatorRegistry.getAbilityDelegator();
++
++/** 取被测 bundleName，优先 delegator 参数，回退模块常量。 */
++export function getBundleName(): string {
++  try {
++    const bn = abilityDelegatorRegistry.getArguments().bundleName;
++    return bn || BUNDLE_NAME;
++  } catch (e) {
++    return BUNDLE_NAME;
++  }
++}
++
++let _caseTag: string = '';
++export function setCaseTag(tag: string): void {
++  _caseTag = tag;
++}
++
++export function dbg(msg: string): void {
++  const prefix = _caseTag ? `[BR][${_caseTag}]` : '[BR]';
++  console.info(`${prefix} ${msg}`);
++}
++
++export function err(msg: string): void {
++  const prefix = _caseTag ? `[BR][${_caseTag}]` : '[BR]';
++  console.error(`${prefix} ${msg}`);
++}
++
++// ============================ 启动 ============================
++
++/** 启动被测 ability 并等待 UI 稳定。 */
++export async function startAbility(driver: Driver, bundleName: string, abilityName: string): Promise<void> {
++  try {
++    const want: Want = {
++      bundleName: bundleName,
++      abilityName: abilityName,
++    };
++    await delegator.startAbility(want);
++    await driver.waitForIdle(3000, 5000);
++  } catch (e) {
++    err('startAbility 失败: ' + JSON.stringify(e));
++  }
++}
++
++// ============================ 窗口查询 ============================
++
++/** 通过 Driver 查找被测应用主窗口。 */
++export async function getUiWindow(driver: Driver): Promise<UiWindow | null> {
++  try {
++    const bn = getBundleName();
++    const win: UiWindow = await driver.findWindow({ bundleName: bn });
++    if (win === null || win === undefined) {
++      dbg(`getUiWindow: 被测窗口未找到（bundleName=${bn}）`);
++      return null;
++    }
++    return win;
++  } catch (e) {
++    dbg(`getUiWindow 异常: ${(e as Error).message}`);
++    return null;
++  }
++}
++
++/** 被测窗口屏幕绝对边界（px），与组件 getBounds() 同基准。 */
++export async function getWindowBounds(driver: Driver): Promise<Bounds | null> {
++  const uiWin = await getUiWindow(driver);
++  if (uiWin === null) {
++    dbg('getWindowBounds: 被测窗口未找到 → null');
++    return null;
++  }
++  try {
++    const b = await uiWin.getBounds() as Bounds;
++    const result: Bounds = { left: b.left, top: b.top, right: b.right, bottom: b.bottom };
++    dbg(`getWindowBounds: L=${result.left} T=${result.top} R=${result.right} B=${result.bottom} ` +
++      `(${result.right - result.left}x${result.bottom - result.top})`);
++    return result;
++  } catch (e) {
++    dbg(`getWindowBounds 异常: ${(e as Error).message} → null`);
++    return null;
++  }
++}
++
++// ============================ 组件查询 ============================
++
++/**
++ * 统计落在指定容器边界内的可见组件数量。
++ *
++ * 用于 banner 这类缩放 Swiper：卡片 id（book_banner_card）在每张卡片上重复，
++ * 单个 findComponent 只取首个，无法验证一屏实际渲染的卡片数。
++ * Swiper.displayCount(count) 决定一屏 item 数，故落在 banner 容器边界内的卡片数即 count。
++ *
++ * 判定"落在容器内"：组件 left ≥ 容器 left 且 right ≤ 容器 right（横向不溢出），
++ * 这样可同时剔除被 Swiper 裁剪到视口外的缓存 item 与缩放后超出边界的项。
++ *
++ * @param driver  Driver 实例
++ * @param on      组件匹配器（通常为 ON.id(...)）
++ * @param host    宿主容器边界（如 banner 容器）
++ * @param label   日志标签
++ * @returns 落在容器内的组件数量；查询异常返回 -1
++ */
++export async function countComponentsInBounds(driver: Driver, on: On, host: Bounds, label?: string): Promise<number> {
++  const tag = label ?? '组件';
++  try {
++    const comps: Component[] = await driver.findComponents(on);
++    let count = 0;
++    const inside: Bounds[] = [];
++    for (const comp of comps) {
++      const r = await comp.getBounds() as Bounds;
++      if (r.left >= host.left && r.right <= host.right) {
++        count++;
++        inside.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
++      }
++    }
++    dbg(`countComponentsInBounds[${tag}]: 命中=${comps.length} 容器内=${count} ` +
++      `(容器 L=${host.left} R=${host.right})`);
++    return count;
++  } catch (e) {
++    dbg(`countComponentsInBounds[${tag}]: 异常, err=${(e as Error).message}`);
++    return -1;
++  }
++}
++
++/**
++ * 统计容器内「首行」item 的数量，即一行的列数。
++ *
++ * 用于 lanes 纵向多列 List 或 Flex wrap 流式布局（如分类页、阅读偏好频道）：
++ * 这类布局没有横滑的"一屏可见数"概念，一多适配体现为每行容纳的列数。
++ * 取所有落在容器内 item 的 top，与首个 item 的 top 对齐（误差容忍 item 高度的一半）
++ * 即视为同一行，统计其数量得到列数。
++ *
++ * @param driver   Driver 实例
++ * @param on       item 匹配器（通常为 ON.id(...)）
++ * @param host     宿主容器边界
++ * @param label    日志标签
++ * @returns 首行 item 数量；查询异常或无 item 返回 -1
++ */
++export async function countFirstRowItems(driver: Driver, on: On, host: Bounds, label?: string): Promise<number> {
++  const tag = label ?? '首行';
++  try {
++    const comps: Component[] = await driver.findComponents(on);
++    if (comps.length === 0) {
++      dbg(`countFirstRowItems[${tag}]: 未找到 item`);
++      return -1;
++    }
++    // 收集落在容器内的 item 边界。
++    const rows: Bounds[] = [];
++    for (const comp of comps) {
++      const r = await comp.getBounds() as Bounds;
++      if (r.left >= host.left && r.right <= host.right) {
++        rows.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
++      }
++    }
++    if (rows.length === 0) {
++      dbg(`countFirstRowItems[${tag}]: 容器内无 item`);
++      return -1;
++    }
++    // 按水平位置排序，取最靠左的首个作为基准行。
++    rows.sort((a, b) => a.left - b.left);
++    const base = rows[0];
++    const itemH = base.bottom - base.top;
++    // top 在基准行 item 高度一半范围内视为同一行。
++    const tolerance = Math.max(itemH * 0.5, 2);
++    let count = 0;
++    for (const r of rows) {
++      if (Math.abs(r.top - base.top) <= tolerance) {
++        count++;
++      }
++    }
++    dbg(`countFirstRowItems[${tag}]: 容器内item=${rows.length} 首行列数=${count} ` +
++      `(baseTop=${base.top} itemH=${itemH})`);
++    return count;
++  } catch (e) {
++    dbg(`countFirstRowItems[${tag}]: 异常, err=${(e as Error).message}`);
++    return -1;
++  }
++}
++
++/** 组件边界，未找到返回 null。 */
++export async function getBounds(driver: Driver, on: On, label?: string): Promise<Bounds | null> {
++  const tag = label ?? '组件';
++  try {
++    const comp: Component = await driver.findComponent(on);
++    const r = await comp.getBounds() as Bounds;
++    const result: Bounds = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
++    dbg(`getBounds[${tag}]: L=${result.left} T=${result.top} R=${result.right} B=${result.bottom} ` +
++      `(${result.right - result.left}x${result.bottom - result.top})`);
++    return result;
++  } catch (e) {
++    dbg(`getBounds[${tag}]: 未找到/异常, err=${(e as Error).message}`);
++    return null;
++  }
++}
++
++/** 等待组件出现并返回边界，超时返回 null。 */
++export async function waitForBounds(driver: Driver, on: On, timeout: number, label?: string): Promise<Bounds | null> {
++  const tag = label ?? '组件';
++  try {
++    const comp: Component = await driver.waitForComponent(on, timeout);
++    const r = await comp.getBounds() as Bounds;
++    const result: Bounds = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
++    dbg(`waitForBounds[${tag}]: L=${result.left} T=${result.top} R=${result.right} B=${result.bottom} ` +
++      `(${result.right - result.left}x${result.bottom - result.top})`);
++    return result;
++  } catch (e) {
++    dbg(`waitForBounds[${tag}]: 等待超时/异常, err=${(e as Error).message}`);
++    return null;
++  }
++}
++
++/** 点击组件（若存在），返回是否成功。 */
++export async function clickIfExists(driver: Driver, on: On, label?: string): Promise<boolean> {
++  const tag = label ?? '组件';
++  try {
++    const comp: Component = await driver.findComponent(on);
++    await comp.click();
++    dbg(`clickIfExists[${tag}]: 点击成功`);
++    return true;
++  } catch (e) {
++    dbg(`clickIfExists[${tag}]: 未找到/点击失败, err=${(e as Error).message}`);
++    return false;
++  }
++}
++
++/** 按文本查找并点击组件，未找到抛 Error。 */
++export async function clickByText(driver: Driver, text: string): Promise<void> {
++  try {
++    const comp: Component = await driver.findComponent(ON.text(text));
++    await comp.click();
++    dbg(`clickByText: 点击成功 text='${text}'`);
++  } catch (e) {
++    dbg(`clickByText: 点击失败/未找到 text='${text}', err=${(e as Error).message}`);
++    throw new Error(`clickByText failed: text='${text}', cause=${(e as Error).message}`);
++  }
++}
++
++/** 按文本查找并点击，未找到返回 false（不抛错）。 */
++export async function clickTextIfExists(driver: Driver, text: string): Promise<boolean> {
++  try {
++    const comp: Component = await driver.findComponent(ON.text(text));
++    await comp.click();
++    dbg(`clickTextIfExists: 点击成功 text='${text}'`);
++    return true;
++  } catch (e) {
++    dbg(`clickTextIfExists: 未找到 text='${text}', err=${(e as Error).message}`);
++    return false;
++  }
++}
++
++// ============================ 登录态 ============================
++
++/** 测试用登录态对象结构（对齐业务 UserInfo 关键字段，供 AppStorage 注入）。 */
++interface UserInfoMock {
++  id: string;
++  nickName: string;
++  avatarUrl: string;
++  telephone: string;
++  isLogin: boolean;
++  isMembership: boolean;
++  bookCoins: number;
++  totalReading: number;
++  totalListening: number;
++  level: number;
++  continuousBuy: boolean;
++  reminderTime: number;
++  fullScreen: boolean;
++  noTimeBattery: boolean;
++}
++
++/**
++ * 注入已登录的用户态，供需要登录的二级页面用例使用。
++ *
++ * 登录态判定链路（已全量覆盖）：
++ * 1) TCRouter.pushByLogin：仅检查 AppStorage('userInfo') !== undefined → 注入后放行；
++ * 2) 各页面 aboutToAppear/onPageShow：重新从 AppStorage.get('userInfo') 读取并同步到
++ *    UserInfoModel（如 MyInfoCard.loadUserInfo），isLogin 字段为 true 即显示已登录态；
++ * 3) 业务无页面直接读 AppStorage('membershipStatus')/('bookCoins')（仅 LoginPage 写入时读取），
++ *    故无需单独注入派生 key。
++ *
++ * 数据结构对齐业务 LoginPage.mockUserLogin()，保证与真实登录完全一致。
++ * 各套件 beforeAll 的 startAbility 之后、passLaunchAndReachHome 之前调用。
++ */
++export function injectLoggedIn(): void {
++  try {
++    const mock: UserInfoMock = {
++      id: '1234',
++      nickName: '测试用户',
++      avatarUrl: '',
++      telephone: '13800000000',
++      isLogin: true,
++      isMembership: false,
++      bookCoins: 100,
++      totalReading: 50,
++      totalListening: 15,
++      level: 1,
++      continuousBuy: false,
++      reminderTime: 0,
++      fullScreen: false,
++      noTimeBattery: false
++    };
++    AppStorage.setOrCreate<Object>('userInfo', mock);
++    dbg(`injectLoggedIn: 已注入登录态 (id=${mock.id}, nickName=${mock.nickName}, ` +
++      `isLogin=${mock.isLogin}, bookCoins=${mock.bookCoins}, level=${mock.level})`);
++  } catch (e) {
++    err('injectLoggedIn 失败: ' + (e as Error).message);
++  }
++}
++
++// ============================ 启动后处理 ============================
++
++/**
++ * 处理启动链路：隐私协议页（bindSheet "同意"）→ 开屏广告页 → 首页。
++ * 在 beforeAll 启动应用后调用，确保到达首页书城 tab。
++ * 各步骤均带兜底，失败不阻断（后续用例会自行检测目标页是否就绪）。
++ */
++export async function passLaunchAndReachHome(driver: Driver): Promise<void> {
++  try {
++    // 1. 隐私协议页：点击"同意"（bindSheet 内文本按钮）。
++    await driver.delayMs(1500);
++    const agreed = await clickTextIfExists(driver, '同意');
++    if (agreed) {
++      dbg('passLaunchAndReachHome: 已点击隐私页"同意"');
++    }
++    // 2. 开屏广告页：等待其自动关闭（网络加载可能超时），最多等 8s。
++    await driver.delayMs(2000);
++    // 3. 到达首页后切到"书城"tab。
++    await clickByText(driver, '书城').catch(() => {
++      dbg('passLaunchAndReachHome: 切换书城 tab 未成功，可能已在首页');
++    });
++    await driver.delayMs(800);
++  } catch (e) {
++    err('passLaunchAndReachHome 异常: ' + (e as Error).message);
++  }
++}
++
++// ============================ 导航 ============================
++
++/** 切换到首页指定 tab（书架/书城/分类/我的）。 */
++export async function goToTab(driver: Driver, tabText: string): Promise<void> {
++  try {
++    await clickByText(driver, tabText);
++    await driver.delayMs(800);
++    dbg(`goToTab: 切换到 ${tabText}`);
++  } catch (e) {
++    dbg(`goToTab: 切换 ${tabText} 失败, err=${(e as Error).message}`);
++  }
++}
++
++/**
++ * 在书城 tab 内上滑，让"猜你喜欢"（位于今日力荐下方，需滚动才进入视口）可见。
++ * 通过 swipe 从屏幕下半部向上半部滑动触发列表滚动。
++ */
++export async function scrollGuessLikeIntoView(driver: Driver): Promise<void> {
++  try {
++    const win = await getWindowBounds(driver);
++    if (win === null) {
++      dbg('scrollGuessLikeIntoView: 窗口边界为空，跳过');
++      return;
++    }
++    const cx = Math.floor((win.left + win.right) / 2);
++    const startY = Math.floor(win.top + (win.bottom - win.top) * 0.75);
++    const endY = Math.floor(win.top + (win.bottom - win.top) * 0.40);
++    // 连续上滑若干次，每次后检测猜你喜欢是否出现。
++    for (let i = 0; i < 4; i++) {
++      const found = await getBounds(driver, ON.id(Sid.GUESS_LIKE_LIST), '猜你喜欢list');
++      if (found !== null) {
++        dbg(`scrollGuessLikeIntoView: 第${i}次检测到猜你喜欢，停止滑动`);
++        return;
++      }
++      await driver.swipe(cx, startY, cx, endY, 1500);
++      await driver.delayMs(500);
++    }
++    dbg('scrollGuessLikeIntoView: 滑动结束（猜你喜欢可能仍未渲染）');
++  } catch (e) {
++    dbg(`scrollGuessLikeIntoView 异常: ${(e as Error).message}`);
++  }
++}
++
++/** 进入阅读偏好设置页（我的 tab → 常用服务"阅读偏好设置"，需登录）。 */
++export async function goToPreference(driver: Driver): Promise<void> {
++  try {
++    await goToTab(driver, '我的');
++    await clickByText(driver, '阅读偏好设置').catch(() => {});
++    await driver.delayMs(1000);
++  } catch (e) {
++    dbg(`goToPreference 异常: ${(e as Error).message}`);
++  }
++}
++
++/** 进入福利中心页（我的 tab → 账户card"赚书币"，需登录）。 */
++export async function goToWelfare(driver: Driver): Promise<void> {
++  try {
++    await goToTab(driver, '我的');
++    await clickByText(driver, '赚书币').catch(() => {});
++    await driver.delayMs(1000);
++  } catch (e) {
++    dbg(`goToWelfare 异常: ${(e as Error).message}`);
++  }
++}
++
++/** 进入充值页（我的 tab → 账户card"充值"，需登录）。 */
++export async function goToRecharge(driver: Driver): Promise<void> {
++  try {
++    await goToTab(driver, '我的');
++    await clickByText(driver, '充值').catch(() => {});
++    await driver.delayMs(1000);
++  } catch (e) {
++    dbg(`goToRecharge 异常: ${(e as Error).message}`);
++  }
++}
++
++/** 进入充值记录页（充值页 → "充值记录"）。 */
++export async function goToRechargeRecord(driver: Driver): Promise<void> {
++  try {
++    await goToRecharge(driver);
++    await clickByText(driver, '充值记录').catch(() => {});
++    await driver.delayMs(1000);
++  } catch (e) {
++    dbg(`goToRechargeRecord 异常: ${(e as Error).message}`);
++  }
++}
++
++/**
++ * 进入关于页（我的 tab → 设置齿轮 → 设置页 → 关于入口）。
++ * 设置页内"关于"入口需点击，路径较长，带兜底。
++ */
++export async function goToAbout(driver: Driver): Promise<void> {
++  try {
++    await goToTab(driver, '我的');
++    // 头部齿轮图标 → 设置页。
++    await clickIfExists(driver, ON.id(Sid.MINE_SETTING_ENTRY), '设置齿轮');
++    await driver.delayMs(800);
++    // 设置页"关于"入口。
++    await clickByText(driver, '关于').catch(() => {});
++    await driver.delayMs(1000);
++  } catch (e) {
++    dbg(`goToAbout 异常: ${(e as Error).message}`);
++  }
++}
++
++/**
++ * 进入阅读详情页（书城 tab → banner 单卡）。
++ *
++ * 注意：banner 是书城 List 的首个 ListItem，前置用例（如猜你喜欢）可能上滑导致 banner 滚出视口。
++ * 因此切到书城后先下滑回到顶部，再等待 banner 渲染并点击。
++ * 点击 banner 触发 BookSwiperCard.onImageClick → pushByLogin(READ_KIT_ROUTER)。
++ */
++export async function goToReadPage(driver: Driver): Promise<void> {
++  try {
++    await goToTab(driver, '书城');
++    // 若 banner 因前置滚动不在视口，先下滑回到书城顶部。
++    const win = await getWindowBounds(driver);
++    if (win !== null) {
++      const cx = Math.floor((win.left + win.right) / 2);
++      const topY = Math.floor(win.top + (win.bottom - win.top) * 0.30);
++      const bottomY = Math.floor(win.top + (win.bottom - win.top) * 0.70);
++      // 下滑最多 4 次回到顶部，每次后检测 banner 单卡是否出现。
++      for (let i = 0; i < 4; i++) {
++        const card = await getBounds(driver, ON.id(Sid.BOOK_BANNER_CARD), 'banner单卡');
++        if (card !== null) {
++          break;
++        }
++        await driver.swipe(cx, topY, cx, bottomY, 1500);
++        await driver.delayMs(500);
++      }
++    }
++    // 点击 banner 单卡进入阅读详情页。
++    await clickIfExists(driver, ON.id(Sid.BOOK_BANNER_CARD), 'banner单卡');
++    await driver.delayMs(1500);
++  } catch (e) {
++    dbg(`goToReadPage 异常: ${(e as Error).message}`);
++  }
++}
++
++// ============================ 状态恢复 ============================
++
++/**
++ * 回退到首页书城 tab 根态。
++ * pressBack 前先检测是否已在首页（tab 栏可见），避免在首页误触系统返回退出应用。
++ */
++export async function cleanupToRoot(driver: Driver): Promise<void> {
++  const MAX_BACK = 6;
++  try {
++    for (let i = 0; i < MAX_BACK; i++) {
++      const tabBar = await getBounds(driver, ON.id(Sid.HOME_TABBAR), '首页tab栏');
++      if (tabBar !== null) {
++        dbg(`cleanupToRoot: 第${i}次检测到首页，停止 pressBack`);
++        break;
++      }
++      await driver.pressBack();
++      await driver.delayMs(300);
++    }
++    // 回到首页后切到书城 tab，统一根态。
++    await clickTextIfExists(driver, '书城');
++    await driver.delayMs(300);
++    dbg('cleanupToRoot: 已回退到首页书城 tab');
++  } catch (e) {
++    err(`cleanupToRoot 异常: ${(e as Error).message}`);
++  }
++}
++
++// ============================ re-export TestKit ============================
++export { Driver, ON, On };
+diff --git a/entry/src/ohosTest/module.json5 b/entry/src/ohosTest/module.json5
+index 509a3a2..1647b75 100644
+--- a/entry/src/ohosTest/module.json5
++++ b/entry/src/ohosTest/module.json5
+@@ -3,7 +3,8 @@
+     "name": "entry_test",
+     "type": "feature",
+     "deviceTypes": [
+-      "phone"
++      "phone",
++      "tablet"
+     ],
+     "deliveryWithInstall": true,
+     "installationFree": false
+diff --git a/oh-package.json5 b/oh-package.json5
+index 3034091..223fe42 100644
+--- a/oh-package.json5
++++ b/oh-package.json5
+@@ -5,6 +5,8 @@
+     "@hw-agconnect/ui-base": "^1.0.1",
+     "@hw-agconnect/ui-countdown": "^1.0.0",
+   },
+-  "devDependencies": {},
++  "devDependencies": {
++    "@ohos/hypium": "1.0.25"
++  },
+   "dynamicDependencies": {}
+ }
+\ No newline at end of file

@@ -70,6 +70,11 @@ npm run build
   - `softwareEngineering`：使用指定资源包中的 `resources/opencode`。
 - `server.opencodeSource.root`：填写 VS Code 扩展根目录或 softwareEngineering 资源包根目录。
 - `server.devecoHome`：填写 DevEco Studio 安装目录。未配置时程序会尝试读取 `DEVECO_HOME` 环境变量；两者都没有时，DevEco 相关功能无法正常执行。
+- `server.node`：显式填写 DevEco Studio 自带的 `tools/node/node.exe`，版本必须不低于 22.5.0。
+- `server.sdkHome`：显式填写 DevEco Studio 的 `sdk` 目录。
+- `server.javaHome`：显式填写 DevEco Studio 自带的 `jbr` 目录，不要填写到 `jbr/bin`。
+- `server.hvigorw`：显式填写 `tools/hvigor/bin/hvigorw.js`；程序会使用 `server.node` 执行它。
+- `server.ohpm`：显式填写 `tools/ohpm/bin/ohpm.bat`（Windows）或对应平台的 ohpm 可执行文件。
 
 使用 `harmonyBot` 时，扩展目录中需要安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展。当前开发机使用过 `0.1.65`，测试时优先使用项目组指定版本。
 
@@ -94,8 +99,9 @@ npm run build
 
 ### 3.4 配置本地模拟器
 
-重点检查：
+测试机应显式配置工具路径，不依赖系统 `PATH`。重点检查：
 
+- `ohosTest.paths.hdc`：HarmonyOS SDK `toolchains` 目录下的 `hdc.exe`；
 - `ohosTest.paths.emulatorBin`：`Emulator.exe` 所在目录；
 - `ohosTest.paths.emulatorDeployedDir`：模拟器镜像部署目录；
 - `ohosTest.devices[].profile`：本机实际存在的模拟器 Profile 名称；
@@ -109,6 +115,30 @@ npm run build
 ```
 
 路径仅为示例，应替换为测试机实际安装路径。配置的 Profile 不存在、镜像版本不匹配或端口被占用，都会导致 ohosTest 启动失败。
+
+Windows 测试机可以参考以下配置，并将 `D:/deveco/DevEco Studio` 替换为实际安装目录：
+
+```json
+{
+  "server": {
+    "devecoHome": "D:/deveco/DevEco Studio",
+    "node": "D:/deveco/DevEco Studio/tools/node/node.exe",
+    "sdkHome": "D:/deveco/DevEco Studio/sdk",
+    "javaHome": "D:/deveco/DevEco Studio/jbr",
+    "hvigorw": "D:/deveco/DevEco Studio/tools/hvigor/bin/hvigorw.js",
+    "ohpm": "D:/deveco/DevEco Studio/tools/ohpm/bin/ohpm.bat"
+  },
+  "ohosTest": {
+    "paths": {
+      "hdc": "D:/deveco/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe",
+      "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
+      "emulatorDeployedDir": "D:/deveco/Images"
+    }
+  }
+}
+```
+
+`server.devecoHome` 不会替 ohosTest 和云测试自动推导上述工具、SDK 和 JDK 路径。虽然未配置时会回退到当前 Node、系统 `PATH` 或环境变量，但测试验收统一要求显式配置，以避免不同 PC 的环境差异影响结果。
 
 ### 3.5 配置云测试
 

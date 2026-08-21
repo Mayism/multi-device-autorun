@@ -1,4 +1,7 @@
+import process from "node:process";
+
 const DEFAULT_TOOL_COMMANDS = Object.freeze({
+  node: process.execPath,
   hvigorw: "hvigorw",
   ohpm: "ohpm",
 });
@@ -13,6 +16,9 @@ export function resolveSharedToolchain(config) {
     ? config.ohosTest.paths
     : {};
   return {
+    node: configuredValue(server.node)
+      || configuredValue(legacyOhosPaths.node)
+      || DEFAULT_TOOL_COMMANDS.node,
     // server 是共享工具的唯一推荐配置入口；继续兼容历史 ohosTest.paths 写法。
     hvigorw: configuredValue(server.hvigorw)
       || configuredValue(legacyOhosPaths.hvigorw)

@@ -258,7 +258,7 @@ export async function ensureOpenCodeServer(config, { log = console.log, signal }
   }
   let child;
   try {
-    child = spawn(process.execPath, args, {
+    child = spawn(String(config.server.node || process.execPath), args, {
       cwd: config.__baseDir,
       stdio: ["ignore", logFile.fd, logFile.fd, "ipc"],
       windowsHide: true,
@@ -320,4 +320,3 @@ export async function stopOwnedServer(server, { log = console.log } = {}) {
     console.warn(`[warn] OpenCode Server 已结束，但端口仍未释放: ${server.serverUrl}`);
   }
 }
-

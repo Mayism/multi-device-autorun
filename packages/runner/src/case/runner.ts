@@ -43,6 +43,7 @@ interface CaseRunContext {
   outDir: string;
   out: string;
   workProject: string;
+  nodePath: string;
   hvigorw: string;
   diagnostics: string[];
   runs: CaseResult["runs"];
@@ -198,6 +199,7 @@ async function prepareCaseExecution(
     testCaseTimeoutMs: context.metadata.testCaseTimeoutMs,
   });
   // 暴露 hvigorw 路径给 cleanupCaseWorkdir，用于关闭 daemon 释放文件锁定。
+  context.nodePath = initialConfig.paths.node || "";
   context.hvigorw = initialConfig.paths.hvigorw;
   const deviceSelection = buildCaseDeviceSelection(
     context.metadata,
@@ -263,6 +265,7 @@ function createCaseRunContext(
     outDir,
     out: path.join(outDir, "result.json"),
     workProject: path.join(metadata.caseDir, "work"),
+    nodePath: "",
     hvigorw: "",
     diagnostics: [],
     runs: {},
@@ -596,7 +599,7 @@ async function cleanupCaseWorkdir(
       // 先关闭 hvigor daemon，释放其对 work 目录内文件的锁定。
       // 必须在删除目录前执行，否则 Windows 上 fs.rm 会报 EBUSY/resource busy or locked。
       if (context.hvigorw) {
-        await stopHvigorDaemon(context.hvigorw, context.workProject);
+        await stopHvigorDaemon(context.hvigorw, context.workProject, context.nodePath || undefined);
       }
       await removeWithRetry(context.workProject);
     } catch (error) {

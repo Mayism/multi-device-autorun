@@ -285,9 +285,9 @@ function buildEnv(paths) {
  * 以 shell 命令串执行；绝对路径命令会做存在性预检，PATH 命令由运行时解析。 */
 async function buildSignedApp({ projectDir, settings, consolePath, onLine, signal }) {
   const paths = settings.paths;
-  // hvigorw 语义：hvigorw.js 路径（自动以当前 node 运行）或可执行命令（PATH 裸命令/绝对路径）
+  // hvigorw 语义：hvigorw.js 路径（自动以 server.node 运行）或可执行命令（PATH 裸命令/绝对路径）
   const hvigorwCommand = paths.hvigorw.endsWith(".js")
-    ? `${shellQuote(process.execPath)} ${shellQuote(paths.hvigorw)}`
+    ? `${shellQuote(paths.node)} ${shellQuote(paths.hvigorw)}`
     : shellQuote(paths.hvigorw);
   for (const [label, command] of [["hvigorw", paths.hvigorw], ["ohpm", paths.ohpm]]) {
     if (path.isAbsolute(command) && !await exists(command)) {

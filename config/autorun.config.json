@@ -4,7 +4,12 @@
       "mode": "harmonyBot",
       "root": "C:/Users/HW/.vscode/extensions"
     },
-    "devecoHome": "D:\\deveco\\DevEco Studio"
+    "devecoHome": "D:\\deveco\\DevEco Studio",
+    "node": "D:/deveco/DevEco Studio/tools/node/node.exe",
+    "sdkHome": "D:/deveco/DevEco Studio/sdk",
+    "javaHome": "D:/deveco/DevEco Studio/jbr",
+    "hvigorw": "D:/deveco/DevEco Studio/tools/hvigor/bin/hvigorw.js",
+    "ohpm": "D:/deveco/DevEco Studio/tools/ohpm/bin/ohpm.bat"
   },
   "execution": {
     "casesRoot": "D:\\cases",
@@ -21,6 +26,7 @@
   },
   "ohosTest": {
     "paths": {
+      "hdc": "D:/deveco/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe",
       "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
       "emulatorDeployedDir": "D:/deveco/Images"
     },

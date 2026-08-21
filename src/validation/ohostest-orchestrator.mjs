@@ -83,6 +83,7 @@ export async function loadOhosTestConfig(config) {
     : DEFAULT_FOLD_SERVER_SCRIPT;
   machineConfig.paths = {
     ...rawPaths,
+    node: sharedToolchain.node,
     hvigorw: sharedToolchain.hvigorw,
     ohpm: sharedToolchain.ohpm,
     hdc: String(rawPaths.hdc || DEFAULT_HDC_COMMAND).trim(),
@@ -94,6 +95,11 @@ export async function loadOhosTestConfig(config) {
     runnerDir: RUNNER_ROOT,
     timeoutSec,
     machineConfig,
+    environment: {
+      ...process.env,
+      ...(sharedToolchain.sdkHome ? { DEVECO_SDK_HOME: sharedToolchain.sdkHome } : {}),
+      ...(sharedToolchain.javaHome ? { JAVA_HOME: sharedToolchain.javaHome } : {}),
+    },
     runMode: "swe",
   };
   if (!enabled) return normalized;
@@ -209,6 +215,7 @@ async function runProcess({
   command,
   args,
   cwd,
+  env,
   timeoutSec,
   signal,
   resultWatchPath,
@@ -287,6 +294,7 @@ async function runProcess({
     try {
       child = spawn(command, args, {
         cwd,
+        env,
         windowsHide: true,
         stdio: "ignore",
       });
@@ -364,6 +372,7 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     }, () => runProcess({
       ...invocation,
       cwd: settings.runnerDir,
+      env: settings.environment,
       timeoutSec: settings.timeoutSec,
       signal,
       resultWatchPath,

@@ -1,0 +1,13 @@
+{
+  "module": {
+    "name": "guide",
+    "type": "shared",
+    "deliveryWithInstall": true,
+    "description": "$string:shared_desc",
+    "deviceTypes": [
+      "phone",
+      "tablet"
+    ],
+    "installationFree": true
+  }
+}

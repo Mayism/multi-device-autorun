@@ -48,11 +48,13 @@ async function makeBuildConfig(t: test.TestContext): Promise<MatrixConfig> {
 test("buildTestHapCommand runs a configured hvigorw.js through Node", async (t) => {
   const config = await makeBuildConfig(t);
   const scriptPath = path.join(config.project, "tools", "hvigorw.js");
+  const nodePath = path.join(config.project, "tools", "node.exe");
   config.paths.hvigorw = scriptPath;
+  config.paths.node = nodePath;
 
   assert.equal(
     buildTestHapCommand(config),
-    `${shellQuote(process.execPath)} ${shellQuote(scriptPath)} --mode module -p module=entry@ohosTest ohosTest@PackageHap --no-daemon`,
+    `${shellQuote(nodePath)} ${shellQuote(scriptPath)} --mode module -p module=entry@ohosTest ohosTest@PackageHap --no-daemon`,
   );
 });
 

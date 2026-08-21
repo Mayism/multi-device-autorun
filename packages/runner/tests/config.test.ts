@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
 import { loadMatrixConfig } from "../src/matrix/config.js";
 import { AA_TEST_CASE_TIMEOUT_MS } from "../src/execution/ohostest.js";
@@ -206,6 +207,7 @@ test("loadMatrixConfig accepts explicit machine paths", async (t) => {
   const config = await loadMatrixConfig({ project, machineConfigPath });
 
   assert.deepEqual(config.paths, {
+    node: process.execPath,
     hvigorw: "/config/hvigorw",
     ohpm: "/config/ohpm",
     hdc: "/config/hdc",

@@ -132,13 +132,13 @@ function hspSignatureSuffix(appHap: string): "-unsigned.hsp" | "-signed.hsp" {
 }
 
 export function buildTestHapCommand(config: ExecutionConfig): string {
-  const buildExecutable = hvigorCommand(config.paths.hvigorw);
+  const buildExecutable = hvigorCommand(config.paths.hvigorw, config.paths.node);
   return `${buildExecutable} --mode module -p module=${config.module}@ohosTest ${config.build.testTask} --no-daemon`;
 }
 
 function buildCommands(config: ExecutionConfig): string[] {
   const packageManager = shellQuote(config.paths.ohpm);
-  const buildExecutable = hvigorCommand(config.paths.hvigorw);
+  const buildExecutable = hvigorCommand(config.paths.hvigorw, config.paths.node);
   const appBase = `${buildExecutable} --mode ${config.build.mode} -p product=${config.product}`;
   const appSuffix = "--analyze=normal --parallel --incremental --no-daemon";
   const testBase = `${buildExecutable} --mode module -p module=${config.module}@ohosTest`;

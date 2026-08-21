@@ -1,0 +1,40 @@
+{
+  "case_id": "case-home-stay-derive-base",
+  "mode": "derive_base",
+  "source_base_commit": null,
+  "source_answer_commit": "9c7ef98fb88bb3ae1bf93675f5e79fb86d3b9171",
+  "removal_commits": [
+    "a9bb965c9486a275a482eafa26028323f11d82a4"
+  ],
+  "golden_commits": [],
+  "test_commits": [
+    "a8bf6fc690327dbd4b3cb77b35b348e073526d1c"
+  ],
+  "golden_patch": "golden_patch.patch",
+  "test_patch": "test_patch.patch",
+  "base_project": "base",
+  "fail_to_pass": [
+    "should_recommend_room_waterFlow_be_four_lanes_on_SM_breakpoint",
+    "should_all_room_waterFlow_be_four_lanes_on_SM_breakpoint",
+    "should_note_waterFlow_be_four_lanes_on_SM_breakpoint"
+  ],
+  "pass_to_pass": [
+    "should_recommend_room_waterFlow_be_two_lanes_on_SM_breakpoint",
+    "should_all_room_waterFlow_be_two_lanes_on_SM_breakpoint",
+    "should_note_waterFlow_be_two_lanes_on_SM_breakpoint"
+  ],
+  "device_test_suites": {
+    "phone": [
+      {
+        "suite": "SmPassToPassTest",
+        "file":"main/src/ohosTest/ets/test/SmPassToPass.test.ets"
+      }
+    ],
+    "foldable": [
+      {
+        "suite": "MdFailToPassTest",
+        "file":"main/src/ohosTest/ets/test/MdFailToPass.test.ets"
+      }
+    ]
+  }
+}

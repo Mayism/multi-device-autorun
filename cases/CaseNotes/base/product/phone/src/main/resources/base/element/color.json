@@ -1,0 +1,24 @@
+{
+  "color": [
+    {
+      "name": "start_window_background",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "dialog_bg_white",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bg_gradient_FFF0D4",
+      "value": "#FFF0D4"
+    },
+    {
+      "name": "bg_gradient_E4E1D1",
+      "value": "#E4E1D1"
+    },
+    {
+      "name": "item_title_font",
+      "value": "#E6000000"
+    }
+  ]
+}

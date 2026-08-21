@@ -202,9 +202,9 @@ export async function prepareWhiteboxInput({
   return { inputPath, outputDir };
 }
 
-function runEvaluator({ cliPath, cwd, inputPath, port, env, timeoutSec, signal, logPath }) {
+function runEvaluator({ nodePath, cliPath, cwd, inputPath, port, env, timeoutSec, signal, logPath }) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [cliPath, "--input", inputPath, "--port", String(port)], {
+    const child = spawn(nodePath, [cliPath, "--input", inputPath, "--port", String(port)], {
       cwd,
       env: { ...env, HMOS_OPENCODE_PORT: String(port) },
       windowsHide: true,
@@ -277,6 +277,7 @@ export async function createWhiteboxOrchestrator({
   generationModel,
   resourcesDir,
   repoRoot,
+  nodePath = process.execPath,
   signal,
 }) {
   const whiteboxRoot = path.join(repoRoot, "packages", "whitebox-evaluation");
@@ -294,6 +295,7 @@ export async function createWhiteboxOrchestrator({
       const item = pending.shift();
       const slot = freeSlots.shift();
       runEvaluator({
+        nodePath,
         cliPath,
         cwd: whiteboxRoot,
         inputPath: item.inputPath,

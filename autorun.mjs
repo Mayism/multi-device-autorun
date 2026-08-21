@@ -1693,6 +1693,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       generationModel: model,
       resourcesDir: whiteboxSource.resourcesDir,
       repoRoot: AUTORUN_ROOT,
+      nodePath: String(config.server.node || process.execPath),
       signal,
     });
   }
