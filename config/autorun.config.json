@@ -8,7 +8,7 @@
     "node": "D:/deveco/DevEco Studio/tools/node/node.exe",
     "sdkHome": "D:/deveco/DevEco Studio/sdk",
     "javaHome": "D:/deveco/DevEco Studio/jbr",
-    "hvigorw": "D:/deveco/DevEco Studio/tools/hvigor/bin/hvigorw.js",
+    "hvigorw": "D:/deveco/DevEco Studio/tools/hvigor/bin/hvigorw.bat",
     "ohpm": "D:/deveco/DevEco Studio/tools/ohpm/bin/ohpm.bat"
   },
   "execution": {
