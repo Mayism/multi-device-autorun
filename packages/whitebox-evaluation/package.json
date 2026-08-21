@@ -1,0 +1,19 @@
+{
+  "name": "multi-device-whitebox-evaluation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/localCli.js",
+    "evaluate": "node dist/localCli.js",
+    "dev:evaluate": "tsx src/localCli.ts",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"*.json\" \"*.mjs\"",
+    "format:fix": "prettier --write \"src/**/*.ts\" \"*.json\" \"*.mjs\""
+  }
+}

@@ -34,26 +34,45 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 
 ## 环境要求
 
-- Node.js 20 或更高版本，推荐使用当前 LTS 版本。
+- Node.js 22.5.0 或更高版本，推荐使用当前 LTS 版本。白盒评价使用的 `node:sqlite` `DatabaseSync` 不支持更早的 Node.js 版本。
 - Git，需要能够从命令行执行 `git`。
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
 - 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
 - 所选来源的 `resources/opencode` 中需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。`harmonyBot` 还需包含任务使用的自定义 Agent、Plugin 和 Provider；`softwareEngineering` 允许只有 Skills，不要求自定义 Agent 或 Plugin。
 - `opencode.json` 中需存在可用的模型配置和 API 凭据。`harmonyBot` 还应配置 Agent 执行所需的 allow/permission 权限。不要把真实 API Key 提交到 Git。
 
+测试 PC 的完整环境准备、配置、执行步骤和各模块验收标准见 [测试环境与执行指南](docs/testing/TEST_GUIDE.md)。
+
 ## 目录结构
 
 ```text
 autorun/
 ├── autorun.mjs                 # 批量任务一键入口
+├── package.json                # 统一依赖、Workspace 和常用脚本
+├── package-lock.json           # 全工程唯一依赖锁文件
 ├── config/
-│   └── autorun.config.json     # 核心配置
+│   ├── autorun.config.json     # 核心配置
+│   └── signing/                # 云测试签名文件及辅助材料
+│       ├── test.cer / test.p12 / test.p7b
+│       └── material/
 ├── src/                        # 内部入口和实现
 │   ├── ask-opencode.mjs        # 人工执行单个 Agent 任务
 │   ├── run-opencode-serve.mjs  # 独立启动 OpenCode Server
-│   └── lib/                    # Autorun 内部模块
-├── runner/                     # 内置 HarmonyOS ohosTest Runner
-├── whitebox-evaluation/         # 独立白盒评价子系统
+│   ├── cli/                    # 参数解析与命令入口
+│   ├── config/                 # 配置加载和归一化
+│   ├── runtime/                # OpenCode Server 生命周期
+│   ├── batch/                  # 批次状态、恢复和统计
+│   ├── cases/                  # 用例发现和输入校验
+│   ├── agent/                  # Agent 会话、Token 和编译证据
+│   ├── validation/             # ohosTest、云测试和白盒编排
+│   ├── reporting/              # 批次、HTML 和合并报告
+│   ├── console/                # Dashboard 控制台输出
+│   ├── upload/                 # 失败产物上传
+│   ├── device/                 # 设备租约
+│   └── shared/                 # 跨模块文件与运行时工具
+├── packages/                   # 独立 npm workspace 子工程
+│   ├── runner/                 # 内置 HarmonyOS ohosTest Runner
+│   └── whitebox-evaluation/    # 独立白盒评价子系统
 └── output/
     ├── _runtime/opencode/      # 生成 Agent 的 OpenCode 运行数据
     ├── _runtime/whitebox/      # 白盒裁判的独立 OpenCode 运行数据
@@ -61,13 +80,14 @@ autorun/
 ```
 
 工程仅提供 `.mjs` 入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行。当前自动化主链不会依赖平台专用的 `.bat`、`.ps1` 或 `.sh` 脚本。
-首次检出后需要安装内置 Runner 和白盒评价子系统的依赖并完成构建：
+首次检出后，在工程根目录统一安装一次依赖并完成构建：
 
 ```bash
-npm --prefix runner install
-npm --prefix whitebox-evaluation install
-npm --prefix whitebox-evaluation run build
+npm install
+npm run build
 ```
+
+依赖统一维护在根目录 `package.json`，`packages/runner` 和 `packages/whitebox-evaluation` 通过 npm workspaces 共用根目录的 `node_modules` 与 `package-lock.json`，无需分别安装。
 
 ## 用例格式
 
@@ -92,43 +112,29 @@ npm --prefix whitebox-evaluation run build
 ```json
 {
   "server": {
-    "url": "http://127.0.0.1:61419",
     "opencodeSource": {
       "mode": "softwareEngineering",
       "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
     },
-    "devecoHome": "D:\\deveco\\DevEco Studio",
-    "loadAgents": []
+    "devecoHome": "D:\\deveco\\DevEco Studio"
   },
   "execution": {
     "casesRoot": "D:\\cases",
     "agent": "harmonyos-multi-device",
     "model": "deepseek-v4-flash",
-    "additionalPrompt": "",
     "concurrency": 3
   },
   "whiteboxEvaluation": {
     "enabled": true,
-    "concurrency": 2,
-    "timeoutSec": 1800,
-    "failurePolicy": "record_only",
     "judge": {
       "providerId": "deepseek",
-      "modelId": "deepseek-v4-flash",
-      "basePort": 62400
-    },
-    "prompt": {
-      "includeAdditionalPrompt": true
+      "modelId": "deepseek-v4-flash"
     }
   },
   "ohosTest": {
     "paths": {
-      "hvigorw": "hvigorw",
-      "ohpm": "ohpm",
-      "hdc": "hdc",
       "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
-      "emulatorDeployedDir": "D:/deveco/Images",
-      "foldServerScript": "../runner/src/fold/assets/fold-server.py"
+      "emulatorDeployedDir": "D:/deveco/Images"
     },
     "devices": [
       {
@@ -141,15 +147,12 @@ npm --prefix whitebox-evaluation run build
     ]
   },
   "cloudTest": {
-    "enabled": true,
     "teamId": "260086000249430501",
     "projectId": "388421841221975192",
     "testCategories": [
       { "category": 24, "timeSpan": 40 }
     ],
-    "pollIntervalSec": 60,
     "taskTimeoutSec": 3600
-  }
   }
 }
 ```
@@ -158,11 +161,11 @@ npm --prefix whitebox-evaluation run build
 
 | 配置 | 说明 |
 | --- | --- |
-| `server.url` | OpenCode Server 地址。地址不可用时会自动启动 Server。 |
+| `server.url` | OpenCode Server 地址，默认 `http://127.0.0.1:61419`。地址不可用时会自动启动 Server；仅在需要固定其他地址时配置。 |
 | `server.opencodeSource.mode` | OpenCode 来源模式，只支持 `harmonyBot` 或 `softwareEngineering`，二者互斥且不会合并、回退。 |
 | `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
-| `server.hvigorw` / `server.ohpm` | 机器级工具路径（与 `devecoHome` 同级，云测试构建使用）：`hvigorw` 填 hvigorw.js 路径（自动以当前 node 运行）或可执行命令，`ohpm` 填 ohpm 命令；**含空格的路径会自动加引号**（如 Windows `D:\deveco\DevEco Studio\…`）；未配置则复用 `ohosTest.paths` 已有键，再退到 PATH 裸命令。 |
+| `server.hvigorw` / `server.ohpm` | ohosTest 与云测试共用的机器级工具覆盖项。`hvigorw` 可填 hvigorw.js 路径（自动以当前 node 运行）或可执行命令，`ohpm` 可填 ohpm 命令；含空格路径会自动加引号。未配置时分别使用 PATH 中的 `hvigorw`、`ohpm`。历史 `ohosTest.paths` 写法继续兼容，但新配置不应重复填写。 |
 | `server.sdkHome` / `server.javaHome` | 可选：设置后注入 `DEVECO_SDK_HOME`/`JAVA_HOME`（云测试构建），未设置继承当前环境。 |
 | `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server，默认 `true`。启动前已存在的 Server 不会被关闭。 |
 | `server.loadAgents` | 指定自动启动的 Server 只加载这些 Agent（字符串数组）。留空（默认）加载 `opencode.json` 中的全部 Agent；配置后仅加载列出的 Agent，且 `execution.agent` 必须在列表中，否则启动即报错中止并提示修改配置。仅对 Autorun 自动启动的 Server 生效；复用已运行的 Server 时不重新过滤。 |
@@ -184,7 +187,7 @@ npm --prefix whitebox-evaluation run build
 | `whiteboxEvaluation.prompt.includeAdditionalPrompt` | 是否将 `execution.additionalPrompt` 作为有效业务要求交给裁判，默认 `true`。 |
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
-| `ohosTest.paths` | Runner 使用的 Hvigor、ohpm、hdc、模拟器和折叠屏服务脚本路径。 |
+| `ohosTest.paths` | Runner 的模块专用路径。通常只需配置 `emulatorBin` 和 `emulatorDeployedDir`；`hdc` 默认使用 PATH 中的命令，`foldServerScript` 默认使用 Runner 内置脚本。Hvigor、ohpm 的共享覆盖项统一配置在 `server`。 |
 | `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
 | `cloudTest.enabled` | 云测试是否作为主流程的一部分默认执行（Agent → ohosTest → 云测试）。默认 `true`；设为 `false` 关闭整个云测试流程（主批次与独立指令均不可用）。配置不完整时主批次会告警并跳过该阶段，独立指令则直接报错。 |
 | `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |
@@ -193,7 +196,7 @@ npm --prefix whitebox-evaluation run build
 | `cloudTest.proxy` | **OBS 直传专用代理**（`http://user:pass@host:port`，也支持 `host:port`；用户名密码含特殊字符时需 URL 编码），云测试 API 与 refresh 始终直连；也可用环境变量 `AGC_PROXY`。HTTPS 上传经 HTTP CONNECT 隧道传输；配置代理时默认跳过证书校验（兼容企业 MITM 自签证书）。 |
 | `cloudTest.taskTimeoutSec` | 单个云测试任务的轮询总时长（秒），默认 7200（2 小时）；超时退出但任务仍在云端继续执行。 |
 | `cloudTest.bundleName` | 补充签名：打包前替换工程 `AppScope/app.json5` 的 `bundleName`（需与签名 profile 匹配；不配置则保留工程原值）。 |
-| `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库在 `config/test.cer|p12|p7b` 提供了一套参考证书，该配置与各环境相关，默认不入库、自行填写。 |
+| `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库参考签名集中放在 `config/signing/`，辅助材料放在 `config/signing/material/`。实际使用时请按环境替换，并避免提交生产签名凭据。 |
 
 云测试另有构建/提交类的可选调参（`product`、`buildMode`、`buildTimeoutSec`、`analyzeTimeoutSec`、`appClass`、`taskType`、`testItem`），由代码内置默认值提供、未写入配置文件，一般无需配置。
 
@@ -564,7 +567,7 @@ PROMPT.md
 
 部分 HarmonyOS 工程会在 `oh_modules` 中使用 Windows Junction。Autorun 会在复制用例时自动把这类目录联接重映射到当前运行沙箱，不需要管理员权限，也不会让链接指回源用例工程。
 
-如果仍出现该错误，请确认使用的是包含 `src/lib/sandbox-copy.mjs` 的当前版本，并重新启动 `node autorun.mjs`。已经启动的 Node 进程不会加载后续代码修改；失败批次可以保留用于排查，重新运行会创建新的批次目录。
+如果仍出现该错误，请确认使用的是包含 `src/shared/sandbox-copy.mjs` 的当前版本，并重新启动 `node autorun.mjs`。已经启动的 Node 进程不会加载后续代码修改；失败批次可以保留用于排查，重新运行会创建新的批次目录。
 
 ### Agent 长时间没有结束
 

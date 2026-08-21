@@ -1,0 +1,50 @@
+{
+  "name": "multi-device-autorun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/runner",
+    "packages/whitebox-evaluation"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "autorun": "node autorun.mjs",
+    "build": "npm run build:runner && npm run build:whitebox",
+    "build:runner": "npm run build --workspace harmonyos-ohostest-runner",
+    "build:whitebox": "npm run build --workspace multi-device-whitebox-evaluation",
+    "ohostest:case": "node --import tsx packages/runner/scripts/runOhosTestCase.ts",
+    "ohostest:matrix": "node --import tsx packages/runner/scripts/runOhosTestMatrix.ts",
+    "deploy:fold": "node --import tsx packages/runner/scripts/deployFoldTrigger.ts",
+    "test": "npm run test --workspace harmonyos-ohostest-runner",
+    "test:python": "npm run test:python --workspace harmonyos-ohostest-runner",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present"
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.40",
+    "@langchain/langgraph": "^1.2.8",
+    "ajv": "^8.18.0",
+    "arkanalyzer": "^1.0.90",
+    "dotenv": "^17.4.2",
+    "ignore": "^7.0.6",
+    "js-yaml": "^4.1.1",
+    "pino": "^10.0.0",
+    "yauzl": "^3.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.6.0",
+    "@types/yauzl": "^2.10.3",
+    "eslint": "^10.6.0",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.62.1"
+  }
+}

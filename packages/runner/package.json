@@ -1,0 +1,17 @@
+{
+  "name": "harmonyos-ohostest-runner",
+  "version": "0.1.10",
+  "private": true,
+  "type": "module",
+  "description": "Standalone HarmonyOS ohosTest matrix runner.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "ohostest:case": "node --import tsx scripts/runOhosTestCase.ts",
+    "ohostest:matrix": "node --import tsx scripts/runOhosTestMatrix.ts",
+    "lint": "eslint .",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:python": "node --import tsx scripts/runPythonTests.ts",
+    "format": "prettier --write \"src/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" \"*.json\"",
+    "deploy:fold": "node --import tsx scripts/deployFoldTrigger.ts"
+  }
+}

@@ -7,27 +7,28 @@ import { randomUUID } from "node:crypto";
 import { createConnection, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { OpenCodeClient } from "./src/lib/opencode-client.mjs";
-import { runMonitoredSession } from "./src/lib/session-monitor.mjs";
-import { copyProject } from "./src/lib/sandbox-copy.mjs";
-import { ConsoleReporter } from "./src/lib/console-reporter.mjs";
-import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/lib/token-usage.mjs";
-import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/lib/compile-usage.mjs";
-import { loadOhosTestConfig, runOhosTest } from "./src/lib/ohostest-orchestrator.mjs";
-import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling } from "./src/lib/cloudtest-orchestrator.mjs";
-import { writeBatchReport } from "./src/lib/batch-report.mjs";
-import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
-import { mergeOverview } from "./src/lib/merge-overview.mjs";
+import { DEFAULT_OPENCODE_SERVER_URL } from "./src/runtime/opencode-defaults.mjs";
+import { OpenCodeClient } from "./src/agent/opencode-client.mjs";
+import { runMonitoredSession } from "./src/agent/session-monitor.mjs";
+import { copyProject } from "./src/shared/sandbox-copy.mjs";
+import { ConsoleReporter } from "./src/console/console-reporter.mjs";
+import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/agent/token-usage.mjs";
+import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/agent/compile-usage.mjs";
+import { loadOhosTestConfig, runOhosTest } from "./src/validation/ohostest-orchestrator.mjs";
+import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling } from "./src/validation/cloudtest/cloudtest-orchestrator.mjs";
+import { writeBatchReport } from "./src/reporting/batch-report.mjs";
+import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/agent/opencode-installation.mjs";
+import { mergeOverview } from "./src/reporting/merge-overview.mjs";
 import {
   filterGeneratedArtifactPatch,
   GENERATED_ARTIFACT_GIT_EXCLUDES,
   pruneGeneratedArtifacts,
-} from "./src/lib/generated-artifact-filter.mjs";
+} from "./src/shared/generated-artifact-filter.mjs";
 import {
   createWhiteboxOrchestrator,
   normalizeWhiteboxConfig,
   prepareWhiteboxInput,
-} from "./src/lib/whitebox-orchestrator.mjs";
+} from "./src/validation/whitebox-orchestrator.mjs";
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
@@ -181,6 +182,7 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
     mode: String(source.mode || "").trim(),
     root: resolveFrom(baseDir, source.root || ""),
   };
+  normalized.server.url = String(normalized.server.url || DEFAULT_OPENCODE_SERVER_URL).trim();
   normalized.server.loadAgents = Array.isArray(normalized.server.loadAgents)
     ? normalized.server.loadAgents.map((a) => String(a).trim()).filter(Boolean)
     : [];
@@ -1571,6 +1573,9 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
     taskName: cloudResult.task?.taskName || "",
     error: cloudResult.error || "",
     outputDir: cloudResult.outputDir || "",
+    reportPath: cloudResult.report?.htmlPath || "",
+    summary: cloudResult.report?.summary || null,
+    elapsedSec: cloudResult.elapsedSec || 0,
   };
   const current = await readJson(resultPath) || caseResult;
   // ohostest/agent 已失败的用例保持原状态；"running" 表示尚无后置阶段定级，
@@ -1598,7 +1603,6 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
     updatedAt: new Date().toISOString(),
   });
   await store.setCase(caseName, { status, stage: status, error: final.error, finishedAt: final.finishedAt, cloudTest: cloud });
-  await appendCaseLog(path.join(caseRunDir, "execution.jsonl"), status === "completed" ? "info" : "error", "cloudtest_finished", cloud);
   if (!deferFinish) reporter.caseFinished(final);
   return final;
 }
@@ -2129,7 +2133,7 @@ if (args.merge !== undefined) {
 // TODO(用户要求保留调试)：云测试已接入主批次流程（cloudTest.enabled 默认 true），
 // 此独立指令仅作调试用途，待确认稳定后删除（连同 --poll-task 一并评估）。
 if (args.cloudTest) {
-  const { runCloudTest } = await import("./src/lib/cloudtest-orchestrator.mjs");
+  const { runCloudTest } = await import("./src/validation/cloudtest/cloudtest-orchestrator.mjs");
   let projectDir = args.cloudProjectDir ? path.resolve(args.cloudProjectDir) : "";
   if (args.retryCaseName) {
     const caseRoot = path.join(config.execution.casesRoot, args.retryCaseName);
@@ -2177,7 +2181,7 @@ if (args.cloudTest) {
 
 // --poll-task 模式：不构建、不提交，仅续查已提交云测试任务的状态，短路退出。
 if (args.pollTask) {
-  const { pollExistingTask } = await import("./src/lib/cloudtest-orchestrator.mjs");
+  const { pollExistingTask } = await import("./src/validation/cloudtest/cloudtest-orchestrator.mjs");
   const pollShutdown = new AbortController();
   const onPollInterrupt = (signame) => {
     if (pollShutdown.signal.aborted) return;
