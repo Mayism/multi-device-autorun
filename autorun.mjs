@@ -521,11 +521,12 @@ async function stopOwnedServer(server, { log = console.log } = {}) {
   }
 }
 
+// 批次 ID = 批次启动时间戳（YYYYMMDDHHmmss），批次目录按 <opencodeSource.mode>/<批次ID> 分层。
+// 同秒冲突时由 runBatch 在分配目录时追加序号保证唯一。
 function batchId() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
-  const time = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return `${time}_${randomUUID().slice(0, 8)}`;
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
 function safeName(value) {
@@ -593,19 +594,32 @@ async function readJson(filePath) {
 }
 
 async function loadRetryPlan(outputRoot, batchId, requestedCaseName = "") {
-  const normalizedBatchId = String(batchId || "").trim();
+  const normalizedBatchId = String(batchId || "").trim().replace(/[\\/]+/g, "/").replace(/\/+$/, "");
   const resolvedOutputRoot = path.resolve(outputRoot);
-  const sourceBatchRoot = path.resolve(resolvedOutputRoot, normalizedBatchId);
-  const relativeBatchPath = path.relative(resolvedOutputRoot, sourceBatchRoot);
-  if (
-    !normalizedBatchId
-    || path.basename(normalizedBatchId) !== normalizedBatchId
-    || !relativeBatchPath
-    || path.isAbsolute(relativeBatchPath)
-    || relativeBatchPath === ".."
-    || relativeBatchPath.startsWith(`..${path.sep}`)
-  ) {
+  const relativeFor = (relative) => path.relative(resolvedOutputRoot, path.resolve(resolvedOutputRoot, relative));
+  const isValidBatchRef = (relative) => {
+    const relativeBatchPath = relativeFor(relative);
+    return Boolean(relative)
+      && !path.isAbsolute(relativeBatchPath)
+      && Boolean(relativeBatchPath)
+      && relativeBatchPath !== ".."
+      && !relativeBatchPath.startsWith(`..${path.sep}`)
+      && relativeBatchPath.split(path.sep).length <= 2;
+  };
+  if (!normalizedBatchId || !isValidBatchRef(normalizedBatchId)) {
     throw new Error(`无效的重试批次 ID: ${batchId || "<empty>"}`);
+  }
+
+  let sourceBatchRoot = path.resolve(resolvedOutputRoot, normalizedBatchId);
+  if (!await exists(path.join(sourceBatchRoot, "batch.json")) && !normalizedBatchId.includes("/")) {
+    // 允许省略模式目录前缀：在 <opencodeSource.mode>/<批次时间戳> 分层下按批次名查找
+    const matches = [];
+    for (const entry of await fs.readdir(resolvedOutputRoot, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(resolvedOutputRoot, entry.name, normalizedBatchId);
+      if (await exists(path.join(candidate, "batch.json"))) matches.push(candidate);
+    }
+    if (matches.length === 1) sourceBatchRoot = matches[0];
   }
 
   const batch = await readJson(path.join(sourceBatchRoot, "batch.json"));
@@ -687,10 +701,23 @@ function isProcessAlive(pid) {
 async function recoverInterruptedRuns(outputRoot) {
   if (!await exists(outputRoot)) return [];
   const recovered = [];
-  const entries = await fs.readdir(outputRoot, { withFileTypes: true });
-  for (const entry of entries) {
+  // 收集遗留批次目录：兼容旧版扁平 <批次> 与新版分层 <opencodeSource.mode>/<批次> 两种布局
+  const batchDirs = [];
+  const topEntries = await fs.readdir(outputRoot, { withFileTypes: true });
+  for (const entry of topEntries) {
     if (!entry.isDirectory()) continue;
-    const batchRoot = path.join(outputRoot, entry.name);
+    const entryRoot = path.join(outputRoot, entry.name);
+    if (await exists(path.join(entryRoot, "batch.json"))) {
+      batchDirs.push(entryRoot);
+      continue;
+    }
+    for (const nested of await fs.readdir(entryRoot, { withFileTypes: true }).catch(() => [])) {
+      if (!nested.isDirectory()) continue;
+      const nestedRoot = path.join(entryRoot, nested.name);
+      if (await exists(path.join(nestedRoot, "batch.json"))) batchDirs.push(nestedRoot);
+    }
+  }
+  for (const batchRoot of batchDirs) {
     const batchPath = path.join(batchRoot, "batch.json");
     const batch = await readJson(batchPath);
     if (!batch || batch.status !== "running" || !batch.cases || typeof batch.cases !== "object") continue;
@@ -775,7 +802,7 @@ async function recoverInterruptedRuns(outputRoot) {
     const agentCompile = addCompileUsage(...results.map((item) => item.agentCompile));
     const representativeResult = results.find((item) => item?.agent || item?.modelId || item?.providerId);
     const summary = {
-      batchId: batch.batchId || entry.name,
+      batchId: batch.batchId || path.basename(batchRoot),
       status: "interrupted",
       finishedAt: recoveredAt,
       recoveredAt,
@@ -804,7 +831,7 @@ async function recoverInterruptedRuns(outputRoot) {
     }
     await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
     await atomicWriteJson(batchPath, batch);
-    recovered.push({ batchId: batch.batchId || entry.name, batchRoot });
+    recovered.push({ batchId: batch.batchId || path.basename(batchRoot), batchRoot });
   }
   return recovered;
 }
@@ -1715,9 +1742,16 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   }
   if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest, whiteboxEvaluation: whiteboxConfig };
 
-  const id = batchId();
-  const batchRoot = path.join(execution.outputRoot, id);
-  await fs.mkdir(batchRoot, { recursive: true });
+  // 分配批次目录：<outputRoot>/<opencodeSource.mode>/<批次时间戳>；同秒冲突时追加序号
+  const modeRoot = path.join(execution.outputRoot, safeName(sourceMode || "default"));
+  await fs.mkdir(modeRoot, { recursive: true });
+  const baseId = batchId();
+  let id = baseId;
+  for (let attempt = 2; await exists(path.join(modeRoot, id)); attempt += 1) {
+    id = `${baseId}-${attempt}`;
+  }
+  const batchRoot = path.join(modeRoot, id);
+  await fs.mkdir(batchRoot);
   const state = {
     batchId: id,
     status: "running",

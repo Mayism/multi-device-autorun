@@ -216,7 +216,7 @@ npm --prefix whitebox-evaluation run build
 
 ### Windows/Hvigor 输出路径建议
 
-Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
+Autorun 会在 `outputRoot/<opencodeSource.mode>/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
 
 ```json
 {
@@ -227,7 +227,7 @@ Autorun 会在 `outputRoot/<batchId>/<caseName>/<base|task>` 下创建实际参�
 }
 ```
 
-修改后，批次报告和详细结果也会写入 `D:/out/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
+修改后，批次报告和详细结果也会写入 `D:/out/<opencodeSource.mode>/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
 ohosTest 不会在 `.ohostest-runs/<runId>` 下编译工程，而是将 Agent 输出的 `base/task`
 复制到同一用例目录下的浅层临时目录，应用隐藏测试 patch 后在该目录构建。报告仍写入
@@ -283,16 +283,16 @@ node autorun.mjs --config ./config/another.config.json
 
 ### 3. 重试失败用例
 
-重试历史批次中所有失败、中断或未执行的用例：
+重试历史批次中所有失败、中断或未执行的用例（新布局传 `<mode>/<batchId>`，如 `harmonyBot/20260821114859`；只传 `batchId` 时会在各模式目录下自动查找，旧版扁平批次 ID 仍然可用）：
 
 ```bash
-node autorun.mjs --retry 20260810_095119_d87e1ad0
+node autorun.mjs --retry harmonyBot/20260821114859
 ```
 
 只重试该批次中的某一个用例：
 
 ```bash
-node autorun.mjs --retry 20260810_095119_d87e1ad0 --case CaseAtomic
+node autorun.mjs --retry harmonyBot/20260821114859 --case CaseAtomic
 ```
 
 重试会创建一个新批次，不覆盖原批次。若历史结果中 Agent 已成功且工程、`changes.patch` 仍然存在，则复用 Agent 结果并只重新执行 ohosTest；Agent 未成功或历史产物已不存在时会重新执行 Agent，成功后再进入 ohosTest。显式指定 `--case` 时允许重试已成功用例，此时同样优先复用成功的 Agent 结果，只重新执行 ohosTest。
@@ -434,10 +434,10 @@ Agent 的实际提示词会追加工作目录隔离要求，禁止枚举或读�
 
 ## 运行结果
 
-每次正式执行会创建独立批次目录：
+每次正式执行会创建独立批次目录，按 `server.opencodeSource.mode`（如 `harmonyBot`）分层，`batchId` 为批次启动时间戳（`YYYYMMDDHHmmss`，同秒冲突时自动追加序号）：
 
 ```text
-output/<batchId>/
+output/<opencodeSource.mode>/<batchId>/
 ├── batch.json                 # 当前批次和所有用例状态
 ├── summary.json               # 批次最终汇总
 ├── report.json                # Agent 与 ohosTest 指标明细

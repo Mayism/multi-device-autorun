@@ -158,17 +158,30 @@ export function mergeOverview({ root, outputName = "overview.html", outputSubdir
   const OUT_OVERVIEW = path.join(ROOT, outputName);
   const OUT_SUBPAGE = path.join(ROOT, outputSubdir);
 
-  // ---- 1. 发现批次目录 ----
-  const batches = fs
-    .readdirSync(ROOT, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && exists(path.join(ROOT, d.name, "overview.html")))
-    .map((d) => d.name)
-    .sort();
+  // ---- 1. 发现批次目录（兼容扁平 <批次> 与分层 <opencodeSource.mode>/<批次> 两种布局）----
+  // label 用于 subpage 文件前缀，分层批次的 label 为 <mode>__<批次>（避免路径分隔符进入文件名/链接）
+  const batches = [];
+  const collect = (dir, labelOf) => {
+    for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!d.isDirectory()) continue;
+      if (exists(path.join(dir, d.name, "overview.html"))) {
+        batches.push({ label: labelOf(d.name), dir: path.join(dir, d.name) });
+      }
+    }
+  };
+  collect(ROOT, (name) => name);
+  for (const d of fs.readdirSync(ROOT, { withFileTypes: true })) {
+    if (!d.isDirectory()) continue;
+    const nestedRoot = path.join(ROOT, d.name);
+    if (exists(path.join(nestedRoot, "overview.html"))) continue; // 已作为扁平批次收录
+    collect(nestedRoot, (name) => `${d.name}__${name}`);
+  }
+  batches.sort((a, b) => a.label.localeCompare(b.label));
 
   if (batches.length === 0) {
     throw new Error(`在 ${ROOT} 下未找到任何包含 overview.html 的结果目录`);
   }
-  console.log(`发现 ${batches.length} 个结果目录：${batches.join("、")}`);
+  console.log(`发现 ${batches.length} 个结果目录：${batches.map((b) => b.label).join("、")}`);
 
   // ---- 2. 清理旧产物 ----
   fs.rmSync(OUT_OVERVIEW, { force: true });
@@ -176,12 +189,12 @@ export function mergeOverview({ root, outputName = "overview.html", outputSubdir
   fs.mkdirSync(OUT_SUBPAGE, { recursive: true });
 
   // ---- 3. 从【首个批次】提取页面骨架（head/title/style/h1/h2/legend 原样复用）----
-  const firstHtml = read(path.join(ROOT, batches[0], "overview.html"));
+  const firstHtml = read(path.join(batches[0].dir, "overview.html"));
 
   // head 整段：从文档开头到 </head>（含 DOCTYPE、meta、title、style），原样复用
   const headEnd = firstHtml.indexOf("</head>");
   if (headEnd < 0) {
-    throw new Error(`首批次 ${batches[0]}/overview.html 未找到 </head>，无法提取页面骨架`);
+    throw new Error(`首批次 ${batches[0].label}/overview.html 未找到 </head>，无法提取页面骨架`);
   }
   const headBlock = firstHtml.slice(0, headEnd + "</head>".length);
 
@@ -212,18 +225,18 @@ export function mergeOverview({ root, outputName = "overview.html", outputSubdir
   let copiedFiles = 0;
 
   for (const batch of batches) {
-    const html = batch === batches[0] ? firstHtml : read(path.join(ROOT, batch, "overview.html"));
+    const html = batch === batches[0] ? firstHtml : read(path.join(batch.dir, "overview.html"));
 
     // 表头：取首批次；不一致仅告警（列对齐可能错位），缺失则跳过该批表格行
     const thead = html.match(theadRe)?.[1] ?? "";
     let skipRows = false;
     if (!thead) {
-      console.warn(`⚠️  目录 ${batch} 未找到 <thead>，跳过该目录的表格行与子页面`);
+      console.warn(`⚠️  目录 ${batch.label} 未找到 <thead>，跳过该目录的表格行与子页面`);
       skipRows = true;
     } else if (!baseThead) {
       baseThead = thead;
     } else if (thead.replace(/\s+/g, "") !== baseThead.replace(/\s+/g, "")) {
-      console.warn(`⚠️  目录 ${batch} 表头与首个目录不一致，行仍会拼接（列对齐可能错位）`);
+      console.warn(`⚠️  目录 ${batch.label} 表头与首个目录不一致，行仍会拼接（列对齐可能错位）`);
     }
 
     // 卡片：按 key 归集原始 value（含 HTML），缺字段的目录自然不参与该 key
@@ -240,24 +253,24 @@ export function mergeOverview({ root, outputName = "overview.html", outputSubdir
     const tbodyMatch = html.match(tbodyRe);
     if (tbodyMatch) {
       for (const rm of tbodyMatch[1].matchAll(rowRe)) {
-        const inner = rm[1].replace(/\bsubpage\//g, `subpage/${batch}__`);
+        const inner = rm[1].replace(/\bsubpage\//g, `subpage/${batch.label}__`);
         allRows.push(`<tr>${inner}</tr>`);
       }
     } else {
-      console.warn(`⚠️  目录 ${batch} 未找到 <tbody>，无表格行可合并`);
+      console.warn(`⚠️  目录 ${batch.label} 未找到 <tbody>，无表格行可合并`);
     }
 
     // 拷贝 subpage 文件（前缀隔离）
-    const subSrc = path.join(ROOT, batch, "subpage");
+    const subSrc = path.join(batch.dir, "subpage");
     if (exists(subSrc) && fs.statSync(subSrc).isDirectory()) {
       for (const f of fs.readdirSync(subSrc)) {
         const srcFile = path.join(subSrc, f);
         if (!fs.statSync(srcFile).isFile()) continue;
-        fs.copyFileSync(srcFile, path.join(OUT_SUBPAGE, `${batch}__${f}`));
+        fs.copyFileSync(srcFile, path.join(OUT_SUBPAGE, `${batch.label}__${f}`));
         copiedFiles += 1;
       }
     } else {
-      console.warn(`⚠️  目录 ${batch} 没有 subpage/ 目录`);
+      console.warn(`⚠️  目录 ${batch.label} 没有 subpage/ 目录`);
     }
   }
 
