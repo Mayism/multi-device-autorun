@@ -1,5 +1,4 @@
 output/
-config/autorun.config.json
 runner/node_modules/
 runner/dist/
 whitebox-evaluation/node_modules/
