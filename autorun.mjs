@@ -534,7 +534,7 @@ async function stopOwnedServer(server, { log = console.log } = {}) {
   }
 }
 
-// 批次 ID = 批次启动时间戳（YYYYMMDDHHmmss），批次目录按 <opencodeSource.mode>/<批次ID> 分层。
+// 批次 ID = 批次启动时间戳（YYYYMMDDHHmmss），批次目录按 <分层目录名>/<批次ID> 分层。
 // 同秒冲突时由 runBatch 在分配目录时追加序号保证唯一。
 function batchId() {
   const d = new Date();
@@ -544,6 +544,15 @@ function batchId() {
 
 function safeName(value) {
   return String(value || "case").replace(/[^0-9A-Za-z._-]+/g, "_").slice(0, 120) || "case";
+}
+
+// 批次分层目录名默认等于 opencodeSource.mode；softwareEngineering 模式按来源 skills
+// 目录是否有内容区分：有内容 → softwareEngineering（含 Skills），无内容 → baseModel（纯基座模型）。
+async function resolveBatchModeDirectoryName(source) {
+  if (source?.mode !== OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) return source?.mode || "default";
+  const resolved = await resolveOpenCodeSource(source);
+  const entries = await fs.readdir(path.join(resolved.resourcesDir, "skills")).catch(() => []);
+  return entries.length ? OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING : "baseModel";
 }
 
 async function exists(target) {
@@ -1765,8 +1774,13 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   }
   if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest, whiteboxEvaluation: whiteboxConfig };
 
-  // 分配批次目录：<outputRoot>/<opencodeSource.mode>/<批次时间戳>；同秒冲突时追加序号
-  const modeRoot = path.join(execution.outputRoot, safeName(sourceMode || "default"));
+  // 分配批次目录：<outputRoot>/<分层目录名>/<批次时间戳>；同秒冲突时追加序号。
+  // softwareEngineering 无 skills 时分层目录名为 baseModel，见 resolveBatchModeDirectoryName。
+  const modeDirectoryName = await resolveBatchModeDirectoryName(config.server.opencodeSource);
+  if (sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
+    console.log(`[check] softwareEngineering 来源 skills 目录${modeDirectoryName === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING ? "有内容" : "为空"}，批次目录分层: ${modeDirectoryName}`);
+  }
+  const modeRoot = path.join(execution.outputRoot, safeName(modeDirectoryName));
   await fs.mkdir(modeRoot, { recursive: true });
   const baseId = batchId();
   let id = baseId;

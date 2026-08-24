@@ -19,8 +19,9 @@
 //
 // 运行时路径对齐 src/shared/harmonybotOpencodeRuntimeEnv.ts（host=vscode，无
 // worker）与 src/shared/harmonybotRunLog.ts。
-// OPENCODE_CONFIG_DIR 指向 Autorun 生成的运行时配置副本；来源中的
-// plugin/skills/provider 通过目录链接复用，权限由最后加载的 Autorun Plugin
+// OPENCODE_CONFIG_DIR 指向 Autorun 生成的运行时配置副本（按来源路径隔离为
+// config-autorun-<来源哈希>）；来源中的 plugin/skills/provider 通过目录链接复用，
+// 链接目标与当前来源不一致时自动重建；权限由最后加载的 Autorun Plugin
 // 强制覆盖为 allow。auth / DB、状态和缓存仍落运行时目录。
 //
 // 可调参数（CLI 优先于环境变量）：
@@ -38,8 +39,8 @@
 
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readlinkSync, unlinkSync, writeFileSync, symlinkSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -288,7 +289,13 @@ for (const d of [
 // ─── 生成 Autorun 专用配置 ─────────────────────────────────────
 // 不修改来源包；始终生成运行时副本并强制所有全局及 Agent 权限为 allow。
 // loadAgents 非空时同时只保留指定 Agent。skills/plugin/provider 仍链接来源目录。
-const effectiveConfigDir = path.join(opencodeHostRoot, 'config-autorun');
+// 运行时配置目录按来源路径隔离（config-autorun-<来源哈希>）：切换
+// harmonyBot / softwareEngineering 来源或扩展升级后各自使用独立目录，互不污染。
+const sourceKey = createHash('sha256')
+  .update(process.platform === 'win32' ? bundledConfigDir.toLowerCase() : bundledConfigDir)
+  .digest('hex')
+  .slice(0, 10);
+const effectiveConfigDir = path.join(opencodeHostRoot, `config-autorun-${sourceKey}`);
 mkdirSync(effectiveConfigDir, { recursive: true });
 const loadAgents = opts.loadAgents
   ? opts.loadAgents.split(',').map((s) => s.trim()).filter(Boolean)
@@ -313,12 +320,32 @@ if (forced.missingAgents.length) {
 for (const name of ['skills', 'plugin', 'provider']) {
   const src = path.join(bundledConfigDir, name);
   const dst = path.join(effectiveConfigDir, name);
-  if (existsSync(src) && !existsSync(dst)) {
+  if (!existsSync(src)) continue;
+  if (existsSync(dst)) {
+    // 链接目标与当前来源不一致时重建，防止切换来源后沿用旧链接
+    //（如 skills 仍指向另一来源，导致 Skill 列表与插件/Agent 不匹配）。
+    let linked = '';
     try {
-      symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
+      linked = path.resolve(path.dirname(dst), readlinkSync(dst));
     } catch {
-      // 链接失败不阻断；OpenCode 会按缺省策略处理。
+      // dst 不是链接（真实目录）时保持原行为不动。
     }
+    const sameTarget = process.platform === 'win32'
+      ? linked.toLowerCase() === src.toLowerCase()
+      : linked === src;
+    if (!linked || sameTarget) continue;
+    out(`[run] 链接 ${name} 指向 ${linked} 与当前来源不一致，重建为 ${src}`);
+    try {
+      unlinkSync(dst);
+    } catch {
+      // 删除失败不阻断；保留现状由 OpenCode 按缺省策略处理。
+      continue;
+    }
+  }
+  try {
+    symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch {
+    // 链接失败不阻断；OpenCode 会按缺省策略处理。
   }
 }
 

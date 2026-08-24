@@ -216,7 +216,7 @@ npm --prefix whitebox-evaluation run build
 
 ### Windows/Hvigor 输出路径建议
 
-Autorun 会在 `outputRoot/<opencodeSource.mode>/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
+Autorun 会在 `outputRoot/<分层目录名>/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。分层目录名默认为 `opencodeSource.mode`（如 `harmonyBot`）；`softwareEngineering` 模式下会检查来源 `resources/opencode/skills` 目录，有内容时分层为 `softwareEngineering`，为空时分层为 `baseModel`（纯基座模型，不带 Skills）。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
 
 ```json
 {
@@ -434,10 +434,10 @@ Agent 的实际提示词会追加无人值守确认和工作目录隔离要求�
 
 ## 运行结果
 
-每次正式执行会创建独立批次目录，按 `server.opencodeSource.mode`（如 `harmonyBot`）分层，`batchId` 为批次启动时间戳（`YYYYMMDDHHmmss`，同秒冲突时自动追加序号）：
+每次正式执行会创建独立批次目录，按分层目录名分层，`batchId` 为批次启动时间戳（`YYYYMMDDHHmmss`，同秒冲突时自动追加序号）。分层目录名默认为 `server.opencodeSource.mode`（如 `harmonyBot`）；`softwareEngineering` 模式下会检查来源 `resources/opencode/skills` 目录是否有内容，有内容时分层为 `softwareEngineering`，为空时分层为 `baseModel`：
 
 ```text
-output/<opencodeSource.mode>/<batchId>/
+output/<分层目录名>/<batchId>/
 ├── batch.json                 # 当前批次和所有用例状态
 ├── summary.json               # 批次最终汇总
 ├── report.json                # Agent 与 ohosTest 指标明细
@@ -545,7 +545,7 @@ node autorun.mjs --check
 
 `harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项；如果插件或 Skill 的运行时路径失效，会直接报错而不再静默执行。
 
-自动启动 Server 时，Autorun 会复制来源 `opencode.json` 到运行时配置目录，强制全局及 Agent 权限为 `allow`，并链接来源中的 Skill、Plugin 和 Provider。已运行的 Server 只有在有效权限同样为全部允许时才会复用，否则 Autorun 会自动选择其他端口启动专用 Server。
+自动启动 Server 时，Autorun 会复制来源 `opencode.json` 到运行时配置目录，强制全局及 Agent 权限为 `allow`，并链接来源中的 Skill、Plugin 和 Provider。运行时配置目录按来源路径隔离（`_runtime/opencode/config-autorun-<来源哈希>`），且链接目标与当前来源不一致时会自动重建，切换来源或扩展版本后不会互相污染。已运行的 Server 只有在有效权限同样为全部允许时才会复用，否则 Autorun 会自动选择其他端口启动专用 Server。
 
 ### 提示 Server 未强制全部权限 allow
 
