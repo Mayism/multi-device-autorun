@@ -1,0 +1,406 @@
+diff --git a/products/default/src/ohosTest/ets/test/Ability.test.ets b/products/default/src/ohosTest/ets/test/Ability.test.ets
+new file mode 100644
+index 0000000..85c78f6
+--- /dev/null
++++ b/products/default/src/ohosTest/ets/test/Ability.test.ets
+@@ -0,0 +1,35 @@
++import { hilog } from '@kit.PerformanceAnalysisKit';
++import { describe, beforeAll, beforeEach, afterEach, afterAll, it, expect } from '@ohos/hypium';
++
++export default function abilityTest() {
++  describe('ActsAbilityTest', () => {
++    // Defines a test suite. Two parameters are supported: test suite name and test suite function.
++    beforeAll(() => {
++      // Presets an action, which is performed only once before all test cases of the test suite start.
++      // This API supports only one parameter: preset action function.
++    })
++    beforeEach(() => {
++      // Presets an action, which is performed before each unit test case starts.
++      // The number of execution times is the same as the number of test cases defined by **it**.
++      // This API supports only one parameter: preset action function.
++    })
++    afterEach(() => {
++      // Presets a clear action, which is performed after each unit test case ends.
++      // The number of execution times is the same as the number of test cases defined by **it**.
++      // This API supports only one parameter: clear action function.
++    })
++    afterAll(() => {
++      // Presets a clear action, which is performed after all test cases of the test suite end.
++      // This API supports only one parameter: clear action function.
++    })
++    it('assertContain', 0, () => {
++      // Defines a test case. This API supports three parameters: test case name, filter parameter, and test case function.
++      hilog.info(0x0000, 'testTag', '%{public}s', 'it begin');
++      let a = 'abc';
++      let b = 'b';
++      // Defines a variety of assertion methods, which are used to declare expected boolean conditions.
++      expect(a).assertContain(b);
++      expect(a).assertEqual(a);
++    })
++  })
++}
+\ No newline at end of file
+diff --git a/products/default/src/ohosTest/ets/test/FullScreenHideBarFailToPassTest.test.ets b/products/default/src/ohosTest/ets/test/FullScreenHideBarFailToPassTest.test.ets
+new file mode 100644
+index 0000000..4c95225
+--- /dev/null
++++ b/products/default/src/ohosTest/ets/test/FullScreenHideBarFailToPassTest.test.ets
+@@ -0,0 +1,83 @@
++import { describe, it, expect, Level, beforeEach, afterEach } from '@ohos/hypium';
++import { Driver, ON } from '@kit.TestKit';
++import {
++  startAbility, getMainWindow, getStatusBarRect, getNavBarRect,
++  getComponentRectInfoById, getScreenHeight, getBundleName,
++  CustomRect, ComponentRectInfo
++} from './TestHelper';
++import { window } from '@kit.ArkUI';
++
++// 进入「避让区隐藏」页面：点击启动页中 id 为 FullScreen 的入口
++async function enterFullScreenPage(driver: Driver): Promise<void> {
++  await driver.waitForComponent(ON.type('Navigation'), 5000);
++  await (await driver.findComponent(ON.id('FullScreen'))).click();
++  // 等待 NavDestination 入场 + setWindowSystemBarEnable([]) 生效
++  await driver.delayMs(1500);
++}
++
++export default function fullScreenHideBarFailToPassTest() {
++  describe('fullScreenHideBarFailToPassTest', () => {
++    let driver: Driver;
++    let win: window.Window;
++
++    beforeEach(async () => {
++      try {
++        driver = Driver.create();
++        await startAbility(driver, getBundleName(), 'EntryAbility');
++        await driver.delayMs(2000);
++        win = await getMainWindow();
++      } catch (e) {
++        console.error('fullScreenHideBarFailToPassTest beforeEach error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterEach(async () => {
++      try {
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++      } catch (e) {
++        console.error('fullScreenHideBarFailToPassTest afterEach error: ' + JSON.stringify(e));
++      }
++    });
++
++    it('should_hide_status_bar', Level.LEVEL2, async (done: Function) => {
++      await enterFullScreenPage(driver);
++
++      // 状态栏隐藏后，TYPE_SYSTEM 顶部避让区高度应为 0
++      const statusBarRect: CustomRect = getStatusBarRect(win);
++      try {
++        expect(statusBarRect.height).assertEqual(0);
++      } catch (e) {
++        console.error('fullScreenHideBarFailToPassTest should_hide_status_bar error: ' + JSON.stringify(e));
++      }
++      done();
++    });
++
++    it('should_hide_nav_bar', Level.LEVEL2, async (done: Function) => {
++      await enterFullScreenPage(driver);
++
++      // 导航条隐藏后，TYPE_NAVIGATION_INDICATOR 底部避让区高度应为 0
++      const navBarRect: CustomRect = getNavBarRect(win);
++      try {
++        expect(navBarRect.height).assertEqual(0);
++      } catch (e) {
++        console.error('fullScreenHideBarFailToPassTest should_hide_nav_bar error: ' + JSON.stringify(e));
++      }
++      done();
++    });
++
++    it('should_content_fill_full_screen', Level.LEVEL2, async (done: Function) => {
++      await enterFullScreenPage(driver);
++
++      // 避让区归零后，内容应从屏幕顶端铺满到底端
++      const colRect: ComponentRectInfo = getComponentRectInfoById(win, 'FullScreenColumn');
++      try {
++        expect(colRect.y).assertEqual(0);
++        expect(colRect.y + colRect.height).assertEqual(getScreenHeight());
++      } catch (e) {
++        console.error('fullScreenHideBarFailToPassTest should_content_fill_full_screen error: ' + JSON.stringify(e));
++      }
++      done();
++    });
++  });
++}
+diff --git a/products/default/src/ohosTest/ets/test/ImmersiveCommonPassToPass.test.ets b/products/default/src/ohosTest/ets/test/ImmersiveCommonPassToPass.test.ets
+new file mode 100644
+index 0000000..94a8c3d
+--- /dev/null
++++ b/products/default/src/ohosTest/ets/test/ImmersiveCommonPassToPass.test.ets
+@@ -0,0 +1,45 @@
++import { describe, it, expect, Level, beforeEach, afterEach } from '@ohos/hypium';
++import {  Driver, ON } from '@kit.TestKit';
++import {
++  startAbility, isSameNavBarColor, getMainWindow,
++  getNavBarRect,
++  CustomRect,
++  getBundleName,
++  getScreenHeight,
++} from './TestHelper';
++import {  window } from '@kit.ArkUI';
++
++export default function immersiveCommonPassToPassTest() {
++  describe('immersiveCommonPassToPassTest', () => {
++    let driver: Driver;
++    let win: window.Window;``
++
++    beforeEach(async () => {
++      try {
++        driver = Driver.create();
++        await startAbility(driver, getBundleName(), 'EntryAbility');
++        await driver.delayMs(2000);
++        win = await getMainWindow();
++      } catch (e) {
++        console.error('MineLikePageOrientationUI beforeAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    afterEach(async () => {
++      try {
++        await driver.waitForIdle(2000, 3000);
++        await driver.pressBack();
++      } catch (e) {
++        console.error('MineLikePageOrientationUI afterAll error: ' + JSON.stringify(e));
++      }
++    });
++
++    it('should_content_avoid_area_is_exist', Level.LEVEL2, async (done: Function) => {
++      await driver.waitForComponent(ON.type('Navigation'), 2000)
++
++      await driver.assertComponentExist(ON.text('避让区隐藏'));
++      done();
++    });
++  });
++}
++
+diff --git a/products/default/src/ohosTest/ets/test/List.test.ets b/products/default/src/ohosTest/ets/test/List.test.ets
+new file mode 100644
+index 0000000..fb83f21
+--- /dev/null
++++ b/products/default/src/ohosTest/ets/test/List.test.ets
+@@ -0,0 +1,9 @@
++import abilityTest from './Ability.test';
++import immersiveCommonPassToPassTest from './ImmersiveCommonPassToPass.test';
++import fullScreenHideBarFailToPassTest from './FullScreenHideBarFailToPassTest.test';
++
++export default function testsuite() {
++  abilityTest();
++  immersiveCommonPassToPassTest();
++  fullScreenHideBarFailToPassTest();
++}
+\ No newline at end of file
+diff --git a/products/default/src/ohosTest/ets/test/TestHelper.ets b/products/default/src/ohosTest/ets/test/TestHelper.ets
+new file mode 100644
+index 0000000..868543f
+--- /dev/null
++++ b/products/default/src/ohosTest/ets/test/TestHelper.ets
+@@ -0,0 +1,183 @@
++import { abilityDelegatorRegistry, Driver, ON, UiWindow, ResizeDirection } from '@kit.TestKit';
++import { Want } from '@kit.AbilityKit';
++import { fileIo } from '@kit.CoreFileKit';
++import { image } from '@kit.ImageKit';
++import { componentUtils, ComponentUtils, display, window} from '@kit.ArkUI';
++
++export const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++
++export async function startAbility(driver: Driver, bundleName: string, abilityName: string): Promise<void> {
++  try {
++    const want: Want = {
++      bundleName: bundleName,
++      abilityName: abilityName
++    };
++    await delegator.startAbility(want);
++    await driver.waitForIdle(3000, 5000);
++  } catch (e) {
++    console.error('TestHelper: Failed to start ability, error: ' + JSON.stringify(e));
++  }
++}
++
++export function toHex2(value: number): string {
++  return value.toString(16).padStart(2, '0');
++}
++
++export function pixelToARGB(pixels: Uint8Array, index: number): string {
++  let r = pixels[index]
++  let g = pixels[index + 1]
++  let b = pixels[index + 2]
++  let a = pixels[index + 3]
++  return `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`
++}
++
++export async function getScreenColor(driver: Driver): Promise<string> {
++
++  // 临时文件
++  let savePath = '/data/storage/el2/base/cache/screenshot.png';
++  // 截图
++  await driver.screenCapture(savePath);
++
++  // 读取文件
++  let file = fileIo.openSync(savePath, fileIo.OpenMode.READ_ONLY);
++  let fileSize = fileIo.statSync(savePath).size;
++  let buf = new ArrayBuffer(fileSize);
++  fileIo.readSync(file.fd, buf);
++  fileIo.closeSync(file);
++  // 转码PixelMap
++  let imageSource = image.createImageSource(buf);
++  let pixelMap = imageSource.createPixelMapSync();
++  let info = pixelMap.getImageInfoSync();
++  let width = info.size.width;
++  let height = info.size.height;
++
++  let pixelBuffer = new ArrayBuffer(width * height * 4);
++  pixelMap.readPixelsToBufferSync(pixelBuffer);
++
++  let pixels = new Uint8Array(pixelBuffer);
++  // 获取截图颜色的坐标点
++  let x = 1;
++  let y = 1;
++  let index = (y * width + x) * 4;
++  return pixelToARGB(pixels, index);
++}
++
++interface Rgba {
++  r: number;
++  g: number;
++  b: number;
++  a: number;
++}
++
++export async function readPixel(pixelMap: image.PixelMap, x: number, y: number): Promise<Rgba> {
++  const area: image.PositionArea = {
++    pixels: new ArrayBuffer(4),
++    offset: 0,
++    stride: 4,
++    region: {
++      x,
++      y,
++      size: { width: 1, height: 1 }
++    }
++  };
++
++  await pixelMap.readPixels(area);
++
++  // readPixels 读出来是 BGRA_8888
++  const data = new Uint8Array(area.pixels);
++  // console.log('#################', `#${toHex2(data[2])}${toHex2(data[1])}${toHex2(data[0])}`);
++  return {
++    b: data[0],
++    g: data[1],
++    r: data[2],
++    a: data[3]
++  };
++}
++
++export function colorNear(a: Rgba, b: Rgba, tolerance: number = 3): boolean {
++  return Math.abs(a.r - b.r) <= tolerance &&
++    Math.abs(a.g - b.g) <= tolerance &&
++    Math.abs(a.b - b.b) <= tolerance;
++}
++
++export async function isSameStatusBarColor(driver:Driver, statusHeight: number): Promise<boolean> {
++  // 3. 截图取像素做视觉断言
++  const screen = display.getDefaultDisplaySync();
++  const savePath = `/data/storage/el2/base/cache/screenshot.png`;
++
++  await driver.screenCap(savePath, screen.id);
++
++  const source = image.createImageSource(savePath);
++  const pixelMap = await source.createPixelMap();
++
++  const x = Math.floor(screen.width / 2);
++  const statusBarPixel = await readPixel(pixelMap, x, Math.floor(statusHeight - 1));
++  const mainWindowPixel = await readPixel(pixelMap, x, statusHeight + 1);
++
++  return colorNear(statusBarPixel, mainWindowPixel);
++}
++
++export async function isSameNavBarColor(driver: Driver, navBarHeight: number): Promise<boolean> {
++  const screen = display.getDefaultDisplaySync();
++
++  const savePath = `/data/storage/el2/base/cache/screenshot.png`;
++  await driver.screenCap(savePath, screen.id);
++
++  const source = image.createImageSource(savePath);
++  const pixelMap = await source.createPixelMap();
++
++  const x = Math.floor(screen.width / 2);
++  const statusBarPixel = await readPixel(pixelMap, x, navBarHeight + 1);
++  const mainWindowPixel = await readPixel(pixelMap, x, navBarHeight - 1);
++  return colorNear(statusBarPixel, mainWindowPixel);
++}
++
++export async function getMainWindow(): Promise<window.Window> {
++  let content = await (await delegator.getCurrentTopAbility()).context;
++  return content.windowStage.getMainWindow();
++}
++
++export interface ComponentRectInfo {
++  width: number;
++  height: number;
++  x: number;
++  y: number;
++}
++
++export function getComponentRectInfoById(win: window.Window, id: string): ComponentRectInfo {
++  const cu: ComponentUtils = win.getUIContext().getComponentUtils();
++  const info: componentUtils.ComponentInfo = cu.getRectangleById(id);
++
++  // console.log(`#############${id}`, JSON.stringify(info))
++  // #########info {"size":{"width":1200,"height":392},"localOffset":{"x":56,"y":0},"windowOffset":{"x":56,"y":136},"screenOffset":{"x":56,"y":136},"translate":{"x":0,"y":0,"z":0},"scale":{"x":1,"y":1,"z":1,"centerX":17142.85714285714,"centerY":5600},"rotate":{"x":0,"y":0,"z":0,"angle":0,"centerX":17142.85714285714,"centerY":5600},"transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]}
++  return {
++    width: info.size.width,
++    height: info.size.height,
++    x: info.windowOffset.x,
++    y: info.windowOffset.y,
++  }
++}
++
++export interface CustomRect {
++  left: number;
++  top: number;
++  width: number;
++  height: number;
++}
++
++export function getStatusBarRect (win: window.Window): CustomRect {
++  return win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect
++}
++
++export function getNavBarRect (win: window.Window): CustomRect  {
++  return win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR).bottomRect
++}
++
++export function getBundleName() {
++  return abilityDelegatorRegistry.getArguments().bundleName;
++}
++
++export function getScreenHeight() :number {
++  const screen = display.getDefaultDisplaySync();
++  return screen.height;
++}
+\ No newline at end of file
+diff --git a/products/default/src/ohosTest/module.json5 b/products/default/src/ohosTest/module.json5
+new file mode 100644
+index 0000000..df81af6
+--- /dev/null
++++ b/products/default/src/ohosTest/module.json5
+@@ -0,0 +1,12 @@
++{
++  "module": {
++    "name": "phone_test",
++    "type": "feature",
++    "deviceTypes": [
++      "phone",
++      "tablet"
++    ],
++    "deliveryWithInstall": true,
++    "installationFree": true
++  }
++}
