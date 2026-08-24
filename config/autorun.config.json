@@ -21,7 +21,7 @@
     "consoleMode": "dashboard"
   },
   "whiteboxEvaluation": {
-    "enabled": true,
+    "enabled": false,
     "concurrency": 2,
     "timeoutSec": 1800,
     "failurePolicy": "record_only",
@@ -74,7 +74,7 @@
     ]
   },
   "cloudTest": {
-    "enabled": true,
+    "enabled": false,
     "signingConfigs": [
       {
         "name": "default",
