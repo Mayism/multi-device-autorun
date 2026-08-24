@@ -1,9 +1,0 @@
-{
-  "routerMap": [
-    {
-      "name": "PrivacyPreview",
-      "pageSourceFile": "src/main/ets/views/PrivacyPreview.ets",
-      "buildFunction": "PrivacyPreviewBuilder"
-    }
-  ]
-}

@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "richeditor",
-    "type": "har",
-    "deviceTypes": [
-      "default"
-    ]
-  }
-}

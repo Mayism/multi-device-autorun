@@ -1,34 +1,53 @@
 {
   "server": {
+    "url": "http://127.0.0.1:61419",
     "opencodeSource": {
       "mode": "harmonyBot",
       "root": "C:/Users/HW/.vscode/extensions"
     },
     "devecoHome": "D:\\deveco\\DevEco Studio",
-    "node": "D:/deveco/DevEco Studio/tools/node/node.exe",
-    "sdkHome": "D:/deveco/DevEco Studio/sdk",
-    "javaHome": "D:/deveco/DevEco Studio/jbr",
-    "hvigorw": "D:/deveco/DevEco Studio/tools/hvigor/bin/hvigorw.bat",
-    "ohpm": "D:/deveco/DevEco Studio/tools/ohpm/bin/ohpm.bat"
+    "loadAgents": [],
+    "hvigorw": "hvigorw",
+    "ohpm": "ohpm",
+    "sdkHome": "",
+    "javaHome": ""
   },
   "execution": {
     "casesRoot": "D:\\cases",
     "agent": "harmonyos-multi-device",
     "model": "glm-5.2",
-    "concurrency": 3
+    "additionalPrompt": "",
+    "concurrency": 3,
+    "consoleMode": "dashboard"
   },
   "whiteboxEvaluation": {
     "enabled": true,
+    "concurrency": 2,
+    "timeoutSec": 1800,
+    "failurePolicy": "record_only",
     "judge": {
       "providerId": "zhipuai-token-plan",
-      "modelId": "glm-5.2"
+      "modelId": "glm-5.2",
+      "basePort": 62400
+    },
+    "prompt": {
+      "includeAdditionalPrompt": true
+    },
+    "officialLinter": {
+      "enabled": false
+    },
+    "hvigorBuildCheck": {
+      "enabled": false
     }
   },
   "ohosTest": {
     "paths": {
-      "hdc": "D:/deveco/DevEco Studio/sdk/default/openharmony/toolchains/hdc.exe",
+      "hvigorw": "hvigorw",
+      "ohpm": "ohpm",
+      "hdc": "hdc",
       "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
-      "emulatorDeployedDir": "D:/deveco/Images"
+      "emulatorDeployedDir": "D:/deveco/Images",
+      "foldServerScript": "../runner/src/fold/assets/fold-server.py"
     },
     "devices": [
       {
@@ -55,18 +74,19 @@
     ]
   },
   "cloudTest": {
+    "enabled": true,
     "signingConfigs": [
       {
         "name": "default",
         "type": "HarmonyOS",
         "material": {
-          "storeFile": "signing/test.p12",
+          "storeFile": "test.p12",
           "storePassword": "000000181A8B539CD0650B3527DA850C740266C90E126BB98421C8C2DAF5D4539E0EE3E4E7783094",
           "keyAlias": "yl",
           "keyPassword": "000000186D37D5170A8AC9F29A064233A677B96BA8AC225DA3B762A598A1C1A41A6F570312A9DEF7",
           "signAlg": "SHA256withECDSA",
-          "profile": "signing/test.p7b",
-          "certpath": "signing/test.cer"
+          "profile": "test.p7b",
+          "certpath": "test.cer"
         }
       }
     ],
@@ -79,6 +99,7 @@
         "timeSpan": 40
       }
     ],
+    "pollIntervalSec": 60,
     "taskTimeoutSec": 3600
   }
 }

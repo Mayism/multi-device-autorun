@@ -24,7 +24,7 @@
 // skills（以及启动所需的 bin/opencode.json）。auth / DB、状态和缓存仍落运行时目录。
 //
 // 可调参数（CLI 优先于环境变量）：
-//   --port, -p N           监听端口 (env: PORT, 默认 61419)
+//   --port, -p N           监听端口 (env: PORT, 默认 61417)
 //   --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)
 //   --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)
 //   --root, -r PATH        资源包根目录，读取其 resources/opencode
@@ -42,7 +42,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_OPENCODE_PORT } from './runtime/opencode-defaults.mjs';
 
 const HELP = [
   '用法: node src/run-opencode-serve.mjs [--port N] [--source PATH]',
@@ -51,7 +50,7 @@ const HELP = [
   '                                  [--help]',
   '',
   '启动 opencode serve。CLI 优先于环境变量。',
-  `  --port, -p N           监听端口 (默认 ${DEFAULT_OPENCODE_PORT}, env: PORT)`,
+  '  --port, -p N           监听端口 (默认 61417, env: PORT)',
   '  --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)',
   '  --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)',
   '  --root, -r PATH        资源包根目录，读取其 resources/opencode (env: ROOT)',
@@ -209,7 +208,7 @@ const cwd = process.cwd();
 const workspace = opts.workspace || cwd;
 const configDir = process.env.CONFIG_DIR || path.join(cwd, 'config');
 const root = opts.root || configDir;
-const port = opts.port || DEFAULT_OPENCODE_PORT;
+const port = opts.port || '61417';
 
 const bundledConfigDir = path.resolve(opts.source || path.join(root, 'resources', 'opencode'));
 const opencodeBin = path.join(bundledConfigDir, 'bin', defaults.binDir, 'opencode' + defaults.binaryExt);

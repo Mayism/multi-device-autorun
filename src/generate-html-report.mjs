@@ -11,7 +11,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { writeHtmlReport } from "./reporting/html-report.mjs";
+import { writeHtmlReport } from "./lib/html-report.mjs";
 
 async function readJson(filePath) {
   try {

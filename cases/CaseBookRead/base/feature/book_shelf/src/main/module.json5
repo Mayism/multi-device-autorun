@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "book_shelf",
-    "type": "har",
-    "deviceTypes": [
-      "phone"
-    ]
-  }
-}

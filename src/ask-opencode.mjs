@@ -18,7 +18,7 @@
 // 前置：需先启动 ./run-opencode-serve.sh（或 .bat）。
 // 一个 opencode 实例可同时服务多个项目：用 --cwd 切换每个请求的工作目录。
 // CLI 参数优先于环境变量。可调：
-//   --port, -p N        端口 (env: PORT, 默认 61419)
+//   --port, -p N        端口 (env: PORT, 默认 61417)
 //   --host, -H H        主机 (env: HOST, 默认 127.0.0.1)
 //   --timeout, -t S     单轮空闲超时秒 (env: TIMEOUT, 默认 120)
 //   --cwd, -C PATH      工作目录 (env: CWD, 走 x-opencode-directory header)
@@ -36,9 +36,8 @@
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
 import readline from 'node:readline';
-import { DEFAULT_OPENCODE_PORT } from './runtime/opencode-defaults.mjs';
 
-const DEFAULTS = Object.freeze({ HOST: '127.0.0.1', PORT: Number(DEFAULT_OPENCODE_PORT), TIMEOUT: 120 });
+const DEFAULTS = Object.freeze({ HOST: '127.0.0.1', PORT: 61417, TIMEOUT: 120 });
 
 const HELP = [
   '用法: node ask-opencode.mjs "question" [--think] [--raw] [--stream]',
@@ -54,7 +53,7 @@ const HELP = [
   '  --stream              非交互下强制流式单发（交互下恒为流式对话）',
   '  --agent,  -a   NAME   agent 名 (如 harmonyos-ascf)',
   '  --model,  -m   MODEL  model/名，支持 provider/model (如 deepseek-v4-flash, deepseek/deepseek-v4-flash)',
-  `  --port,   -p   N      端口 (默认 ${DEFAULT_OPENCODE_PORT}, env: PORT)`,
+  '  --port,   -p   N      端口 (默认 61417, env: PORT)',
   '  --host,   -H   HOST   主机 (默认 127.0.0.1, env: HOST)',
   '  --timeout, -t   S     单轮空闲超时秒数 (默认 120, env: TIMEOUT)',
   '  --cwd,    -C   PATH   工作目录 (env: CWD, 通过 x-opencode-directory 头)',
