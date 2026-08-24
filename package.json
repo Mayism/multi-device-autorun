@@ -18,7 +18,8 @@
     "ohostest:case": "node --import tsx packages/runner/scripts/runOhosTestCase.ts",
     "ohostest:matrix": "node --import tsx packages/runner/scripts/runOhosTestMatrix.ts",
     "deploy:fold": "node --import tsx packages/runner/scripts/deployFoldTrigger.ts",
-    "test": "npm run test --workspace harmonyos-ohostest-runner",
+    "test": "npm run test:shared && npm run test --workspace harmonyos-ohostest-runner",
+    "test:shared": "node --test src/shared/*.test.mjs",
     "test:python": "npm run test:python --workspace harmonyos-ohostest-runner",
     "lint": "npm run lint --workspaces --if-present",
     "format": "npm run format --workspaces --if-present"

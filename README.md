@@ -492,7 +492,7 @@ output/<batchId>/
 
 白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
 
-Agent 结束后，Autorun 会在 Patch、生成工程、白盒 Sandbox 和失败用例 ZIP 边界统一排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`。这些 Agent 工具链与临时证据不属于业务交付内容，也不参与 ohosTest 或白盒评分。
+Agent 结束后，Autorun 会在 Patch、白盒 Sandbox 和失败用例 ZIP 边界排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`，并从生成工程中清理后三类临时产物。`.onemulti/` 会保留在生成工程中供后续排查，但仍不属于业务交付差异，也不参与 ohosTest 或白盒评分。
 
 生成 Agent 的 Hvigor 编译尝试会以结构化 `agentBuild` 输入交给白盒评价，保留每次真实任务、命令、退出码和顺序。白盒以最后一次有效尝试作为最终编译结果，报告来源显示为“生成 Agent 编译结果”，与 ohosTest 状态独立。
 

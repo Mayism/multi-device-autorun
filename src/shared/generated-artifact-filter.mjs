@@ -23,6 +23,14 @@ export function isGeneratedArtifactExcluded(relativePath) {
   return parts.some((part, index) => part === "evidence" && parts[index + 1] === "tmp");
 }
 
+function isGeneratedArtifactPrunable(relativePath) {
+  const normalized = normalizeRelativePath(relativePath);
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.includes("__pycache__")) return true;
+  if (parts.at(-1)?.toLowerCase().endsWith(".pyc")) return true;
+  return parts.some((part, index) => part === "evidence" && parts[index + 1] === "tmp");
+}
+
 function lineReferencesExcludedFile(line) {
   const diffMatch = /^diff --git a\/(.+?) b\/(.+)$/.exec(line);
   if (diffMatch) {
@@ -75,7 +83,7 @@ export async function pruneGeneratedArtifacts(rootDir) {
     for (const entry of entries) {
       const target = path.join(currentDir, entry.name);
       const relative = path.relative(root, target);
-      if (isGeneratedArtifactExcluded(relative)) {
+      if (isGeneratedArtifactPrunable(relative)) {
         const verifiedTarget = resolveInside(root, relative);
         await fs.rm(verifiedTarget, { recursive: entry.isDirectory(), force: true, maxRetries: 3, retryDelay: 100 });
         removed.push(normalizeRelativePath(relative));
