@@ -37,6 +37,15 @@ function eventType(payload) {
   return String(data?.type || payload?.event || payload?.type || "").trim().toLowerCase();
 }
 
+function sessionError(payload) {
+  const data = eventData(payload);
+  const raw = data?.properties?.error || data?.error;
+  const message = raw?.data?.message || raw?.message || (typeof raw === "string" ? raw : "");
+  const error = new Error(`OpenCode session error${message ? `: ${message}` : ""}`);
+  error.code = "OPENCODE_SESSION_ERROR";
+  return error;
+}
+
 function collectSessionIds(payload) {
   const ids = new Set();
   walk(payload, (node) => {
@@ -220,7 +229,16 @@ function sseMatchesTask(payload, activeSessionIds, projectDir) {
   });
 }
 
-function startSseCapture({ baseUrl, projectDir, activeSessionIds, idleSessions, eventsPath, onProgress, onInteraction }) {
+function startSseCapture({
+  baseUrl,
+  projectDir,
+  activeSessionIds,
+  idleSessions,
+  eventsPath,
+  onProgress,
+  onInteraction,
+  onSessionError,
+}) {
   let stopped = false;
   let currentController = null;
 
@@ -262,6 +280,7 @@ function startSseCapture({ baseUrl, projectDir, activeSessionIds, idleSessions, 
                 const status = String(statusValue?.type || statusValue).toLowerCase();
                 if (status === "idle") for (const id of ids) idleSessions.add(id);
               }
+              if (type === "session.error") onSessionError?.(sessionError(payload));
               if (type === "question.asked" || type === "permission.asked") onInteraction?.();
               await appendJsonl(eventsPath, { timestamp: new Date().toISOString(), payload });
               onProgress?.("sse", { type });
@@ -357,6 +376,7 @@ export async function runMonitoredSession({
   let latestTodoActive = false;
   let childActive = false;
   let interactionRequested = true;
+  let fatalSessionError = null;
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
   const sse = startSseCapture({
@@ -367,6 +387,7 @@ export async function runMonitoredSession({
     eventsPath,
     onProgress,
     onInteraction: () => { interactionRequested = true; },
+    onSessionError: (error) => { fatalSessionError ||= error; },
   });
 
   try {
@@ -374,10 +395,12 @@ export async function runMonitoredSession({
     await delay(300);
     throwIfInterrupted(signal);
     await waitWithInterruption(client.promptAsync(sessionId, payload, projectDir, 300), signal);
+    if (fatalSessionError) throw fatalSessionError;
     onProgress?.("prompt_submitted", { sessionId });
 
     while (true) {
       throwIfInterrupted(signal);
+      if (fatalSessionError) throw fatalSessionError;
       const now = Date.now();
       if (now - startedAt >= maxRuntimeSec * 1000) {
         throw new Error(`Agent 总运行时间超过 ${maxRuntimeSec} 秒`);
