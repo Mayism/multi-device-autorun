@@ -17,7 +17,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
   - SSE 实时事件监听；
   - HTTP 消息轮询兜底；
   - 子 session、TODO、question 和 permission 监控；
-  - question 默认自动选择第一个选项；
+  - permission 强制全部允许，question 自动选择允许、继续或推荐方案，自由文本确认也会自动回复；
   - 仅把文本、推理、工具状态或工具输出的实际变化计为 Agent 活动；
   - 无活动超时和总运行时间限制；
   - 超时后自动中止主 session 和已发现的子 session。
@@ -39,7 +39,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
 - 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
 - 所选来源的 `resources/opencode` 中需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。`harmonyBot` 还需包含任务使用的自定义 Agent、Plugin 和 Provider；`softwareEngineering` 允许只有 Skills，不要求自定义 Agent 或 Plugin。
-- `opencode.json` 中需存在可用的模型配置和 API 凭据。`harmonyBot` 还应配置 Agent 执行所需的 allow/permission 权限。不要把真实 API Key 提交到 Git。
+- `opencode.json` 中需存在可用的模型配置和 API 凭据。Autorun 启动 Server 时会生成运行时配置副本并强制覆盖全局及 Agent 权限为 `allow`；来源配置不会被修改。不要把真实 API Key 提交到 Git。
 
 ## 目录结构
 
@@ -428,7 +428,7 @@ Worker 3 -> Case 3
 
 Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata、测试 patch 以及 Runner 校验所需的 golden patch 复制到 `output/<batchId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 或 `task/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`；Runner 结束后删除临时 golden patch。Autorun 会将当前配置中的 `ohosTest.paths` 和 `ohosTest.devices` 写入本次运行目录的 `machine.json`，再通过 `--machine-config` 传给内置 Runner。
 
-Agent 的实际提示词会追加工作目录隔离要求，禁止枚举或读取当前工程以外的用例和评测文件。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。OpenCode Server 同时保持 `external_directory=deny`。
+Agent 的实际提示词会追加无人值守确认和工作目录隔离要求：所有 permission 自动允许，question 自动采用允许、继续、推荐或默认方案，同时仍通过提示词禁止枚举或读取当前工程以外的用例和评测文件。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。
 
 当前版本只扫描启动时已经存在的用例。运行过程中新增到 `casesRoot` 的用例需要在下一次启动时执行。
 
@@ -482,7 +482,7 @@ output/<opencodeSource.mode>/<batchId>/
 
 白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
 
-Agent 结束后，Autorun 会在 Patch、生成工程、白盒 Sandbox 和失败用例 ZIP 边界统一排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`。这些 Agent 工具链与临时证据不属于业务交付内容，也不参与 ohosTest 或白盒评分。
+Agent 结束后，Autorun 会在 Patch、白盒 Sandbox 和失败用例 ZIP 边界排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`，并从生成工程中清理后三类临时产物。`.onemulti/` 会保留在生成工程中供后续排查，但仍不属于业务交付差异，也不参与 ohosTest 或白盒评分。
 
 生成 Agent 的 Hvigor 编译尝试会以结构化 `agentBuild` 输入交给白盒评价，保留每次真实任务、命令、退出码和顺序。白盒以最后一次有效尝试作为最终编译结果，报告来源显示为“生成 Agent 编译结果”，与 ohosTest 状态独立。
 
@@ -539,17 +539,17 @@ Autorun 会先等待 `/global/health`，再等待 `/config` 完成 Agent、Plugi
 node autorun.mjs --check
 ```
 
-确认当前来源的 `resources/opencode/opencode.json` 中存在对应模型配置，并确认修改后已经重启 OpenCode Server。`harmonyBot` 模式还需确认对应 Agent、Plugin 和 allow/permission 权限配置完整；`softwareEngineering` 不要求自定义 Agent 或 Plugin，使用内置 `build` Agent。
+确认当前来源的 `resources/opencode/opencode.json` 中存在对应模型配置，并确认修改后已经重启 OpenCode Server。`harmonyBot` 模式还需确认对应 Agent 和 Plugin 完整；permission 会由 Autorun 的运行时配置统一覆盖为 `allow`。`softwareEngineering` 不要求自定义 Agent 或 Plugin，使用内置 `build` Agent。
 
 ### 一多适配任务没有调用 Skill
 
 `harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项；如果插件或 Skill 的运行时路径失效，会直接报错而不再静默执行。
 
-自动启动 Server 时，Autorun 会把当前模式选中的 `resources/opencode` 直接设置为 `OPENCODE_CONFIG_DIR`，不会复制或映射资源。若复用了修复前启动的旧 Server，请先停止旧 Server，再重新执行 `node autorun.mjs`。
+自动启动 Server 时，Autorun 会复制来源 `opencode.json` 到运行时配置目录，强制全局及 Agent 权限为 `allow`，并链接来源中的 Skill、Plugin 和 Provider。已运行的 Server 只有在有效权限同样为全部允许时才会复用，否则 Autorun 会自动选择其他端口启动专用 Server。
 
-### 提示 `external_directory=deny` 未生效
+### 提示 Server 未强制全部权限 allow
 
-运行中的 Server 可能仍使用修改前的配置。停止旧 Server 后重新执行 `node autorun.mjs`，让 Autorun 自动启动并重新加载配置。
+说明运行时有效配置仍存在 `ask` 或 `deny`，可能来自 Agent 级覆盖或 Plugin 注入。Autorun 不会在这种状态下执行用例；检查运行日志中的实际配置来源，并重新启动 Server。
 
 ### 没有发现可执行用例
 

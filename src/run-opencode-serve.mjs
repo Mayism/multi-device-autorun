@@ -19,9 +19,9 @@
 //
 // 运行时路径对齐 src/shared/harmonybotOpencodeRuntimeEnv.ts（host=vscode，无
 // worker）与 src/shared/harmonybotRunLog.ts。
-// OPENCODE_CONFIG_DIR 直接指向选中来源的 resources/opencode，不复制配置和资源。
-// harmonyBot 可包含 agent/plugin/skills/provider；softwareEngineering 允许只配置
-// skills（以及启动所需的 bin/opencode.json）。auth / DB、状态和缓存仍落运行时目录。
+// OPENCODE_CONFIG_DIR 指向 Autorun 生成的运行时配置副本；来源中的
+// plugin/skills/provider 通过目录链接复用，权限由最后加载的 Autorun Plugin
+// 强制覆盖为 allow。auth / DB、状态和缓存仍落运行时目录。
 //
 // 可调参数（CLI 优先于环境变量）：
 //   --port, -p N           监听端口 (env: PORT, 默认 61417)
@@ -42,6 +42,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { forceAllowEverything } from './lib/permission-policy.mjs';
 
 const HELP = [
   '用法: node src/run-opencode-serve.mjs [--port N] [--source PATH]',
@@ -283,55 +285,41 @@ for (const d of [
   mkdirSync(d, { recursive: true });
 }
 
-// ─── 按需过滤 agent（loadAgents 非空时生效） ───────────────────
-// 默认 OPENCODE_CONFIG_DIR 直接指向源 resources/opencode（加载全部 agent）。
-// 配置了 loadAgents 时，创建一个过滤后的运行时配置目录：只保留指定 agent 的
-// opencode.json，并把 skills / plugin / provider 软链过去，保证相对路径可用。
-let effectiveConfigDir = bundledConfigDir;
+// ─── 生成 Autorun 专用配置 ─────────────────────────────────────
+// 不修改来源包；始终生成运行时副本并强制所有全局及 Agent 权限为 allow。
+// loadAgents 非空时同时只保留指定 Agent。skills/plugin/provider 仍链接来源目录。
+const effectiveConfigDir = path.join(opencodeHostRoot, 'config-autorun');
+mkdirSync(effectiveConfigDir, { recursive: true });
 const loadAgents = opts.loadAgents
   ? opts.loadAgents.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
-if (loadAgents.length) {
-  const filteredDir = path.join(opencodeHostRoot, 'config-filtered');
-  mkdirSync(filteredDir, { recursive: true });
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync(path.join(bundledConfigDir, 'opencode.json'), 'utf8'));
-  } catch (e) {
-    err(`[error] 无法解析 opencode.json 以过滤 agent: ${e.message}`);
-    process.exit(1);
-  }
-  if (raw && typeof raw.agent === 'object' && raw.agent) {
-    const kept = {};
-    const missing = [];
-    for (const name of loadAgents) {
-      if (Object.prototype.hasOwnProperty.call(raw.agent, name)) {
-        kept[name] = raw.agent[name];
-      } else {
-        missing.push(name);
-      }
-    }
-    raw.agent = kept;
-    writeFileSync(path.join(filteredDir, 'opencode.json'), JSON.stringify(raw, null, 2) + '\n', 'utf8');
-    if (missing.length) {
-      err(`[warn] loadAgents 中以下 agent 在 opencode.json 不存在，已忽略: ${missing.join(', ')}`);
-    }
-  } else {
-    writeFileSync(path.join(filteredDir, 'opencode.json'), JSON.stringify(raw, null, 2) + '\n', 'utf8');
-  }
-  // 软链 skills / plugin / provider，保证 opencode.json 内的相对路径可用
-  for (const name of ['skills', 'plugin', 'provider']) {
-    const src = path.join(bundledConfigDir, name);
-    const dst = path.join(filteredDir, name);
-    if (existsSync(src) && !existsSync(dst)) {
-      try {
-        symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
-      } catch {
-        // 链接失败不阻断；opencode 会按缺省策略处理。
-      }
+let rawConfig;
+try {
+  rawConfig = JSON.parse(readFileSync(path.join(bundledConfigDir, 'opencode.json'), 'utf8'));
+} catch (e) {
+  err(`[error] 无法解析 opencode.json: ${e.message}`);
+  process.exit(1);
+}
+const forced = forceAllowEverything(rawConfig, loadAgents);
+const finalPermissionPlugin = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), 'opencode-auto-approve-plugin.mjs')).href;
+forced.config.plugin = [
+  ...(Array.isArray(forced.config.plugin) ? forced.config.plugin : []),
+  finalPermissionPlugin,
+];
+writeFileSync(path.join(effectiveConfigDir, 'opencode.json'), JSON.stringify(forced.config, null, 2) + '\n', 'utf8');
+if (forced.missingAgents.length) {
+  err(`[warn] loadAgents 中以下 agent 在 opencode.json 不存在，已忽略: ${forced.missingAgents.join(', ')}`);
+}
+for (const name of ['skills', 'plugin', 'provider']) {
+  const src = path.join(bundledConfigDir, name);
+  const dst = path.join(effectiveConfigDir, name);
+  if (existsSync(src) && !existsSync(dst)) {
+    try {
+      symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch {
+      // 链接失败不阻断；OpenCode 会按缺省策略处理。
     }
   }
-  effectiveConfigDir = filteredDir;
 }
 
 // ─── 打印启动摘要 ──────────────────────────────────────────────
@@ -340,7 +328,7 @@ out('[run] opencode binary:  ' + opencodeBin);
 out('[run] workspace:        ' + workspace);
 out('[run] config source:    ' + bundledConfigDir);
 out('[run] opencode host:    ' + opencodeHostRoot);
-out('[run] config dir:       ' + effectiveConfigDir + (effectiveConfigDir === bundledConfigDir ? '  (OPENCODE_CONFIG_DIR, direct)' : '  (OPENCODE_CONFIG_DIR, filtered agents)'));
+out('[run] config dir:       ' + effectiveConfigDir + '  (Autorun runtime config, permissions=allow)');
 if (loadAgents.length) out('[run] load agents:      ' + loadAgents.join(', ') + ' (仅加载这些 Agent)');
 out('[run] deveco home:      ' + devecoContents);
 out('[run] port:             ' + port);

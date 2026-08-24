@@ -3,6 +3,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { TokenUsageTracker } from "./token-usage.mjs";
 import { CompileUsageTracker } from "./compile-usage.mjs";
+import { handlePendingInteractions } from "./interaction-policy.mjs";
 
 const TERMINAL_FINISH_EXCLUSIONS = new Set(["", "tool-calls", "unknown"]);
 const ACTIVE_TODO_STATES = new Set(["pending", "in_progress", "in-progress", "running", "active", "doing", "todo"]);
@@ -219,7 +220,7 @@ function sseMatchesTask(payload, activeSessionIds, projectDir) {
   });
 }
 
-function startSseCapture({ baseUrl, projectDir, activeSessionIds, idleSessions, eventsPath, onProgress }) {
+function startSseCapture({ baseUrl, projectDir, activeSessionIds, idleSessions, eventsPath, onProgress, onInteraction }) {
   let stopped = false;
   let currentController = null;
 
@@ -261,6 +262,7 @@ function startSseCapture({ baseUrl, projectDir, activeSessionIds, idleSessions, 
                 const status = String(statusValue?.type || statusValue).toLowerCase();
                 if (status === "idle") for (const id of ids) idleSessions.add(id);
               }
+              if (type === "question.asked" || type === "permission.asked") onInteraction?.();
               await appendJsonl(eventsPath, { timestamp: new Date().toISOString(), payload });
               onProgress?.("sse", { type });
             }
@@ -288,55 +290,6 @@ function startSseCapture({ baseUrl, projectDir, activeSessionIds, idleSessions, 
       currentController?.abort();
     },
   };
-}
-
-function buildQuestionAnswers(questions) {
-  const answers = [];
-  for (const question of questions || []) {
-    const first = Array.isArray(question?.options) ? question.options[0] : null;
-    const label = String(first?.label || first?.value || "").trim();
-    if (!label) return [];
-    answers.push([label]);
-  }
-  return answers;
-}
-
-async function handlePendingInteractions({ client, projectDir, activeSessionIds, repliedQuestions, repliedPermissions, onActivity, onProgress }) {
-  try {
-    const questions = await client.listQuestions(projectDir);
-    for (const item of Array.isArray(questions) ? questions : []) {
-      const sessionId = String(item?.sessionID || item?.sessionId || "");
-      const requestId = String(item?.id || item?.requestID || item?.requestId || "");
-      if (!requestId || repliedQuestions.has(requestId)) continue;
-      if (sessionId && !activeSessionIds.has(sessionId)) continue;
-      const answers = buildQuestionAnswers(item?.questions || []);
-      if (!answers.length) continue;
-      await client.replyQuestion(requestId, answers, projectDir);
-      repliedQuestions.add(requestId);
-      onActivity?.();
-      onProgress?.("question_replied", { requestId, answer: answers[0]?.[0] || "" });
-    }
-  } catch {
-    // SSE/HTTP 间歇性失败不终止 Agent，下一轮继续补查。
-  }
-
-  try {
-    const permissions = await client.listPermissions(projectDir);
-    for (const item of Array.isArray(permissions) ? permissions : []) {
-      const sessionId = String(item?.sessionID || item?.sessionId || "");
-      const requestId = String(item?.id || item?.requestID || item?.requestId || "");
-      if (!requestId || repliedPermissions.has(requestId)) continue;
-      if (sessionId && !activeSessionIds.has(sessionId)) continue;
-      const permission = String(item?.permission || "").trim().toLowerCase();
-      const reply = permission === "external_directory" ? "reject" : "always";
-      await client.replyPermission(requestId, projectDir, reply);
-      repliedPermissions.add(requestId);
-      onActivity?.();
-      onProgress?.("permission_replied", { requestId, permission, reply });
-    }
-  } catch {
-    // 同上，交给下一轮重试。
-  }
 }
 
 async function abortAll(client, sessionId, childIds, projectDir) {
@@ -403,6 +356,7 @@ export async function runMonitoredSession({
   let latestMessage = null;
   let latestTodoActive = false;
   let childActive = false;
+  let interactionRequested = true;
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
   const sse = startSseCapture({
@@ -412,6 +366,7 @@ export async function runMonitoredSession({
     idleSessions,
     eventsPath,
     onProgress,
+    onInteraction: () => { interactionRequested = true; },
   });
 
   try {
@@ -540,12 +495,12 @@ export async function runMonitoredSession({
         }
       }
 
-      if (now - lastInteractionPollAt >= 2000) {
+      if (interactionRequested || now - lastInteractionPollAt >= 2000) {
+        interactionRequested = false;
         lastInteractionPollAt = now;
         await handlePendingInteractions({
           client,
           projectDir,
-          activeSessionIds,
           repliedQuestions,
           repliedPermissions,
           onActivity,
@@ -562,6 +517,18 @@ export async function runMonitoredSession({
         throw new Error("OpenCode session 已 idle，但模型 finish reason 为 unknown");
       }
       if (complete) {
+        const finalInteractions = await handlePendingInteractions({
+          client,
+          projectDir,
+          repliedQuestions,
+          repliedPermissions,
+          onActivity,
+          onProgress,
+        });
+        if (finalInteractions.pending || finalInteractions.errors.length) {
+          await delay(500);
+          continue;
+        }
         return {
           status: "completed",
           sessionId,

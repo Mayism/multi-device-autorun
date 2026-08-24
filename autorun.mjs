@@ -18,6 +18,7 @@ import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling 
 import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 import { mergeOverview } from "./src/lib/merge-overview.mjs";
+import { serverAllowsEverything } from "./src/lib/permission-policy.mjs";
 import {
   filterGeneratedArtifactPatch,
   GENERATED_ARTIFACT_GIT_EXCLUDES,
@@ -49,6 +50,12 @@ const AGENT_SANDBOX_POLICY = `# 工作目录隔离要求（强制）
 - 所有模拟器、hdc、HAP 安装或 UI 自动化命令都必须在同一次“设备租约”命令内完成；该命令会与其他 Agent 及 ohostest 串行化设备访问。
 - 若启动了任何模拟器实例，必须在该设备租约命令结束前停止本次启动的同名实例，并确认不再保留由本次会话启动的设备进程或安装/测试任务。
 - 不得执行 ohostest；正式设备测试由 Autorun 在 Agent 会话结束后统一串行编排。完成必要验证和清理后应结束任务。`;
+
+const AGENT_AUTO_APPROVAL_POLICY = `# 无人值守确认策略（强制）
+
+- 当前任务执行所需操作均已授权；不得停下来等待用户确认。
+- 如工具仍要求确认，统一选择允许、同意、继续执行或推荐方案。
+- 如存在多个合理实现且没有额外业务信息，采用推荐方案或最稳妥的默认方案继续完成任务。`;
 
 function agentDeviceLeasePolicy(caseName, deviceLeasePath) {
   const helperPath = path.join(AUTORUN_ROOT, "src", "lib", "device-lease.mjs");
@@ -420,8 +427,14 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   if (await client.health()) {
     log("[server] 健康检查通过，正在等待 Agent、Plugin、Skill 和 Provider 配置加载");
     const serverConfig = await waitForServerConfig(client, { signal });
-    log(`[server] 复用已运行的 OpenCode Server: ${serverUrl}`);
-    return { client, serverConfig, owned: false, child: null, logPath: "" };
+    const expectedAgent = source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+      ? "build"
+      : String(config.execution?.agent || "").trim();
+    if (serverAllowsEverything(serverConfig, expectedAgent)) {
+      log(`[server] 复用已运行且已启用全权限允许的 OpenCode Server: ${serverUrl}`);
+      return { client, serverConfig, owned: false, child: null, logPath: "" };
+    }
+    log(`[server] 已运行的 OpenCode Server 未强制全部允许，改为启动 Autorun 专用 Server`);
   }
 
   serverUrl = await selectAvailableServerUrl(configuredServerUrl);
@@ -1176,6 +1189,7 @@ async function runCase({
     const prompt = `${[
       sourcePrompt.trim(),
       additionalPrompt,
+      AGENT_AUTO_APPROVAL_POLICY,
       AGENT_SANDBOX_POLICY,
       agentDeviceLeasePolicy(caseName, deviceLeasePath),
     ].filter(Boolean).join("\n\n")}\n`;
@@ -1204,6 +1218,7 @@ async function runCase({
     await writeAgentConsole("session", `Agent 会话已创建；sessionId=${sessionId}`);
 
     let lastConsoleProgressAt = 0;
+    let lastInteractionErrorAt = 0;
     const monitored = await runMonitoredSession({
       client,
       sessionId,
@@ -1233,6 +1248,14 @@ async function runCase({
           const detail = formatAgentProgress(data);
           reporter.caseProgress(caseName, detail);
           writeAgentConsole("progress", detail).catch(() => {});
+        }
+        if (event === "permission_replied") {
+          writeAgentConsole("interaction", `已自动允许 permission；permission=${data.permission || "unknown"}；requestId=${data.requestId}`).catch(() => {});
+        } else if (event === "question_replied") {
+          writeAgentConsole("interaction", `已自动回答 question；requestId=${data.requestId}；answers=${JSON.stringify(data.answers || [])}`).catch(() => {});
+        } else if (event === "interaction_error" && Date.now() - lastInteractionErrorAt > 5000) {
+          lastInteractionErrorAt = Date.now();
+          writeAgentConsole("interaction-error", `${data.kind || "interaction"} 自动处理失败，将继续重试：${data.error || "unknown error"}`).catch(() => {});
         }
       },
     });
@@ -1632,8 +1655,8 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
 
 async function validateServerConfig(client, execution, loadedConfig, sourceMode, signal) {
   const config = loadedConfig || await client.getConfig(120);
-  if (config?.permission?.external_directory !== "deny") {
-    console.warn("[warn] 当前运行中的 Server 未启用 external_directory=deny；若刚修改配置，请重启该 Server");
+  if (!serverAllowsEverything(config, execution.agent)) {
+    throw new Error(`OpenCode Server 未对 Agent ${execution.agent} 强制启用全部权限 allow`);
   }
   const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
   if (!usesBuiltInAgent && !Object.hasOwn(config?.agent || {}, execution.agent)) {
