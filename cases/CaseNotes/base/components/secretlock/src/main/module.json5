@@ -1,0 +1,15 @@
+{
+  "module": {
+    "name": "secretlock",
+    "type": "har",
+    "deviceTypes": [
+      "default"
+    ],
+    "routerMap": "$profile:router_map",
+    "requestPermissions": [
+      {
+        "name": "ohos.permission.ACCESS_BIOMETRIC" //允许应用使用生物特征识别能力进行身份认证。
+      }
+    ]
+  }
+}

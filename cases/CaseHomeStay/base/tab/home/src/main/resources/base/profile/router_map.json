@@ -1,0 +1,44 @@
+{
+  "routerMap": [
+    {
+      "name": "Rooms",
+      "pageSourceFile": "src/main/ets/pages/Rooms.ets",
+      "buildFunction": "RoomsBuilder",
+      "data": {
+        "description": "this is Hotel"
+      }
+    },
+    {
+      "name": "Hotel",
+      "pageSourceFile": "src/main/ets/pages/Hotel.ets",
+      "buildFunction": "HotelBuilder",
+      "data": {
+        "description": "this is Hotel"
+      }
+    },
+    {
+      "name": "HotelDetail",
+      "pageSourceFile": "src/main/ets/pages/HotelDetail.ets",
+      "buildFunction": "HotelDetailBuilder",
+      "data": {
+        "description": "this is About"
+      }
+    },
+    {
+      "name": "Reserve",
+      "pageSourceFile": "src/main/ets/pages/Reserve.ets",
+      "buildFunction": "ReserveBuilder",
+      "data": {
+        "description": "this is Personal"
+      }
+    },
+    {
+      "name": "HotelHome",
+      "pageSourceFile": "src/main/ets/pages/Home.ets",
+      "buildFunction": "HotelHomeBuilder",
+      "data": {
+        "description": "this is HotelHome"
+      }
+    }
+  ]
+}

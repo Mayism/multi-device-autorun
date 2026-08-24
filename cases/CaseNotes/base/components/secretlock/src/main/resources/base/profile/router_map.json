@@ -1,0 +1,9 @@
+{
+  "routerMap": [
+    {
+      "name": "DrawLock",
+      "pageSourceFile": "src/main/ets/pages/DrawLock.ets",
+      "buildFunction": "DrawLockBuilder"
+    }
+  ]
+}

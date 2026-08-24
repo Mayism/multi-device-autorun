@@ -1,0 +1,1724 @@
+{
+  "/book/list": {
+    "books": [
+      {
+        "id": "1",
+        "author": "张三",
+        "name": "设计理论实践应用",
+        "coverUrl": "app.media.book_image_1",
+        "category": "艺术",
+        "rate": "8",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《设计理论实践应用》是一本致力于搭建设计理论与实际应用桥梁的专业书籍。在设计领域，理论与实践的紧密结合是产出优秀设计作品、推动行业发展的关键，本书正是围绕这一核心要点展开深入探讨",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0",
+        "status": "1"
+      },
+      {
+        "id": "11",
+        "author": "李四",
+        "name": "诛仙",
+        "coverUrl": "app.media.book_image_1",
+        "category": "艺术",
+        "rate": "8",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《设计理论实践应用》是一本致力于搭建设计理论与实际应用桥梁的专业书籍。在设计领域，理论与实践的紧密结合是产出优秀设计作品、推动行业发展的关键，本书正是围绕这一核心要点展开深入探讨",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0",
+        "status": "0"
+      },
+      {
+        "id": "2",
+        "author": "大鹏",
+        "name": "小羊肖恩",
+        "coverUrl": "app.media.book_image_6",
+        "category": "文学",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0",
+        "status": "1"
+      },
+      {
+        "id": "10",
+        "author": "土豆",
+        "name": "小文学",
+        "coverUrl": "app.media.book_image_6",
+        "category": "文学",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《小羊肖》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "3",
+        "author": "土豆",
+        "name": "十年能源变革",
+        "coverUrl": "app.media.book_image_3",
+        "category": "艺术",
+        "rate": "6",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0",
+        "status": "0"
+      },
+      {
+        "id": "4",
+        "author": "小白",
+        "name": "鸿蒙生态应用白皮书",
+        "coverUrl": "app.media.book_image_4",
+        "category": "文学",
+        "rate": "5",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "认知觉醒",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0",
+        "status": "1"
+      },
+      {
+        "id": "5",
+        "author": "大鹏",
+        "name": "旅途",
+        "coverUrl": "app.media.book_image_7",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "6",
+        "author": "作者",
+        "name": "自我觉醒与改变",
+        "coverUrl": "app.media.book_image_2",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "7",
+        "author": "作者",
+        "name": "自我改变与觉醒",
+        "coverUrl": "app.media.book_image_3",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "8",
+        "author": "作者",
+        "name": "自我觉醒与觉醒",
+        "coverUrl": "app.media.book_image_4",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "9",
+        "author": "作者",
+        "name": "自我改变与改变",
+        "coverUrl": "app.media.book_image_5",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "12",
+        "author": "作者",
+        "name": "晚风遇炊烟",
+        "coverUrl": "app.media.book_image_4",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "13",
+        "author": "作者",
+        "name": "人间好时节",
+        "coverUrl": "app.media.book_image_3",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "14",
+        "author": "作者",
+        "name": "灯火小团圆",
+        "coverUrl": "app.media.book_image_5",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "15",
+        "author": "作者",
+        "name": "老街旧光阴",
+        "coverUrl": "app.media.book_image_3",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "16",
+        "author": "作者",
+        "name": "暖阳落肩头",
+        "coverUrl": "app.media.book_image_1",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "21",
+        "author": "作者",
+        "name": "与自己和解",
+        "coverUrl": "app.media.book_image_2",
+        "category": "成长",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "22",
+        "author": "作者",
+        "name": "拾光里的歌",
+        "coverUrl": "app.media.book_image_3",
+        "category": "治愈",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "17",
+        "author": "作者",
+        "name": "向星辰出发",
+        "coverUrl": "app.media.book_image_4",
+        "category": "治愈",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "18",
+        "author": "作者",
+        "name": "月下酌清酒",
+        "coverUrl": "app.media.book_image_5",
+        "category": "古风",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "19",
+        "author": "作者",
+        "name": "江南杏花雨",
+        "coverUrl": "app.media.book_image_7",
+        "category": "古风",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "20",
+        "author": "作者",
+        "name": "城市微光记",
+        "coverUrl": "app.media.book_image_6",
+        "category": "古风",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      }
+    ]
+  },
+  "/book/favourite": {
+    "books": [
+      {
+        "groupName": "",
+        "bookName": "设计理论实践应用",
+        "isSelect": false,
+        "isPin": false,
+        "isDownload": false,
+        "downloading": false,
+        "usageMemory": "0",
+        "timestamp": 1722000000000,
+        "singleBook": {
+          "id": "1",
+          "author": "张三",
+          "name": "设计理论实践应用",
+          "coverUrl": "app.media.book_image_1",
+          "category": "艺术",
+          "rate": "8",
+          "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-471d-9b36-f0a6409cd4e4",
+          "description": "《设计理论实践应用》是一本致力于搭建设计理论与实际应用桥梁的专业书籍。",
+          "count": "102",
+          "popular": "10.5",
+          "isFree": "0",
+          "gender": "2",
+          "groupName": "",
+          "groupType": "0",
+          "status": "1",
+          "readProgress": "未读过"
+        }
+      },
+      {
+        "groupName": "",
+        "bookName": "诛仙",
+        "isSelect": false,
+        "isPin": false,
+        "isDownload": false,
+        "downloading": false,
+        "usageMemory": "0",
+        "timestamp": 1722000000001,
+        "singleBook": {
+          "id": "11",
+          "author": "李四",
+          "name": "诛仙",
+          "coverUrl": "app.media.book_image_1",
+          "category": "艺术",
+          "rate": "8",
+          "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-471d-9b36-f0a6409cd4e4",
+          "description": "《诛仙》长篇玄幻小说。",
+          "count": "102",
+          "popular": "10.5",
+          "isFree": "0",
+          "gender": "1",
+          "groupName": "",
+          "groupType": "0",
+          "status": "0",
+          "readProgress": "未读过"
+        }
+      },
+      {
+        "groupName": "",
+        "bookName": "文化苦旅",
+        "isSelect": false,
+        "isPin": false,
+        "isDownload": false,
+        "downloading": false,
+        "usageMemory": "0",
+        "timestamp": 1722000000002,
+        "singleBook": {
+          "id": "2",
+          "author": "大鹏",
+          "name": "文化苦旅",
+          "coverUrl": "app.media.book_image_2",
+          "category": "文学",
+          "rate": "9",
+          "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-471d-9b36-f0a6409cd4e4",
+          "description": "《文化苦旅》文化散文集。",
+          "count": "88",
+          "popular": "20.5",
+          "isFree": "0",
+          "gender": "2",
+          "groupName": "",
+          "groupType": "0",
+          "status": "1",
+          "readProgress": "未读过"
+        }
+      },
+      {
+        "groupName": "",
+        "bookName": "百年孤独",
+        "isSelect": false,
+        "isPin": false,
+        "isDownload": false,
+        "downloading": false,
+        "usageMemory": "0",
+        "timestamp": 1722000000003,
+        "singleBook": {
+          "id": "3",
+          "author": "马尔克斯",
+          "name": "百年孤独",
+          "coverUrl": "app.media.book_image_3",
+          "category": "文学",
+          "rate": "9",
+          "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-471d-9b36-f0a6409cd4e4",
+          "description": "《百年孤独》魔幻现实主义代表作。",
+          "count": "120",
+          "popular": "30.5",
+          "isFree": "1",
+          "gender": "1",
+          "groupName": "",
+          "groupType": "0",
+          "status": "1",
+          "readProgress": "未读过"
+        }
+      },
+      {
+        "groupName": "",
+        "bookName": "三体",
+        "isSelect": false,
+        "isPin": false,
+        "isDownload": false,
+        "downloading": false,
+        "usageMemory": "0",
+        "timestamp": 1722000000004,
+        "singleBook": {
+          "id": "4",
+          "author": "刘慈欣",
+          "name": "三体",
+          "coverUrl": "app.media.book_image_4",
+          "category": "科幻",
+          "rate": "9",
+          "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-471d-9b36-f0a6409cd4e4",
+          "description": "《三体》科幻巨著。",
+          "count": "150",
+          "popular": "40.5",
+          "isFree": "0",
+          "gender": "2",
+          "groupName": "",
+          "groupType": "0",
+          "status": "1",
+          "readProgress": "未读过"
+        }
+      },
+      {
+        "groupName": "",
+        "bookName": "活着",
+        "isSelect": false,
+        "isPin": false,
+        "isDownload": false,
+        "downloading": false,
+        "usageMemory": "0",
+        "timestamp": 1722000000005,
+        "singleBook": {
+          "id": "5",
+          "author": "余华",
+          "name": "活着",
+          "coverUrl": "app.media.book_image_5",
+          "category": "文学",
+          "rate": "9",
+          "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-471d-9b36-f0a6409cd4e4",
+          "description": "《活着》当代文学经典。",
+          "count": "100",
+          "popular": "50.5",
+          "isFree": "0",
+          "gender": "1",
+          "groupName": "",
+          "groupType": "0",
+          "status": "1",
+          "readProgress": "未读过"
+        }
+      }
+    ]
+  },
+  "/book/group": {
+    "books": []
+  },
+  "/book/borrow": {
+    "borrows": [
+      {
+        "id": "123456",
+        "borrowBegin": 1741708800000,
+        "borrowEnd": 1741968000000,
+        "borrowNum": 1,
+        "borrowDeadline": 1742054400000,
+        "status": 0,
+        "borrowBooks": [
+          {
+            "id": "15",
+            "author": "作者",
+            "name": "十年能源变革3",
+            "coverUrl": "app.media.book_image_3",
+            "category": "",
+            "rate": "8",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "十年能源变革3"
+          },
+          {
+            "id": "16",
+            "author": "作者",
+            "name": "旅途4",
+            "coverUrl": "app.media.book_image_7",
+            "category": "",
+            "rate": "",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": ""
+          }
+        ]
+      },
+      {
+        "id": "7894010",
+        "borrowBegin": 1741708800000,
+        "borrowEnd": 1741968000000,
+        "borrowNum": 1,
+        "borrowDeadline": 1742054400000,
+        "status": 1,
+        "borrowBooks": [
+          {
+            "id": "17",
+            "author": "作者",
+            "name": "十年能源变革3",
+            "coverUrl": "app.media.book_image_7",
+            "category": "",
+            "rate": "",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": ""
+          }
+        ]
+      },
+      {
+        "id": "7456463",
+        "borrowBegin": 1741708800000,
+        "borrowEnd": 1741968000000,
+        "borrowNum": 1,
+        "borrowDeadline": 1742054400000,
+        "status": 2,
+        "borrowBooks": [
+          {
+            "id": "18",
+            "author": "作者",
+            "name": "旅途4",
+            "coverUrl": "app.media.book_image_7",
+            "category": "",
+            "rate": "",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": ""
+          }
+        ]
+      }
+    ]
+  },
+  "/book/hotRankList": {
+    "rankList": [
+      {
+        "id": "123456",
+        "rankName": "热搜榜",
+        "detailBooks": [
+          {
+            "id": "1",
+            "author": "作者",
+            "name": "设计理论实践应用",
+            "coverUrl": "app.media.book_image_1",
+            "rankUrl": "app.media.ic_ict_successfully_01",
+            "category": "艺术",
+            "rate": "8",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "《设计理论实践应用》是一本致力于搭建设计理论与实际应用桥梁的专业书籍。在设计领域，理论与实践的紧密结合是产出优秀设计作品、推动行业发展的关键，本书正是围绕这一核心要点展开深入探讨",
+            "count": "102",
+            "popular": "10.5",
+            "isFree": "2"
+          },
+          {
+            "id": "2",
+            "author": "作者",
+            "name": "小羊肖恩",
+            "coverUrl": "app.media.book_image_6",
+            "rankUrl": "app.media.ic_ict_successfully_02",
+            "category": "文学",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+            "count": "102",
+            "popular": "10.5",
+            "isFree": "0"
+          },
+          {
+            "id": "3",
+            "author": "作者",
+            "name": "十年能源变革",
+            "coverUrl": "app.media.book_image_3",
+            "rankUrl": "app.media.ic_ict_successfully_03",
+            "category": "艺术",
+            "rate": "6",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "",
+            "count": "105",
+            "popular": "10.5",
+            "isFree": "0"
+          },
+          {
+            "id": "4",
+            "author": "作者",
+            "name": "鸿蒙生态应用白皮书",
+            "coverUrl": "app.media.book_image_4",
+            "rankUrl": "app.media.ic_ict_successfully_04",
+            "category": "文学",
+            "rate": "5",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "认知觉醒",
+            "count": "108",
+            "popular": "10.5",
+            "isFree": "2"
+          },
+          {
+            "id": "5",
+            "author": "作者",
+            "name": "旅途",
+            "coverUrl": "app.media.book_image_7",
+            "rankUrl": "app.media.ic_ict_successfully_05",
+            "category": "艺术",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "",
+            "count": "109",
+            "popular": "10.5",
+            "isFree": "2"
+          }
+        ]
+      },
+      {
+        "id": "7894010",
+        "rankName": "新书榜",
+        "detailBooks": [
+          {
+            "id": "2",
+            "author": "作者",
+            "name": "小羊肖恩",
+            "coverUrl": "app.media.book_image_6",
+            "rankUrl": "app.media.ic_ict_successfully_01",
+            "category": "文学",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+            "count": "102",
+            "popular": "10.5",
+            "isFree": 2
+          },
+          {
+            "id": "4",
+            "author": "作者",
+            "name": "鸿蒙生态应用白皮书",
+            "coverUrl": "app.media.book_image_4",
+            "rankUrl": "app.media.ic_ict_successfully_02",
+            "category": "文学",
+            "rate": "5",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "认知觉醒",
+            "count": "108",
+            "popular": "10.5",
+            "isFree": "2"
+          },
+          {
+            "id": "5",
+            "author": "作者",
+            "name": "旅途",
+            "coverUrl": "app.media.book_image_7",
+            "rankUrl": "app.media.ic_ict_successfully_03",
+            "category": "艺术",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "",
+            "count": "109",
+            "popular": "10.5",
+            "isFree": "2"
+          }
+        ]
+      },
+      {
+        "id": "258963",
+        "rankName": "网文榜",
+        "detailBooks": [
+          {
+            "id": "2",
+            "author": "作者",
+            "name": "小羊肖恩",
+            "coverUrl": "app.media.book_image_6",
+            "rankUrl": "app.media.ic_ict_successfully_01",
+            "category": "文学",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+            "count": "102",
+            "popular": "10.5",
+            "isFree": 2
+          },
+          {
+            "id": "4",
+            "author": "作者",
+            "name": "鸿蒙生态应用白皮书",
+            "coverUrl": "app.media.book_image_4",
+            "rankUrl": "app.media.ic_ict_successfully_02",
+            "category": "文学",
+            "rate": "5",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "认知觉醒",
+            "count": "108",
+            "popular": "10.5",
+            "isFree": "2"
+          },
+          {
+            "id": "5",
+            "author": "作者",
+            "name": "旅途",
+            "coverUrl": "app.media.book_image_7",
+            "rankUrl": "app.media.ic_ict_successfully_03",
+            "category": "艺术",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "",
+            "count": "109",
+            "popular": "10.5",
+            "isFree": "2"
+          }
+        ]
+      },
+      {
+        "id": "258963",
+        "rankName": "潜力榜",
+        "detailBooks": [
+          {
+            "id": "2",
+            "author": "作者",
+            "name": "小羊肖恩",
+            "coverUrl": "app.media.book_image_6",
+            "rankUrl": "app.media.ic_ict_successfully_01",
+            "category": "文学",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+            "count": "102",
+            "popular": "10.5",
+            "isFree": 2
+          },
+          {
+            "id": "4",
+            "author": "作者",
+            "name": "鸿蒙生态应用白皮书",
+            "coverUrl": "app.media.book_image_4",
+            "rankUrl": "app.media.ic_ict_successfully_02",
+            "category": "文学",
+            "rate": "5",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "认知觉醒",
+            "count": "108",
+            "popular": "10.5",
+            "isFree": "2"
+          },
+          {
+            "id": "5",
+            "author": "作者",
+            "name": "旅途",
+            "coverUrl": "app.media.book_image_7",
+            "rankUrl": "app.media.ic_ict_successfully_03",
+            "category": "艺术",
+            "rate": "7",
+            "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+            "description": "",
+            "count": "109",
+            "popular": "10.5",
+            "isFree": "2"
+          }
+        ]
+      }
+    ]
+  },
+  "/user/info": {
+    "user": {
+      "id": "12323",
+      "nickName": "事例",
+      "birthday": "2000-13-01",
+      "telephone": "a1xxxx1111",
+      "borrowCardStart": 1731340800000,
+      "borrowCardEnd": 1762876800000,
+      "totalReading": 0,
+      "totalListening": 15
+    }
+  },
+  "/book/history": {
+    "books": []
+  },
+  "/book/categoryList": {
+    "category": [
+      {
+        "categoryId": "001",
+        "categoryName": "热门",
+        "subcategory": [
+          {
+            "categoryId": "001",
+            "subcategoryId": "101",
+            "subcategoryName": "文学",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "102",
+            "subcategoryName": "艺术",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "103",
+            "subcategoryName": "历史",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "104",
+            "subcategoryName": "仙侠",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "105",
+            "subcategoryName": "惊悚恐怖",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "106",
+            "subcategoryName": "科幻",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "107",
+            "subcategoryName": "都市言情",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "108",
+            "subcategoryName": "玄幻奇幻",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "109",
+            "subcategoryName": "武侠江湖",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "110",
+            "subcategoryName": "游戏竞技",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "111",
+            "subcategoryName": "推理悬疑",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "001",
+            "subcategoryId": "112",
+            "subcategoryName": "影视原著",
+            "imgUrl": "app.media.ic_category"
+          }
+        ]
+      },
+      {
+        "categoryId": "002",
+        "categoryName": "都市",
+        "subcategory": [
+          {
+            "categoryId": "002",
+            "subcategoryId": "201",
+            "subcategoryName": "全部"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "202",
+            "subcategoryName": "玄幻"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "203",
+            "subcategoryName": "历史"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "204",
+            "subcategoryName": "重生"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "205",
+            "subcategoryName": "穿越"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "206",
+            "subcategoryName": "都市高武"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "207",
+            "subcategoryName": "现言甜宠",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "208",
+            "subcategoryName": "古代言情",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "209",
+            "subcategoryName": "青春校园",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "210",
+            "subcategoryName": "西幻魔法",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "211",
+            "subcategoryName": "星际科幻",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "002",
+            "subcategoryId": "212",
+            "subcategoryName": "穿越重生",
+            "imgUrl": "app.media.ic_category"
+          }
+        ]
+      },
+      {
+        "categoryId": "003",
+        "categoryName": "玄幻",
+        "subcategory": [
+          {
+            "categoryId": "003",
+            "subcategoryId": "301",
+            "subcategoryName": "全部"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "302",
+            "subcategoryName": "网游"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "303",
+            "subcategoryName": "末世"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "304",
+            "subcategoryName": "反派"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "305",
+            "subcategoryName": "武侠"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "306",
+            "subcategoryName": "轻小说"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "307",
+            "subcategoryName": "修真炼气",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "308",
+            "subcategoryName": "洪荒封神",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "309",
+            "subcategoryName": "异界大陆",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "310",
+            "subcategoryName": "东方玄幻",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "311",
+            "subcategoryName": "王朝争霸",
+            "imgUrl": "app.media.ic_category"
+          },
+          {
+            "categoryId": "003",
+            "subcategoryId": "312",
+            "subcategoryName": "末世危机",
+            "imgUrl": "app.media.ic_category"
+          }
+        ]
+      },
+      {
+        "categoryId": "004",
+        "categoryName": "历史",
+        "subcategory": [
+          {
+            "categoryId": "004",
+            "subcategoryId": "401",
+            "subcategoryName": "全部"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "402",
+            "subcategoryName": "玄幻"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "403",
+            "subcategoryName": "穿越"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "404",
+            "subcategoryName": "重生"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "405",
+            "subcategoryName": "系统"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "406",
+            "subcategoryName": "武侠"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "407",
+            "subcategoryName": "末世"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "408",
+            "subcategoryName": "反派"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "409",
+            "subcategoryName": "女帝"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "410",
+            "subcategoryName": "三国"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "411",
+            "subcategoryName": "历史古代"
+          },
+          {
+            "categoryId": "004",
+            "subcategoryId": "412",
+            "subcategoryName": "皇帝"
+          }
+        ]
+      },
+      {
+        "categoryId": "005",
+        "categoryName": "悬疑",
+        "subcategory": [
+          {
+            "categoryId": "005",
+            "subcategoryId": "501",
+            "subcategoryName": "全部"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "502",
+            "subcategoryName": "玄幻"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "503",
+            "subcategoryName": "穿越"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "504",
+            "subcategoryName": "重生"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "505",
+            "subcategoryName": "系统"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "506",
+            "subcategoryName": "武侠"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "507",
+            "subcategoryName": "乡村"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "508",
+            "subcategoryName": "反派"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "509",
+            "subcategoryName": "女帝"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "510",
+            "subcategoryName": "架空"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "511",
+            "subcategoryName": "破案"
+          },
+          {
+            "categoryId": "005",
+            "subcategoryId": "512",
+            "subcategoryName": "星际"
+          }
+        ]
+      },
+      {
+        "categoryId": "006",
+        "categoryName": "衍生",
+        "subcategory": [
+          {
+            "categoryId": "006",
+            "subcategoryId": "601",
+            "subcategoryName": "全部"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "602",
+            "subcategoryName": "玄幻"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "603",
+            "subcategoryName": "穿越"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "604",
+            "subcategoryName": "重生"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "605",
+            "subcategoryName": "系统"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "606",
+            "subcategoryName": "武侠"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "607",
+            "subcategoryName": "乡村"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "608",
+            "subcategoryName": "反派"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "609",
+            "subcategoryName": "女帝"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "610",
+            "subcategoryName": "架空"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "611",
+            "subcategoryName": "破案"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "612",
+            "subcategoryName": "星际"
+          },
+          {
+            "categoryId": "006",
+            "subcategoryId": "613",
+            "subcategoryName": "求生"
+          }
+        ]
+      }
+    ]
+  },
+  "/book/recommend": {
+    "books": [
+      {
+        "id": "4",
+        "author": "作者",
+        "name": "鸿蒙生态应用白皮书",
+        "coverUrl": "app.media.book_image_4",
+        "category": "文学",
+        "rate": "5",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "认知觉醒",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "5",
+        "author": "作者",
+        "name": "旅途",
+        "coverUrl": "app.media.book_image_7",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "6",
+        "author": "作者",
+        "name": "自我觉醒与改变",
+        "coverUrl": "app.media.book_image_2",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "7",
+        "author": "作者",
+        "name": "自我改变与觉醒",
+        "coverUrl": "app.media.book_image_3",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "8",
+        "author": "作者",
+        "name": "自我觉醒与觉醒",
+        "coverUrl": "app.media.book_image_4",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "9",
+        "author": "作者",
+        "name": "自我改变与改变",
+        "coverUrl": "app.media.book_image_5",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "12",
+        "author": "作者",
+        "name": "晚风遇炊烟",
+        "coverUrl": "app.media.book_image_4",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "13",
+        "author": "作者",
+        "name": "人间好时节",
+        "coverUrl": "app.media.book_image_3",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "22",
+        "author": "作者",
+        "name": "拾光里的歌",
+        "coverUrl": "app.media.book_image_3",
+        "category": "治愈",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "17",
+        "author": "作者",
+        "name": "向星辰出发",
+        "coverUrl": "app.media.book_image_4",
+        "category": "治愈",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "16",
+        "author": "作者",
+        "name": "暖阳落肩头",
+        "coverUrl": "app.media.book_image_1",
+        "category": "现实",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "21",
+        "author": "作者",
+        "name": "与自己和解",
+        "coverUrl": "app.media.book_image_2",
+        "category": "成长",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      }
+    ]
+  },
+  "/book/like": {
+    "books": [
+      {
+        "id": "1",
+        "author": "作者",
+        "name": "设计理论实践应用",
+        "coverUrl": "app.media.book_image_1",
+        "category": "艺术",
+        "rate": "8",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《设计理论实践应用》是一本致力于搭建设计理论与实际应用桥梁的专业书籍。在设计领域，理论与实践的紧密结合是产出优秀设计作品、推动行业发展的关键，本书正是围绕这一核心要点展开深入探讨",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "1"
+      },
+      {
+        "id": "11",
+        "author": "作者",
+        "name": "诛仙",
+        "coverUrl": "app.media.book_image_1",
+        "category": "艺术",
+        "rate": "8",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《设计理论实践应用》是一本致力于搭建设计理论与实际应用桥梁的专业书籍。在设计领域，理论与实践的紧密结合是产出优秀设计作品、推动行业发展的关键，本书正是围绕这一核心要点展开深入探讨",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "2",
+        "author": "作者",
+        "name": "小羊肖恩",
+        "coverUrl": "app.media.book_image_6",
+        "category": "文学",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "1",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "1"
+      }
+    ]
+  },
+  "/book/child": {
+    "books": [
+      {
+        "id": "2",
+        "author": "大鹏",
+        "name": "小羊肖恩",
+        "coverUrl": "app.media.book_image_6",
+        "category": "文学",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "5",
+        "author": "作者",
+        "name": "汤姆猫",
+        "coverUrl": "app.media.book_image_8",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "6",
+        "author": "作者",
+        "name": "皮皮熊和他的伙伴们",
+        "coverUrl": "app.media.book_image_9",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "7",
+        "author": "作者",
+        "name": "自然森林故事会",
+        "coverUrl": "app.media.book_image_10",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "8",
+        "author": "作者",
+        "name": "海洋历险记",
+        "coverUrl": "app.media.book_image_11",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "9",
+        "author": "作者",
+        "name": "夏日萤火虫奇妙旅程",
+        "coverUrl": "app.media.book_image_12",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "2",
+        "author": "大鹏",
+        "name": "小羊肖恩",
+        "coverUrl": "app.media.book_image_6",
+        "category": "文学",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "《小羊肖恩》系列图书是一套深受孩子们喜爱的读物，其蓝本源自全球知名的同名动画片，由英国阿德曼动画有限公司精心打造。这一系列图书以独特的魅力，将动画中的精彩世界延伸至书页之间，为小读者们带来了无尽欢乐与成长启发。",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "5",
+        "author": "作者",
+        "name": "汤姆猫",
+        "coverUrl": "app.media.book_image_8",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "0",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "6",
+        "author": "作者",
+        "name": "皮皮熊和他的伙伴们",
+        "coverUrl": "app.media.book_image_9",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "7",
+        "author": "作者",
+        "name": "自然森林故事会",
+        "coverUrl": "app.media.book_image_10",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "8",
+        "author": "作者",
+        "name": "海洋历险记",
+        "coverUrl": "app.media.book_image_11",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "1",
+        "groupName": "",
+        "groupType": "0"
+      },
+      {
+        "id": "9",
+        "author": "作者",
+        "name": "夏日萤火虫奇妙旅程",
+        "coverUrl": "app.media.book_image_12",
+        "category": "艺术",
+        "rate": "7",
+        "epubUrl": "https://agc-storage-drcn.platform.dbankcloud.cn/v0/txy-mxryw/book_image%2Fcushangcushu20.epub?token=9636d07a-eb1e-473d-9b36-f0a6409cd4e4",
+        "description": "",
+        "count": "102",
+        "popular": "10.5",
+        "isFree": "2",
+        "gender": "2",
+        "groupName": "",
+        "groupType": "0"
+      }
+    ]
+  }
+}

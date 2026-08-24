@@ -1,0 +1,3307 @@
+diff --git a/common/utils/Index.ets b/common/utils/Index.ets
+index 7061dc7..803ebaf 100644
+--- a/common/utils/Index.ets
++++ b/common/utils/Index.ets
+@@ -18,4 +18,10 @@ export { WantUtil } from './src/main/ets/utils/WantUtil';
+ 
+ export { NotificationUtil } from './src/main/ets/utils/NotificationUtil';
+ 
+-export { NotificationBasicOptions } from './src/main/ets/model/NotificationOptions';
+\ No newline at end of file
++export { WindowUtil } from './src/main/ets/utils/WindowUtil';
++
++export { NotificationBasicOptions } from './src/main/ets/model/NotificationOptions';
++
++export { GlobalInfoModel, BreakpointTypeEnum } from './src/main/ets/model/GlobalInfoModel';
++
++export { BreakpointType,BreakpointSystem } from './src/main/ets/utils/BreakpointSystem';
+\ No newline at end of file
+diff --git a/common/utils/src/main/ets/model/GlobalInfoModel.ets b/common/utils/src/main/ets/model/GlobalInfoModel.ets
+new file mode 100644
+index 0000000..f927e0c
+--- /dev/null
++++ b/common/utils/src/main/ets/model/GlobalInfoModel.ets
+@@ -0,0 +1,32 @@
++/*
++ * Copyright (c) 2024 Huawei Device Co., Ltd.
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++
++@ObservedV2
++export class GlobalInfoModel {
++  @Trace currentBreakpoint: BreakpointTypeEnum = BreakpointTypeEnum.MD;
++  /**
++   * 当前窗口宽度（vp）。用于平板/折叠屏等场景下做稳定的比例布局计算。
++   * 由 EntryAbility 在 windowSizeChange 时持续刷新。
++   */
++  @Trace screenWidthVp: number = 0;
++}
++
++
++export enum BreakpointTypeEnum {
++  SM = 'sm',
++  MD = 'md',
++  LG = 'lg',
++}
+\ No newline at end of file
+diff --git a/common/utils/src/main/ets/utils/BreakpointSystem.ets b/common/utils/src/main/ets/utils/BreakpointSystem.ets
+new file mode 100644
+index 0000000..548bace
+--- /dev/null
++++ b/common/utils/src/main/ets/utils/BreakpointSystem.ets
+@@ -0,0 +1,97 @@
++/*
++ * Copyright (c) 2024 Huawei Device Co., Ltd.
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { AppStorageV2, window } from '@kit.ArkUI';
++import { BusinessError } from '@kit.BasicServicesKit';
++import { BreakpointTypeEnum, GlobalInfoModel } from '../model/GlobalInfoModel';
++import { LogUtil } from './LogUtil';
++
++const TAG: string = '[BreakpointSystem]';
++
++export interface BreakpointTypes<T> {
++  sm: T;
++  md: T;
++  lg: T;
++}
++
++export class BreakpointType<T> {
++  private sm: T;
++  private md: T;
++  private lg: T;
++
++  public constructor(param: BreakpointTypes<T>) {
++    this.sm = param.sm;
++    this.md = param.md;
++    this.lg = param.lg;
++  }
++
++  public getValue(currentBreakpoint: string): T {
++    if (currentBreakpoint === BreakpointTypeEnum.SM) {
++      return this.sm;
++    }
++    if (currentBreakpoint === BreakpointTypeEnum.MD) {
++      return this.md;
++    }
++    return this.lg;
++  }
++}
++
++export class BreakpointSystem {
++  private static instance: BreakpointSystem;
++  public  currentBreakpoint: BreakpointTypeEnum = BreakpointTypeEnum.MD;
++
++  private constructor() {
++  }
++
++  public static getInstance(): BreakpointSystem {
++    if (!BreakpointSystem.instance) {
++      BreakpointSystem.instance = new BreakpointSystem();
++    }
++    return BreakpointSystem.instance;
++  }
++
++  public onWindowSizeChange(windowStage: window.WindowStage, window: window.Window): void {
++    this.updateWidthBp(windowStage, window);
++  }
++
++  public updateWidthBp(windowStage: window.WindowStage,window: window.Window): void {
++    try {
++      const mainWindow: window.WindowProperties = window.getWindowProperties();
++      const windowWidth: number = mainWindow.windowRect.width;
++      const windowWidthVp = windowStage.getMainWindowSync().getUIContext().px2vp(windowWidth);
++      let widthBp: BreakpointTypeEnum = BreakpointTypeEnum.MD;
++      if (windowWidthVp >= 320 && windowWidthVp < 600) {
++        widthBp = BreakpointTypeEnum.SM;
++      } else if (windowWidthVp >= 600 && windowWidthVp < 840) {
++        widthBp = BreakpointTypeEnum.MD;
++      } else if (windowWidthVp >= 840) {
++        widthBp = BreakpointTypeEnum.LG;
++      }
++      this.updateCurrentBreakpoint(widthBp);
++    } catch (error) {
++      const err: BusinessError = error as BusinessError;
++      LogUtil.error(TAG, `Failed to getWindowProperties. Cause: ${err.code}, ${err.message}`);
++    }
++  }
++
++  public updateCurrentBreakpoint(breakpoint: BreakpointTypeEnum): void {
++    if (this.currentBreakpoint !== breakpoint) {
++      this.currentBreakpoint = breakpoint;
++      let globalInfo: GlobalInfoModel =
++        AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
++      globalInfo.currentBreakpoint = this.currentBreakpoint;
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/common/utils/src/main/ets/utils/WindowUtil.ets b/common/utils/src/main/ets/utils/WindowUtil.ets
+new file mode 100644
+index 0000000..7229076
+--- /dev/null
++++ b/common/utils/src/main/ets/utils/WindowUtil.ets
+@@ -0,0 +1,43 @@
++/*
++ * Copyright (c) 2024 Huawei Device Co., Ltd.
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import { window } from '@kit.ArkUI';
++import { BusinessError } from '@kit.BasicServicesKit';
++import { BreakpointSystem } from './BreakpointSystem';
++import { LogUtil } from './LogUtil';
++
++const TAG: string = '[WindowUtil]';
++
++export class WindowUtil {
++  public static registerBreakPoint(windowStage: window.WindowStage) {
++    try {
++      const data: window.Window = windowStage.getMainWindowSync();
++      try {
++        BreakpointSystem.getInstance().updateWidthBp(windowStage, data);
++        data.on('windowSizeChange', () => WindowUtil.onWindowSizeChange(windowStage, data));
++      } catch (e) {
++        const error = e as BusinessError;
++        LogUtil.error(TAG, `registerBreakPoint inner failed. code: ${error.code}, message: ${error.message}`);
++      }
++    } catch (e) {
++      const error = e as BusinessError;
++      LogUtil.error(TAG, `getMainWindow threw. code: ${error.code}, message: ${error.message}`);
++    }
++  }
++
++  public static onWindowSizeChange(windowStage: window.WindowStage, window: window.Window) {
++    BreakpointSystem.getInstance().onWindowSizeChange(windowStage, window);
++  }
++}
+\ No newline at end of file
+diff --git a/components/login/src/main/ets/pages/UserInfoPage.ets b/components/login/src/main/ets/pages/UserInfoPage.ets
+index 7bb56a7..241b468 100644
+--- a/components/login/src/main/ets/pages/UserInfoPage.ets
++++ b/components/login/src/main/ets/pages/UserInfoPage.ets
+@@ -1,4 +1,6 @@
+ import { UserInfoForm } from './UserInfoForm';
++import { common } from '@kit.AbilityKit';
++import { resourceManager } from '@kit.LocalizationKit';
+ 
+ @Builder
+ export function UserInfoBuilder() {
+@@ -8,12 +10,23 @@ export function UserInfoBuilder() {
+ @ComponentV2
+ export struct UserInfoPage {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  private hostContext: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
++
++  private isPcLayout(): boolean {
++    try {
++      const type = this.hostContext.resourceManager.getDeviceCapabilitySync().deviceType;
++      return type === resourceManager.DeviceType.DEVICE_TYPE_2IN1;
++    } catch (_e) {
++      return false;
++    }
++  }
+ 
+   build() {
+     NavDestination() {
+       UserInfoForm();
+     }
+     .title('个人信息')
++    .hideTitleBar(this.isPcLayout())
+     .onBackPressed(() => {
+       this.appPathStack.pop();
+       return true;
+diff --git a/components/richeditor/src/main/ets/components/RichEditorArea.ets b/components/richeditor/src/main/ets/components/RichEditorArea.ets
+index ac80677..7fec878 100644
+--- a/components/richeditor/src/main/ets/components/RichEditorArea.ets
++++ b/components/richeditor/src/main/ets/components/RichEditorArea.ets
+@@ -505,6 +505,9 @@ export struct RichEditorArea {
+     },
+     onDidChange: (rangeBefore, rangeAfter) => {
+       this.richEditorController.onDidChange(rangeAfter.start, rangeAfter.end);
++      // 平板/PC 嵌入编辑器：标记当前笔记未保存（供切换笔记/返回二次确认使用）
++      AppStorage.setOrCreate('notes_embed_dirty_note_id', this.noteId);
++      AppStorage.setOrCreate('notes_embed_dirty', true);
+       const styledString = this.richEditorController.controller.getStyledString();
+       const content = styledString.getString();
+       if (content.length > this.MAX_TEXT_LENGTH) {
+@@ -543,6 +546,9 @@ export struct RichEditorArea {
+                 .onChange((value: string) => {
+                   this.noteTitle = value;
+                   this.titleChange(value);
++                  // 标题变更同样视为未保存
++                  AppStorage.setOrCreate('notes_embed_dirty_note_id', this.noteId);
++                  AppStorage.setOrCreate('notes_embed_dirty', true);
+                 })
+                 .margin({ top: 12 })
+                 .onClick(() => {
+diff --git a/product/phone/src/main/ets/components/EmptyNotes.ets b/product/phone/src/main/ets/components/EmptyNotes.ets
+index f90a76e..bef80f3 100644
+--- a/product/phone/src/main/ets/components/EmptyNotes.ets
++++ b/product/phone/src/main/ets/components/EmptyNotes.ets
+@@ -1,5 +1,14 @@
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
++import { ThemeController } from '../controller/ThemeController';
++import { AppStorageV2 } from '@kit.ArkUI';
++
+ @ComponentV2
+ export struct EmptyNotes {
++  /** 平板侧栏等场景：空态与列表左对齐，不占中 */
++  @Param alignStart: boolean = false;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
++
+   @Builder
+   private emptyBody() {
+     Column() {
+@@ -12,22 +21,66 @@ export struct EmptyNotes {
+         .fontColor($r('sys.color.font_tertiary'));
+     }
+     .width('100%')
+-    .alignItems(HorizontalAlign.Center);
++    .alignItems(this.alignStart ? HorizontalAlign.Start : HorizontalAlign.Center);
+   }
+ 
+   build() {
+-    Column() {
+-      this.emptyBody();
++    if (this.alignStart) {
++      Column() {
++        this.emptyBody();
++      }
++      .width('100%')
++      .height(100)
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++          top: 24,
++          bottom: 0,
++        },
++        md: {
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++          top: 24,
++          bottom: 0,
++        },
++        lg: {
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++          top: 24,
++          bottom: 0,
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
++      .justifyContent(FlexAlign.Start)
++      .alignItems(HorizontalAlign.Start);
++    } else {
++      Column() {
++        this.emptyBody();
++      }
++      .width('100%')
++      .layoutWeight(1)
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++          top: 0,
++          bottom: 0,
++        },
++        md: {
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++          top: 0,
++          bottom: 0,
++        },
++        lg: {
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++          top: 0,
++          bottom: 0,
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
++      .justifyContent(FlexAlign.Center)
++      .alignItems(HorizontalAlign.Center);
+     }
+-    .width('100%')
+-    .layoutWeight(1)
+-    .padding({
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
+-      top: 0,
+-      bottom: 0,
+-    })
+-    .justifyContent(FlexAlign.Center)
+-    .alignItems(HorizontalAlign.Center);
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/product/phone/src/main/ets/components/PcHomeFirstPane.ets b/product/phone/src/main/ets/components/PcHomeFirstPane.ets
+new file mode 100644
+index 0000000..dbda4db
+--- /dev/null
++++ b/product/phone/src/main/ets/components/PcHomeFirstPane.ets
+@@ -0,0 +1,238 @@
++import { Category, CategoryService } from '@ohos_agcit/notes_datasource';
++import { NoteSearchController } from '../controller/NoteSearchController';
++import { UserInfo } from 'login';
++import { common } from '@kit.AbilityKit';
++import { resourceManager } from '@kit.LocalizationKit';
++
++
++@ComponentV2
++export struct PcHomeFirstPane {
++  @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  private userInfo: UserInfo = UserInfo.instance;
++  private categoryService: CategoryService = CategoryService.instance;
++  private noteSearchController: NoteSearchController = NoteSearchController.instance;
++  private hostContext: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
++  @Local currentCategory: Category = this.categoryService.getFirstCategory();
++  @Local pcCategoryExpanded: boolean = true;
++  private lastCategoryTapId: string = '';
++  private lastCategoryTapTime: number = 0;
++  private lastAllNotesTapTime: number = 0;
++
++  private isPcLayout(): boolean {
++    try {
++      const type = this.hostContext.resourceManager.getDeviceCapabilitySync().deviceType;
++      return type === resourceManager.DeviceType.DEVICE_TYPE_2IN1;
++    } catch (_e) {
++      return false;
++    }
++  }
++
++  aboutToAppear(): void {
++    this.applySavedCategory();
++  }
++
++  private applySavedCategory(): void {
++    const saved: string | undefined = AppStorage.get<string>('notes_pc_current_category_id');
++    if (saved) {
++      const cat: Category | undefined = this.categoryService.getCategoryById(saved);
++      if (cat) {
++        this.currentCategory = cat;
++        return;
++      }
++    }
++    this.currentCategory = this.categoryService.getFirstCategory();
++  }
++
++  private resetPaneCategory(category: Category): void {
++    AppStorage.setOrCreate('notes_pc_current_category_id', category.id);
++    AppStorage.delete('notes_pc_search_keyword');
++    this.currentCategory = category;
++    this.noteSearchController.isSearching = false;
++    this.noteSearchController.searchKeyword = '';
++  }
++
++  private onCategoryRowTap(category: Category): void {
++    const now: number = Date.now();
++    if (category.id === this.lastCategoryTapId && (now - this.lastCategoryTapTime) < 450) {
++      this.resetPaneCategory(category);
++      this.appPathStack.pop();
++      this.lastCategoryTapId = '';
++      this.lastCategoryTapTime = 0;
++      return;
++    }
++    this.lastCategoryTapId = category.id;
++    this.lastCategoryTapTime = now;
++    this.resetPaneCategory(category);
++  }
++
++  private onAllNotesTitleRowTap(): void {
++    const now: number = Date.now();
++    const all: Category | undefined = this.categoryService.getCategoryById('-1');
++    const target: Category = all ?? this.categoryService.getFirstCategory();
++    if ((now - this.lastAllNotesTapTime) < 450 && this.lastAllNotesTapTime > 0) {
++      this.resetPaneCategory(target);
++      this.appPathStack.pop();
++      this.lastAllNotesTapTime = 0;
++      return;
++    }
++    this.lastAllNotesTapTime = now;
++    this.resetPaneCategory(target);
++  }
++
++  private popToHomeWithSearch(keyword: string): void {
++    AppStorage.setOrCreate('notes_pc_search_keyword', keyword);
++    this.noteSearchController.searchKeyword = keyword;
++    this.noteSearchController.isSearching = keyword.length > 0;
++    this.appPathStack.pop();
++  }
++
++  build() {
++    Column({ space: 8 }) {
++      Row() {
++        Image(this.userInfo.userAvatar)
++          .width(56)
++          .height(56)
++          .borderRadius(28)
++          .margin({ left: 12 });
++
++        Text(this.userInfo.userName)
++          .fontSize(18)
++          .fontColor($r('sys.color.font_primary'))
++          .fontWeight(FontWeight.Medium)
++          .margin({ left: 12 });
++      }
++      .width('100%')
++      .height(72)
++      .onClick(() => {
++        if (this.userInfo.isLogin) {
++          this.appPathStack.pushPathByName(this.isPcLayout() ? 'MineViewHost' : 'MineView', undefined);
++        } else {
++          this.appPathStack.pushPathByName('QuickLoginPage', undefined);
++        }
++      });
++
++      Scroll() {
++        Column({ space: 8 }) {
++          Search({
++            placeholder: $r('app.string.search_note'),
++          })
++            .placeholderFont({ size: $r('sys.float.Body_L') })
++            .placeholderColor($r('sys.color.font_secondary'))
++            .fontColor($r('sys.color.font_primary'))
++            .onSubmit((value: string) => {
++              this.popToHomeWithSearch(value);
++            })
++            .onChange((value: string) => {
++              if (!value) {
++                this.noteSearchController.isSearching = false;
++                this.noteSearchController.searchKeyword = '';
++              }
++            });
++
++          Column() {
++            Button() {
++              Row() {
++                Text($r('app.string.go_note_category'))
++                  .fontSize($r('sys.float.Body_L'))
++                  .fontColor($r('sys.color.font_on_primary'))
++                  .fontWeight(FontWeight.Medium);
++                SymbolGlyph($r('sys.symbol.chevron_right'))
++                  .fontWeight(FontWeight.Medium)
++                  .fontSize(18)
++                  .fontColor([Color.White])
++                  .padding({ left: 13 });
++              };
++            }
++            .height(40)
++            .width('100%')
++            .backgroundColor('#FFAA00')
++            .margin({ bottom: 8 })
++            .onClick(() => {
++              const params: Record<string, Object | undefined> = {
++                'isEditCategory': true,
++                'currentCategory': this.currentCategory,
++                'noteList': undefined,
++              };
++              this.appPathStack.pushPathByName('EditCategory', params);
++            });
++
++            Row({ space: 8 }) {
++              Text('全部笔记')
++                .fontSize(16)
++                .fontWeight(FontWeight.Medium)
++                .fontColor($r('sys.color.font_primary'))
++                .onClick(() => {
++                  this.onAllNotesTitleRowTap();
++                });
++              Blank();
++              SymbolGlyph(this.pcCategoryExpanded ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
++                .fontSize(18)
++                .fontColor([$r('sys.color.font_secondary')])
++                .onClick(() => {
++                  this.pcCategoryExpanded = !this.pcCategoryExpanded;
++                });
++            }
++            .width('100%')
++            .height(44)
++            .padding({ left: 12, right: 12 })
++            .backgroundColor($r('sys.color.comp_background_tertiary'))
++            .borderRadius(12);
++
++            if (this.pcCategoryExpanded) {
++              List() {
++                ForEach(this.categoryService.getCategoryList().filter((c) => c.id !== '-1'),
++                  (category: Category, index: number) => {
++                    ListItem() {
++                      Column() {
++                        if (index !== 0) {
++                          Divider().color($r('sys.color.comp_divider'));
++                        }
++                        Row() {
++                          Text(category.name)
++                            .fontSize(14)
++                            .fontColor(this.currentCategory.id === category.id ?
++                              $r('sys.color.font_primary') : $r('sys.color.font_secondary'))
++                            .fontWeight(this.currentCategory.id === category.id ? FontWeight.Medium :
++                              FontWeight.Regular);
++
++                          Blank();
++                          Text(String(category.totalCount))
++                            .fontSize(14)
++                            .fontColor($r('sys.color.font_secondary'));
++                        }
++                        .width('100%')
++                        .height(44);
++                      };
++                    }
++                    .padding({ left: 12, right: 12 })
++                    .onClick(() => {
++                      this.onCategoryRowTap(category);
++                    });
++                  }, (category: Category) => category.id);
++              }
++              .scrollBar(BarState.Off)
++              .borderRadius(12)
++              .margin({ top: 0 });
++            }
++          }
++          .width('100%');
++        }
++        .width('100%')
++        .constraintSize({ minHeight: '100%' })
++        .justifyContent(FlexAlign.Start);
++      }
++      .scrollBar(BarState.Off)
++      .edgeEffect(EdgeEffect.Spring)
++      .layoutWeight(1)
++      .width('100%');
++    }
++    .padding({
++      left: 12,
++      right: 12,
++      top: 12,
++      bottom: 12,
++    })
++    .width('100%')
++    .height('100%');
++  }
++}
+diff --git a/product/phone/src/main/ets/components/SearchNoResult.ets b/product/phone/src/main/ets/components/SearchNoResult.ets
+index 86effcb..9f30a7e 100644
+--- a/product/phone/src/main/ets/components/SearchNoResult.ets
++++ b/product/phone/src/main/ets/components/SearchNoResult.ets
+@@ -1,5 +1,12 @@
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
++import { AppStorageV2 } from '@kit.ArkUI';
++
+ @ComponentV2
+ export struct SearchNoResult {
++  /** 平板侧栏等场景：与列表左对齐 */
++  @Param alignStart: boolean = false;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+   build() {
+     Column() {
+       Text($r('app.string.no_match_note'))
+@@ -8,11 +15,21 @@ export struct SearchNoResult {
+     }
+     .width('100%')
+     .height(100)
+-    .padding({
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
+-    })
+-    .justifyContent(FlexAlign.Center)
+-    .alignItems(HorizontalAlign.Center);
++    .padding(new BreakpointType<Padding>({
++      sm: {
++        left: $r('sys.float.padding_level8'),
++        right: $r('sys.float.padding_level8'),
++      },
++      md: {
++        left: $r('sys.float.padding_level12'),
++        right: $r('sys.float.padding_level12'),
++      },
++      lg: {
++        left: $r('sys.float.padding_level16'),
++        right: $r('sys.float.padding_level16'),
++      },
++    }).getValue(this.globalInfo.currentBreakpoint))
++    .justifyContent(this.alignStart ? FlexAlign.Start : FlexAlign.Center)
++    .alignItems(this.alignStart ? HorizontalAlign.Start : HorizontalAlign.Center);
+   }
+-}
++}
+\ No newline at end of file
+diff --git a/product/phone/src/main/ets/entryability/EntryAbility.ets b/product/phone/src/main/ets/entryability/EntryAbility.ets
+index fbd1d76..c67f322 100644
+--- a/product/phone/src/main/ets/entryability/EntryAbility.ets
++++ b/product/phone/src/main/ets/entryability/EntryAbility.ets
+@@ -13,12 +13,12 @@
+  * limitations under the License.
+  */
+ import { Configuration, UIAbility, Want } from '@kit.AbilityKit';
+-import { KeyboardAvoidMode, window } from '@kit.ArkUI';
++import { KeyboardAvoidMode, window, AppStorageV2 } from '@kit.ArkUI';
+ import { AbilityConstant } from '@kit.AbilityKit';
+ import { hilog } from '@kit.PerformanceAnalysisKit';
+ import { BusinessError } from '@kit.BasicServicesKit';
+ import { ThemeController } from '../controller/ThemeController';
+-import { AppUtil } from '@ohos_agcit/notes_utils';
++import { AppUtil, WindowUtil } from '@ohos_agcit/notes_utils';
+ import { notificationManager } from '@kit.NotificationKit';
+ import { SettingController } from '../controller/SettingController';
+ import { distributedKVStore } from '@kit.ArkData';
+@@ -26,6 +26,7 @@ import { util } from '@kit.ArkTS';
+ import { ContinueUtils } from 'continue';
+ import GlobalContext from '../utils/ContextConfig';
+ import { systemShare } from '@kit.ShareKit';
++import { GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ 
+ 
+ interface SharedRecordWithContent extends systemShare.SharedRecord {
+@@ -232,10 +233,15 @@ export default class EntryAbility extends UIAbility {
+ 
+     AppStorage.setOrCreate('screenHeight', windowStage.getMainWindowSync().getUIContext().px2vp(size.height));
+     AppStorage.setOrCreate('screenWidth', windowStage.getMainWindowSync().getUIContext().px2vp(size.width));
++    // ComponentV2 页面通过 GlobalInfoModel 响应窗口宽度变化
++    const globalInfo: GlobalInfoModel =
++      AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
++    globalInfo.screenWidthVp = windowStage.getMainWindowSync().getUIContext().px2vp(size.width);
+ 
+     windowClass.on('windowSizeChange', data => {
+       AppStorage.setOrCreate('screenHeight', windowStage.getMainWindowSync().getUIContext().px2vp(data.height));
+       AppStorage.setOrCreate('screenWidth', windowStage.getMainWindowSync().getUIContext().px2vp(data.width));
++      globalInfo.screenWidthVp = windowStage.getMainWindowSync().getUIContext().px2vp(data.width);
+     });
+   }
+ 
+@@ -244,6 +250,9 @@ export default class EntryAbility extends UIAbility {
+ 
+     GlobalContext.setContext(this.context);
+ 
++    // 一多适配-折叠屏
++    WindowUtil.registerBreakPoint(windowStage);
++
+     let windowClass: window.Window = windowStage.getMainWindowSync();
+ 
+     // 隐藏底部导航栏
+diff --git a/product/phone/src/main/ets/model/NotesRefreshSignal.ets b/product/phone/src/main/ets/model/NotesRefreshSignal.ets
+new file mode 100644
+index 0000000..c49c5d1
+--- /dev/null
++++ b/product/phone/src/main/ets/model/NotesRefreshSignal.ets
+@@ -0,0 +1,13 @@
++/*
++ * Copyright (c) 2026.
++ */
++
++@ObservedV2
++export class NotesRefreshSignal {
++  /**
++   * 递增触发笔记列表刷新。
++   * 用于平板/PC 分栏嵌入编辑时：保存笔记不会让首页重新 aboutToAppear，因此需要显式通知刷新。
++   */
++  @Trace tick: number = 0;
++}
++
+diff --git a/product/phone/src/main/ets/model/TabletEditorState.ets b/product/phone/src/main/ets/model/TabletEditorState.ets
+new file mode 100644
+index 0000000..d793dac
+--- /dev/null
++++ b/product/phone/src/main/ets/model/TabletEditorState.ets
+@@ -0,0 +1,18 @@
++/*
++ * Copyright (c) 2026.
++ */
++
++@ObservedV2
++export class TabletEditorState {
++  /** 平板分栏：右侧嵌入编辑器模式 */
++  @Trace embedMode: boolean = false;
++  /** 平板分栏：当前选中的笔记 ID（右侧展示/编辑） */
++  @Trace selectedNoteId: string = '';
++  /** 新建草稿：分类（尚未入库，getNoteById 查不到时在 EditNotes 写入 currentNote） */
++  @Trace pendingNewNoteCategoryId: string = '';
++  /** 新建草稿：是否从录音入口进入 */
++  @Trace pendingIsRecordingNote: boolean = false;
++  /** 分栏编辑：切换笔记时，待切换的目标 noteId（用于二次确认后继续） */
++  @Trace pendingSwitchNoteId: string = '';
++}
++
+diff --git a/product/phone/src/main/ets/pages/EditCategory.ets b/product/phone/src/main/ets/pages/EditCategory.ets
+index 9a3c0b6..b7a5f45 100644
+--- a/product/phone/src/main/ets/pages/EditCategory.ets
++++ b/product/phone/src/main/ets/pages/EditCategory.ets
+@@ -1,6 +1,6 @@
+ import { Category, CategoryService, NoteService } from '@ohos_agcit/notes_datasource';
+-import { DialogUtil, StringUtil } from '@ohos_agcit/notes_utils';
+-import { ComponentContent, UIContext } from '@kit.ArkUI';
++import { BreakpointType, BreakpointTypeEnum, DialogUtil, GlobalInfoModel, StringUtil } from '@ohos_agcit/notes_utils';
++import { AppStorageV2, ComponentContent, UIContext } from '@kit.ArkUI';
+ import { SelectedController } from '../controller/SelectedController';
+ import { Note } from 'richeditor';
+ import { KVStore } from 'serializer';
+@@ -20,6 +20,8 @@ export struct EditCategory {
+   categoryService: CategoryService = CategoryService.instance;
+   noteService: NoteService = NoteService.instance;
+   private selectedController: SelectedController = SelectedController.instance;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+   @Local categoryList: Array<Category> = [];
+   @Local categoryId: string = '';
+   @Local isEditCategoryName: boolean = true;
+@@ -107,7 +109,7 @@ export struct EditCategory {
+             right: '3%',
+           })
+ 
+-          // 普通分类列表：单列
++          // 普通分类列表：LG 三列，SM/MD 单列
+           List({ space: 12, scroller: this.scroller }) {
+             ForEach(this.normalCategories, (item: Category, index: number) => {
+               ListItem() {
+@@ -159,7 +161,7 @@ export struct EditCategory {
+             }, (item: Category) => item.id);
+           }
+           .id('category_list')
+-          .lanes(1, 12)
++          .lanes(this.globalInfo.currentBreakpoint === BreakpointTypeEnum.LG ? 3 : 1, 12)
+           .scrollBar(BarState.Off)
+ 
+ 
+@@ -186,12 +188,26 @@ export struct EditCategory {
+           });
+         }
+         .width('100%')
+-        .padding({
+-          left: $r('sys.float.padding_level8'),
+-          right: $r('sys.float.padding_level8'),
+-          top: 10,
+-          bottom: 50,
+-        })
++        .padding(new BreakpointType<Padding>({
++          sm: {
++            left: $r('sys.float.padding_level8'),
++            right: $r('sys.float.padding_level8'),
++            top: 10,
++            bottom: 50,
++          },
++          md: {
++            left: $r('sys.float.padding_level12'),
++            right: $r('sys.float.padding_level12'),
++            top: 10,
++            bottom: 50,
++          },
++          lg: {
++            left: $r('sys.float.padding_level16'),
++            right: $r('sys.float.padding_level16'),
++            top: 10,
++            bottom: 50,
++          },
++        }).getValue(this.globalInfo.currentBreakpoint))
+ 
+       }
+       .scrollBar(BarState.Off)
+diff --git a/product/phone/src/main/ets/pages/EditNotes.ets b/product/phone/src/main/ets/pages/EditNotes.ets
+index 9ad0061..f71d90f 100644
+--- a/product/phone/src/main/ets/pages/EditNotes.ets
++++ b/product/phone/src/main/ets/pages/EditNotes.ets
+@@ -41,6 +41,8 @@ import { AppUtil } from '@ohos_agcit/notes_utils';
+ import { AudioRecordHelper } from '../utils/AudioRecordHelper';
+ import { fileIo } from '@kit.CoreFileKit';
+ import { Constants as VoiceAudioConstants } from '../utils/VoiceAudioConstants';
++import { TabletEditorState } from '../model/TabletEditorState';
++import { NotesRefreshSignal } from '../model/NotesRefreshSignal';
+ 
+ @Builder
+ export function EditNotesBuilder() {
+@@ -51,6 +53,10 @@ export function EditNotesBuilder() {
+ struct EditNotes {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
+   @Consumer() kvStore: KVStore | undefined = undefined;
++  @Local tabletEditorState: TabletEditorState =
++    AppStorageV2.connect(TabletEditorState, 'tabletEditorState', () => new TabletEditorState())!;
++  @Local notesRefreshSignal: NotesRefreshSignal =
++    AppStorageV2.connect(NotesRefreshSignal, 'notesRefreshSignal', () => new NotesRefreshSignal())!;
+   @Local continueModel: ContinueModel = AppStorageV2.connect(ContinueModel, () => new ContinueModel())!;
+   // @Local handwriteController: HandwriteController = new HandwriteController();
+   @Local isContinueRestored: boolean = false; // 接续是否已恢复
+@@ -88,6 +94,8 @@ struct EditNotes {
+     this.isEditNote = true;
+     const note = this.noteService.getNoteById(noteId);
+     if (note) {
++      this.tabletEditorState.pendingNewNoteCategoryId = '';
++      this.tabletEditorState.pendingIsRecordingNote = false;
+       this.currentNote = note;
+       this.noteTitle = note.title;
+       this.isRecordingNote = note.noteType === 'recording';
+@@ -96,8 +104,14 @@ struct EditNotes {
+       this.currentNote = new Note(new MutableStyledString(''));
+       this.currentNote.id = noteId;
+       this.currentNote.handwriteFileName = `handwrite_${noteId}`;
++      if (this.tabletEditorState.pendingNewNoteCategoryId !== '') {
++        this.currentNote.categoryId = this.tabletEditorState.pendingNewNoteCategoryId;
++      }
++      const fromPendingRecording = this.tabletEditorState.pendingIsRecordingNote;
++      this.tabletEditorState.pendingNewNoteCategoryId = '';
++      this.tabletEditorState.pendingIsRecordingNote = false;
+       this.noteTitle = '';
+-      this.isRecordingNote = isRecordingNoteParam;
++      this.isRecordingNote = fromPendingRecording || isRecordingNoteParam;
+       ContinueUtils.disableContinue(this.hostContext as common.UIAbilityContext);
+     }
+     // 打开已有录音的笔记时，自动展示录音条
+@@ -114,6 +128,18 @@ struct EditNotes {
+     }
+   }
+ 
++  @Monitor('tabletEditorState.selectedNoteId')
++  private onTabletSelectedNoteIdChange(): void {
++    const noteId = this.tabletEditorState.selectedNoteId;
++    if (!noteId) {
++      return;
++    }
++    if (this.currentNote?.id === noteId) {
++      return;
++    }
++    this.initFromNoteId(noteId);
++  }
++
+   aboutToAppear(): void {
+     // 启用压缩模式避让软键盘
+     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE_WITH_CARET);
+@@ -147,6 +173,11 @@ struct EditNotes {
+       this.refreshNoteSharePayloadCache();
+     }, 2000);
+     this.refreshNoteSharePayloadCache();
++
++    // 分栏右侧嵌入：首次进入时根据选中的 noteId 初始化
++    if (this.tabletEditorState.selectedNoteId && this.currentNote?.id !== this.tabletEditorState.selectedNoteId) {
++      this.initFromNoteId(this.tabletEditorState.selectedNoteId);
++    }
+   }
+ 
+   aboutToDisappear(): void {
+@@ -471,7 +502,7 @@ struct EditNotes {
+       .width(150)
+       .justifyContent(FlexAlign.End)
+       .margin({
+-        right: 16,
++        right: this.tabletEditorState.embedMode ? 0 : 16,
+       });
+     } else {
+       Row({ space: 12 }) {
+@@ -514,7 +545,7 @@ struct EditNotes {
+       .width(150)
+       .justifyContent(FlexAlign.Center)
+       .margin({
+-        right: 16,
++        right: this.tabletEditorState.embedMode ? 0 : 16,
+       });
+     }
+   }
+@@ -525,6 +556,19 @@ struct EditNotes {
+     return dirty === true && noteId === this.currentNote.id;
+   }
+ 
++  private isEmbedEditorDirty(): boolean {
++    const dirty = AppStorage.get<boolean>('notes_embed_dirty');
++    const noteId = AppStorage.get<string>('notes_embed_dirty_note_id');
++    return dirty === true && noteId === this.currentNote.id;
++  }
++
++  private clearEmbedEditorDirty(): void {
++    const noteId = AppStorage.get<string>('notes_embed_dirty_note_id');
++    if (noteId === this.currentNote.id) {
++      AppStorage.setOrCreate('notes_embed_dirty', false);
++    }
++  }
++
+   /**
+    * 保存笔记
+    */
+@@ -581,11 +625,17 @@ struct EditNotes {
+       this.showRateDialogOnce();
+     }
+ 
++    if (this.tabletEditorState.embedMode) {
++      this.notesRefreshSignal.tick = this.notesRefreshSignal.tick + 1;
++    }
++
+     // 更新接续数据（确保当前笔记可以作为源端接续）
+     if (this.isEditNote && this.currentNote.id) {
+       ContinueUtils.updateContinueData(this.currentNote.id, this.currentNote.title);
+     }
+ 
++    this.clearEmbedEditorDirty();
++
+     return true;
+   }
+ 
+@@ -866,7 +916,11 @@ struct EditNotes {
+         .width('50%')
+         .onClick(async () => {
+           this.backDialogController.close();
+-          this.appPathStack.pop();
++          if (this.tabletEditorState.embedMode) {
++            this.tabletEditorState.selectedNoteId = '';
++          } else {
++            this.appPathStack.pop();
++          }
+         });
+       }
+       .padding({
+@@ -881,135 +935,205 @@ struct EditNotes {
+   }
+ 
+   build() {
+-    NavDestination() {
+-      Stack() {
+-        // 富文本编辑区（含底部工具栏）
+-        RichEditorArea({
+-          noteTitle: this.currentNote.title,
+-          noteContent: this.currentNote.styledString,
+-          snapShotController: this.snapShotController,
+-          noteId: this.currentNote.id,
+-          // handwriteController: this.handwriteController,
+-          tapRecord: () => {
+-            this.isRecordingNote = true;
+-            this.showRecordingBar = true;
+-            // 点击录音按钮后进入编辑模式（退出“更多/展示态”）
+-            this.richEditorController.showMoreFunction = false;
+-            // 避免手写层覆盖
+-            this.richEditorController.isHandwriteMode = false;
+-          },
+-          titleChange: (title: string) => {
+-            this.noteTitle = title;
+-          },
+-        })
+-        // 录音条浮层不挤压布局，但需要给内容留出顶部空间避免遮挡标题
+-        .padding({ top: this.showRecordingBar ? 120 : 0 });
++    if (this.tabletEditorState.embedMode) {
++      Column() {
++        Row() {
++          // 左上角返回按钮（嵌入第三栏时返回到空态）
++          SymbolGlyph($r('sys.symbol.arrow_left'))
++            .fontSize(20)
++            .fontColor([$r('sys.color.font_primary')])
++            .onClick(() => {
++              if (this.isEmbedEditorDirty() || this.isCurrentHandwriteDirty()) {
++                this.backDialogController.open();
++              } else {
++                this.tabletEditorState.selectedNoteId = '';
++              }
++            });
++          Blank();
++          this.toolBar();
++        }
++        .width('100%')
++        .height(56)
++        .justifyContent(FlexAlign.SpaceBetween)
++        .alignItems(VerticalAlign.Center)
++        .padding({ left: 12, right: 12 });
+ 
+         if (this.showRecordingBar) {
+           Column() {
+             this.recordingBar();
+           }
+-          .width('100%')
+-          .position({ x: 0, y: 0 })
+-          .zIndex(1000);
++          .width('100%');
+         }
++
++        // RichEditorArea 的 noteId/noteContent/noteTitle 为 @Once，需要通过 key 触发重建，否则切换笔记不会刷新
++        ForEach([this.tabletEditorState.selectedNoteId], (_id: string) => {
++          RichEditorArea({
++            noteTitle: this.currentNote.title,
++            noteContent: this.currentNote.styledString,
++            snapShotController: this.snapShotController,
++            noteId: this.currentNote.id,
++            // handwriteController: this.handwriteController,
++            tapRecord: () => {
++              this.isRecordingNote = true;
++              this.showRecordingBar = true;
++              this.richEditorController.showMoreFunction = false;
++              this.richEditorController.isHandwriteMode = false;
++            },
++            titleChange: (title: string) => {
++              this.noteTitle = title;
++            },
++          })
++            .layoutWeight(1)
++            .width('100%');
++        }, (id: string) => id);
+       }
+       .height('100%')
+       .width('100%');
+-    }
+-    .onShown(() => {
+-      // 激活接续能力
+-      if (this.isEditNote) {
+-        const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+-        ContinueUtils.enableContinue(context);
+-      }
+-      // 每次页面显示时刷新隔空传送的当前笔记与同步 getter（返回缓存）
+-      this.gesturesShareService.setCurrentNote(this.currentNote.id, this.currentNote.title);
+-      this.gesturesShareService.setNotePayloadGetter(() => this.noteSharePayloadCache);
+-    })
+-    .menus(this.toolBar())
+-    .onReady((cxt: NavDestinationContext) => {
+-      const params = (cxt?.pathInfo?.param as Record<string, Object>) ?? {};
+-      let noteId = (params.noteId as string) ?? '';
+-      const isRecordingNoteParam = (params.isRecordingNote as boolean) === true;
+-
+-      // 优先使用接续的笔记ID
+-      if (ContinueUtils.isContinueScene()) {
+-        const continueNoteId = ContinueUtils.getContinueNoteId();
+-        if (continueNoteId && continueNoteId !== '') {
+-          noteId = continueNoteId;
+-          hilog.info(0x0000, 'EditNotes', `使用接续的笔记ID: ${noteId}`);
++    } else {
++      NavDestination() {
++        Stack() {
++          // 富文本编辑区（含底部工具栏）
++          RichEditorArea({
++            noteTitle: this.currentNote.title,
++            noteContent: this.currentNote.styledString,
++            snapShotController: this.snapShotController,
++            noteId: this.currentNote.id,
++            // handwriteController: this.handwriteController,
++            tapRecord: () => {
++              this.isRecordingNote = true;
++              this.showRecordingBar = true;
++              // 点击录音按钮后进入编辑模式（退出“更多/展示态”）
++              this.richEditorController.showMoreFunction = false;
++              // 避免手写层覆盖
++              this.richEditorController.isHandwriteMode = false;
++            },
++            titleChange: (title: string) => {
++              this.noteTitle = title;
++            },
++          })
++          // 录音条浮层不挤压布局，但需要给内容留出顶部空间避免遮挡标题
++          .padding({ top: this.showRecordingBar ? 120 : 0 });
++
++          if (this.showRecordingBar) {
++            Column() {
++              this.recordingBar();
++            }
++            .width('100%')
++            .position({ x: 0, y: 0 })
++            .zIndex(1000);
++          }
+         }
++        .height('100%')
++        .width('100%');
+       }
++      .onShown(() => {
++        // 激活接续能力
++        if (this.isEditNote) {
++          const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
++          ContinueUtils.enableContinue(context);
++        }
++        // 每次页面显示时刷新隔空传送的当前笔记与同步 getter（返回缓存）
++        this.gesturesShareService.setCurrentNote(this.currentNote.id, this.currentNote.title);
++        this.gesturesShareService.setNotePayloadGetter(() => this.noteSharePayloadCache);
++      })
++      .menus(this.toolBar())
++      .onReady((cxt: NavDestinationContext) => {
++        // 平板分栏嵌入模式：不依赖 NavDestination 路由参数，由 tabletEditorState 驱动切换
++        if (this.tabletEditorState.embedMode) {
++          return;
++        }
+ 
+-      if (noteId === '') {
+-        this.isEditNote = false;
+-        this.currentNote = new Note(new MutableStyledString(''));
+-        this.noteTitle = '';
+-        this.isRecordingNote = isRecordingNoteParam;
+-        this.showRecordingBar = isRecordingNoteParam;
+-        const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+-        ContinueUtils.disableContinue(context);
+-      } else {
+-        this.initFromNoteId(noteId, isRecordingNoteParam);
+-      }
++        const params = (cxt?.pathInfo?.param as Record<string, Object>) ?? {};
++        let noteId = (params.noteId as string) ?? '';
++        const isRecordingNoteParam = (params.isRecordingNote as boolean) === true;
+ 
+-      // 若已有录音，初始化 fileSize（用于进度与总时长）
+-      if (this.currentNote.audioUri) {
+-        try {
+-          const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+-          const filePath = `${ctx.cacheDir}/${this.currentNote.audioUri}.pcm`;
+-          this.fileSize = fileIo.statSync(filePath).size;
+-          this.playCurrentMs = 0;
+-          if (this.fileSize > 0) {
+-            const bytesPerSec = VoiceAudioConstants.SAMPLING_RATE * VoiceAudioConstants.SAMPLE_BYTE *
+-              VoiceAudioConstants.CHANNEL_NUM;
+-            const totalSec = this.fileSize / bytesPerSec;
+-            this.playDurationMs = totalSec * 1000;
+-          } else {
++        // 优先使用接续的笔记ID
++        if (ContinueUtils.isContinueScene()) {
++          const continueNoteId = ContinueUtils.getContinueNoteId();
++          if (continueNoteId && continueNoteId !== '') {
++            noteId = continueNoteId;
++            hilog.info(0x0000, 'EditNotes', `使用接续的笔记ID: ${noteId}`);
++          }
++        }
++
++        if (noteId === '') {
++          this.isEditNote = false;
++          this.currentNote = new Note(new MutableStyledString(''));
++          this.noteTitle = '';
++          this.isRecordingNote = isRecordingNoteParam;
++          this.showRecordingBar = isRecordingNoteParam;
++          const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
++          ContinueUtils.disableContinue(context);
++        } else {
++          this.initFromNoteId(noteId, isRecordingNoteParam);
++        }
++
++        // 若已有录音，初始化 fileSize（用于进度与总时长）
++        if (this.currentNote.audioUri) {
++          try {
++            const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
++            const filePath = `${ctx.cacheDir}/${this.currentNote.audioUri}.pcm`;
++            this.fileSize = fileIo.statSync(filePath).size;
++            this.playCurrentMs = 0;
++            if (this.fileSize > 0) {
++              const bytesPerSec = VoiceAudioConstants.SAMPLING_RATE * VoiceAudioConstants.SAMPLE_BYTE *
++                VoiceAudioConstants.CHANNEL_NUM;
++              const totalSec = this.fileSize / bytesPerSec;
++              this.playDurationMs = totalSec * 1000;
++            } else {
++              this.playDurationMs = 0;
++            }
++          } catch (e) {
++            this.fileSize = 0;
++            this.playCurrentMs = 0;
+             this.playDurationMs = 0;
+           }
+-        } catch (e) {
+-          this.fileSize = 0;
+-          this.playCurrentMs = 0;
+-          this.playDurationMs = 0;
+         }
+-      }
+ 
+-      // 供隔空传送使用：当前笔记 id/title + 同步返回缓存的 getter
+-      this.gesturesShareService.setCurrentNote(this.currentNote.id, this.currentNote.title);
+-      this.gesturesShareService.setNotePayloadGetter(() => this.noteSharePayloadCache);
++        // 供隔空传送使用：当前笔记 id/title + 同步返回缓存的 getter
++        this.gesturesShareService.setCurrentNote(this.currentNote.id, this.currentNote.title);
++        this.gesturesShareService.setNotePayloadGetter(() => this.noteSharePayloadCache);
+ 
+-      // historyRecordArray 已在 initFromNoteId / 新建分支中初始化
+-      if (noteId === '') {
+-        this.richEditorController.currentIndex = 0;
+-        this.richEditorController.historyRecordArray = [];
+-        this.richEditorController.historyRecordArray.push(new ChangeRecord(this.currentNote.styledString));
+-      }
+-      const category = params.currentCategory as Category | undefined;
+-      if (category?.id) {
+-        this.currentNote.categoryId = category.id;
+-      }
++        // historyRecordArray 已在 initFromNoteId / 新建分支中初始化
++        if (noteId === '') {
++          this.richEditorController.currentIndex = 0;
++          this.richEditorController.historyRecordArray = [];
++          this.richEditorController.historyRecordArray.push(new ChangeRecord(this.currentNote.styledString));
++        }
++        const category = params.currentCategory as Category | undefined;
++        if (category?.id) {
++          this.currentNote.categoryId = category.id;
++        }
+ 
+-      // 打开编辑页面后更新接续数据，保证源端有“当前打开的笔记”
+-      if (this.isEditNote && this.currentNote.id) {
+-        ContinueUtils.updateContinueData(this.currentNote.id, this.currentNote.title);
+-      }
+-    })
+-    .onBackPressed(() => {
+-      // 三个点（更多）状态下：如果画布有改动，仍需弹窗确认并保存
+-      if (this.richEditorController.showMoreFunction) {
+-        if (this.isCurrentHandwriteDirty()) {
+-          this.backDialogController.open();
+-        } else {
+-          this.appPathStack.pop();
++        // 打开编辑页面后更新接续数据，保证源端有“当前打开的笔记”
++        if (this.isEditNote && this.currentNote.id) {
++          ContinueUtils.updateContinueData(this.currentNote.id, this.currentNote.title);
++        }
++      })
++      .onBackPressed(() => {
++        // 平板右侧嵌入：返回键只清空右侧选中，不退出首页
++        if (this.tabletEditorState.embedMode) {
++          if (this.isEmbedEditorDirty() || this.isCurrentHandwriteDirty()) {
++            this.backDialogController.open();
++          } else {
++            this.tabletEditorState.selectedNoteId = '';
++          }
++          return true;
++        }
++        // 三个点（更多）状态下：如果画布有改动，仍需弹窗确认并保存
++        if (this.richEditorController.showMoreFunction) {
++          if (this.isCurrentHandwriteDirty()) {
++            this.backDialogController.open();
++          } else {
++            this.appPathStack.pop();
++          }
++          return true;
+         }
+-        return true;
+-      }
+ 
+-      // 编辑态：按返回键弹出弹窗
+-      this.backDialogController.open();
+-      return true;
+-    });
++        // 编辑态：按返回键弹出弹窗
++        this.backDialogController.open();
++        return true;
++      });
++    }
+   }
+ }
+diff --git a/product/phone/src/main/ets/pages/Index.ets b/product/phone/src/main/ets/pages/Index.ets
+index 76bfac3..dffac15 100644
+--- a/product/phone/src/main/ets/pages/Index.ets
++++ b/product/phone/src/main/ets/pages/Index.ets
+@@ -13,8 +13,14 @@
+  * limitations under the License.
+  */
+ import { Category, CategoryService, NoteService, SortEnum, seedMockData } from '@ohos_agcit/notes_datasource';
+-import { DateConstants, DateUtil } from '@ohos_agcit/notes_utils';
+-import { AppStorageV2, PersistenceV2 } from '@kit.ArkUI';
++import {
++  BreakpointType,
++  BreakpointTypeEnum,
++  DateConstants,
++  DateUtil,
++  GlobalInfoModel,
++} from '@ohos_agcit/notes_utils';
++import { AppStorageV2, PersistenceV2, window, router } from '@kit.ArkUI';
+ import { SecretLock } from 'secretlock';
+ import { hilog } from '@kit.PerformanceAnalysisKit';
+ import { SortController } from '../controller/SortController';
+@@ -22,6 +28,8 @@ import { NoteSearchController } from '../controller/NoteSearchController';
+ import { CategoryController } from '../controller/CategoryController';
+ import { SearchNoResult } from '../components/SearchNoResult';
+ import { EmptyNotes } from '../components/EmptyNotes';
++import { EditNotesBuilder } from './EditNotes';
++import { TabletEditorState } from '../model/TabletEditorState';
+ import { JSON } from '@kit.ArkTS';
+ import { SelectedController } from '../controller/SelectedController';
+ import { LazyDataSource, Note } from 'richeditor';
+@@ -41,7 +49,9 @@ import { common } from '@kit.AbilityKit';
+ import { BusinessError } from '@kit.BasicServicesKit';
+ import { distributedKVStore } from '@kit.ArkData';
+ import { ContinueModel, ContinueUtils } from 'continue';
++import { resourceManager } from '@kit.LocalizationKit';
+ import { UserInfo } from 'login';
++import { NotesRefreshSignal } from '../model/NotesRefreshSignal';
+ 
+ @Entry
+ @ComponentV2
+@@ -62,12 +72,47 @@ struct Index {
+   @Provider() kvStore: KVStore | undefined = undefined;
+   securityLevel: distributedKVStore.SecurityLevel = distributedKVStore.SecurityLevel.S1;
+   @Local secretLock: SecretLock = PersistenceV2.connect(SecretLock, () => new SecretLock())!;
+-  @Local hasShownSplashAd: boolean = false;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
++  @Local tabletEditorState: TabletEditorState =
++    AppStorageV2.connect(TabletEditorState, 'tabletEditorState', () => new TabletEditorState())!;
++  @Local notesRefreshSignal: NotesRefreshSignal =
++    AppStorageV2.connect(NotesRefreshSignal, 'notesRefreshSignal', () => new NotesRefreshSignal())!;
+   private userInfo: UserInfo = UserInfo.instance;
+   @Local noteList: Note[] = [];
+   @Local currentCategory: Category = this.categoryService.getFirstCategory();
+   @Local dataList: LazyDataSource<Note> = new LazyDataSource();
+   @Local showListType: SHOW_METHOD_ENUM = SHOW_METHOD_ENUM.normalList;
++  /** PC 三栏：左侧“全部笔记（分类列表）”是否展开 */
++  @Local pcCategoryExpanded: boolean = true;
++  /** PC 三栏：是否显示第一栏（用户信息+搜索+分类） */
++  @Local pcShowFirstPane: boolean = true;
++  @Local hasShownSplashAd: boolean = false;
++  /** PC：笔记卡片连续两次点击同一笔记，切换至该笔记所属分类 */
++  private lastPcNoteTapId: string = '';
++  private lastPcNoteTapTime: number = 0;
++  private categoryDialogController: CustomDialogController = new CustomDialogController({
++    builder: () => {
++      this.tabletCategoryDialog();
++    },
++    alignment: DialogAlignment.Center,
++    customStyle: true,
++  });
++  private showMethodDialogController: CustomDialogController = new CustomDialogController({
++    builder: () => {
++      this.tabletShowMethodDialog();
++    },
++    alignment: DialogAlignment.Center,
++    customStyle: true,
++  });
++
++  private pcSwitchNoteDialogController: CustomDialogController = new CustomDialogController({
++    builder: () => {
++      this.pcSwitchNoteDialog();
++    },
++    alignment: DialogAlignment.Center,
++    customStyle: true,
++  });
+   private gestureShareCheckTimerId: number = -1;
+ 
+   async aboutToAppear() {
+@@ -91,19 +136,433 @@ struct Index {
+     });
+     this.noteService.loadDeleteNote(this.kvStore);
+     this.categoryService.loadCategoryList(this.kvStore, this.noteList);
++    this.syncPcCategorySelection();
++    AppStorage.setOrCreate('notes_pc_current_category_id', this.currentCategory.id);
+ 
+     // 检查接续场景
+     this.checkAndHandleContinueScene();
+     // 检查隔空传送（传内容 / 仅链接）：立即检查 + 短时轮询（热启动时 payload 在 onNewWant 里设置，Index 已加载不会再次 aboutToAppear）
+     this.checkAndHandleGestureShare();
+     this.gestureShareCheckTimerId = setInterval(() => this.checkAndHandleGestureShare(), 800);
++    this.tabletEditorState.embedMode = this.isTabletLayout() || this.isPcLayout();
++  }
++
++  private isPcLayout(): boolean {
++    try {
++      const type = this.hostContext.resourceManager.getDeviceCapabilitySync().deviceType;
++      return type === resourceManager.DeviceType.DEVICE_TYPE_2IN1;
++    } catch (e) {
++      return false;
++    }
++  }
++
++  private isTabletLayout(): boolean {
++    try {
++      const type = this.hostContext.resourceManager.getDeviceCapabilitySync().deviceType;
++      return type === resourceManager.DeviceType.DEVICE_TYPE_TABLET;
++    } catch (e) {
++      return false;
++    }
+   }
+ 
+   /**
+-   * 打开笔记编辑页：手机端统一走 Navigation 栈。
++   * 折叠屏（展开态）通常表现为：非平板/非PC，但断点进入 md/lg（宽度 >= 600vp）。
++   * 这里用于做弹窗布局微调，不影响平板自定义弹窗。
++   */
++  private isFoldExpandedLayout(): boolean {
++    return !this.isTabletLayout() && !this.isPcLayout() && this.globalInfo.currentBreakpoint !== BreakpointTypeEnum.SM;
++  }
++
++  private getNoteListHorizontalInset(): ResourceStr {
++    return new BreakpointType<ResourceStr>({
++      sm: $r('sys.float.padding_level8'),
++      md: $r('sys.float.padding_level12'),
++      lg: $r('sys.float.padding_level16'),
++    }).getValue(this.globalInfo.currentBreakpoint);
++  }
++
++
++  private getPcSecondPaneHorizontalInset(): number {
++    switch (this.globalInfo.currentBreakpoint) {
++      case BreakpointTypeEnum.SM:
++        return 8;
++      case BreakpointTypeEnum.MD:
++        return 11;
++      default:
++        return 14;
++    }
++  }
++
++  /**
++   * 笔记列表区域右侧内边距。平板侧栏较窄时适当小于左侧，避免卡片右缘离第一栏右边界过远。
++   */
++  private getNoteListRightInset(): ResourceStr | number {
++    if (!this.isTabletLayout()) {
++      return this.getNoteListHorizontalInset();
++    }
++    return this.getTabletListRightInsetVp();
++  }
++
++  /**
++   * 平板侧栏搜索框：在「与笔记列表同宽的条带」内再左右缩进，使输入条比笔记卡片略窄。
++   */
++  private getTabletSearchExtraHorizontalInset(): number {
++    return 14;
++  }
++
++  private getTabletListLeftInsetVp(): number {
++    switch (this.globalInfo.currentBreakpoint) {
++      case BreakpointTypeEnum.SM:
++        return 8;
++      case BreakpointTypeEnum.MD:
++        return 12;
++      default:
++        return 16;
++    }
++  }
++
++  private getTabletListRightInsetVp(): number {
++    switch (this.globalInfo.currentBreakpoint) {
++      case BreakpointTypeEnum.SM:
++        return 10;
++      case BreakpointTypeEnum.MD:
++        return 12;
++      default:
++        return 14;
++    }
++  }
++
++  /**
++   * 搜索条带整体略向左移：外侧左边比笔记区少 4vp，右边多 4vp，条带总宽度与笔记内容区一致。
++   */
++  private getTabletSearchOuterLeftInset(): number {
++    return this.getTabletListLeftInsetVp() - 4;
++  }
++
++  private getTabletSearchOuterRightInset(): number {
++    return this.getTabletListRightInsetVp() + 4;
++  }
++
++  /** 与 PC 侧栏（个人信息页等）同步当前选中分类 */
++  private syncPcCategorySelection(): void {
++    const saved: string | undefined = AppStorage.get<string>('notes_pc_current_category_id');
++    if (saved) {
++      const cat = this.categoryService.getCategoryById(saved);
++      if (cat) {
++        this.currentCategory = cat;
++      }
++    }
++  }
++
++  /**
++   * 打开笔记编辑页：平板/PC 分栏下在右侧嵌入展示，不走 Navigation 栈。
+    */
+   private openEditNotesPage(params: Record<string, Object>): void {
+-    this.appPathStack.pushPathByName('EditNotes', params);
++    if (!this.isTabletLayout() && !this.isPcLayout()) {
++      this.appPathStack.pushPathByName('EditNotes', params);
++      return;
++    }
++
++    interface EditNotesRouteParams {
++      noteId?: string;
++      currentCategory?: Category;
++      isRecordingNote?: boolean;
++    }
++
++    const p: EditNotesRouteParams = params as EditNotesRouteParams;
++    const noteId: string = p.noteId ?? '';
++    const currentCategory: Category = p.currentCategory ?? this.currentCategory;
++    const isRecordingNote: boolean = p.isRecordingNote === true;
++
++    if (noteId === '') {
++      const draft = new Note(new MutableStyledString(''));
++      draft.categoryId = currentCategory.id;
++      this.tabletEditorState.pendingNewNoteCategoryId = currentCategory.id;
++      this.tabletEditorState.pendingIsRecordingNote = isRecordingNote;
++      this.tabletEditorState.selectedNoteId = draft.id;
++      return;
++    }
++
++    this.tabletEditorState.pendingNewNoteCategoryId = '';
++    this.tabletEditorState.pendingIsRecordingNote = false;
++    this.tabletEditorState.selectedNoteId = noteId;
++  }
++
++  private getTabletSideBarWidthVp(): number {
++    const viewWidthVp =
++      typeof this.globalInfo.screenWidthVp === 'number' && this.globalInfo.screenWidthVp > 0
++        ? this.globalInfo.screenWidthVp
++        : (AppStorage.get<number>('screenWidth') ?? 1000);
++    const gap = 12;
++    const usable = Math.max(0, viewWidthVp - gap);
++    const side = Math.floor(usable / 3);
++    return Math.max(1, side);
++  }
++
++  @Builder
++  private tabletEmptyRightPane() {
++    Column({ space: 16 }) {
++      Image($r('app.media.writing_pen'))
++        .width(120)
++        .height(120);
++      Text('岁月悠悠，心事悄悄，记录一下吧。')
++        .fontSize(16)
++        .fontColor($r('sys.color.font_secondary'));
++    }
++    .width('100%')
++    .height('100%')
++    .justifyContent(FlexAlign.Center)
++    .alignItems(HorizontalAlign.Center);
++  }
++
++  @Builder
++  private tabletRightPane() {
++    Column() {
++      if (!this.tabletEditorState.selectedNoteId) {
++        this.tabletEmptyRightPane();
++      } else {
++        Column() {
++          Text(this.tabletEditorState.selectedNoteId)
++            .fontSize(0)
++            .opacity(0)
++            .height(0)
++            .width(0);
++          EditNotesBuilder();
++        };
++      }
++    }
++    .width('100%')
++    .height('100%')
++    .backgroundColor($r('sys.color.comp_background_list_card'))
++    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM]);
++  }
++
++  /** 与手机端 bindSheet 标题栏关闭一致：描边圆 + 中心叉号 */
++  @Builder
++  private sheetStyleCloseButton(onClose: () => void) {
++    Stack({ alignContent: Alignment.Center }) {
++      Circle({ width: 28, height: 28 })
++        .fillOpacity(0)
++        .borderWidth(1)
++        .borderColor($r('sys.color.comp_divider'))
++        .borderRadius(14);
++      Image($r('app.media.exit_ctrl'))
++        .width(16)
++        .height(16);
++    }
++    .width(28)
++    .height(28)
++    .onClick(() => {
++      onClose();
++    });
++  }
++
++  @Builder
++  private tabletCategoryDialog() {
++    Column() {
++      // 标题
++      Row() {
++        Text($r('app.string.note_category'))
++          .fontSize(18)
++          .fontWeight(FontWeight.Medium)
++          .fontColor($r('sys.color.font_primary'));
++        Blank();
++        this.sheetStyleCloseButton(() => {
++          this.categoryDialogController.close();
++        });
++      }
++      .width('100%')
++      .padding({
++        left: 16,
++        right: 16,
++        top: 12,
++        bottom: 8,
++      });
++
++      // 列表：与手机端 showCategoryDialog 一致，整块列表圆角 8vp
++      Column() {
++        List() {
++          ForEach(this.categoryService.getCategoryList(), (category: Category, index: number) => {
++            ListItem() {
++              Column() {
++                if (index !== 0) {
++                  Divider()
++                    .color($r('sys.color.comp_divider'));
++                }
++                Row() {
++                  Text(category.name)
++                    .fontSize(16)
++                    .fontColor(this.currentCategory.id === category.id ?
++                      $r('sys.color.font_primary') : $r('sys.color.font_secondary'))
++                    .fontWeight(this.currentCategory?.id === category.id ? FontWeight.Medium : FontWeight.Regular)
++                    .layoutWeight(1)
++                    .maxLines(1)
++                    .textOverflow({ overflow: TextOverflow.Ellipsis });
++
++                  Text(String(category.totalCount))
++                    .fontSize(16)
++                    .margin({ left: 12 });
++                }
++                .width('100%')
++                .height(50);
++              };
++            }
++            .backgroundColor($r('sys.color.comp_background_list_card'))
++            .padding({ left: 12, right: 12 })
++            .onClick(() => {
++              this.resetCategory(category);
++              this.categoryDialogController.close();
++            });
++          }, (category: Category) => category.id);
++        }
++        .borderRadius(8)
++        .clip(true)
++        .scrollBar(BarState.Off)
++        .edgeEffect(EdgeEffect.None);
++      }
++      .layoutWeight(1)
++      .width('100%')
++      .padding({ left: 16, right: 16, top: 8 });
++
++      // 底部按钮
++      Row() {
++        Button() {
++          Row() {
++            Text($r('app.string.go_note_category'))
++              .fontSize($r('sys.float.Body_L'))
++              .fontColor($r('sys.color.font_on_primary'))
++              .fontWeight(FontWeight.Medium);
++            SymbolGlyph($r('sys.symbol.chevron_right'))
++              .fontWeight(FontWeight.Medium)
++              .fontSize(18)
++              .fontColor([Color.White])
++              .padding({ left: 13 });
++          };
++        }
++        .height(40)
++        .width('100%')
++        .backgroundColor('#FFAA00')
++        .onClick(() => {
++          this.categoryDialogController.close();
++          if (this.currentCategory) {
++            const params: Record<string, Object | undefined> =
++              { 'isEditCategory': true, 'currentCategory': this.currentCategory, 'noteList': undefined };
++            this.appPathStack.pushPathByName('EditCategory', params);
++          }
++        });
++      }
++      .padding({ left: 16, right: 16, top: 8 });
++    }
++    .width(480)
++    .height(344)
++    .padding({ bottom: 12 })
++    .backgroundColor($r('sys.color.background_secondary'))
++    .borderRadius(32)
++    .clip(true);
++  }
++
++  @Builder
++  private tabletShowMethodDialog() {
++    Stack({ alignContent: Alignment.Center }) {
++      Column()
++        .width('100%')
++        .height('100%')
++        .onClick(() => this.showMethodDialogController.close());
++
++      Column() {
++        Column() {
++          Row() {
++            Blank();
++            this.sheetStyleCloseButton(() => {
++              this.showMethodDialogController.close();
++            });
++          }
++          .width('100%')
++          .padding({
++            left: 16,
++            right: 16,
++            top: 12,
++            bottom: 0,
++          })
++          .alignItems(VerticalAlign.Center);
++        };
++
++        Column() {
++          this.sortSheet();
++        }
++        .layoutWeight(1)
++        .width('100%')
++        .justifyContent(FlexAlign.Start)
++        .padding({ top: 14, bottom: 12 });
++      }
++      .width(480)
++      .height(440)
++      .backgroundColor($r('sys.color.background_secondary'))
++      .borderRadius(32)
++      .clip(true)
++      .onClick(() => {
++      });
++    }
++    .width('100%')
++    .height('100%');
++  }
++
++  @Builder
++  private pcSwitchNoteDialog() {
++    Column({ space: 18 }) {
++      Text('确认切换')
++        .fontSize(20)
++        .fontWeight(FontWeight.Medium)
++        .fontColor($r('sys.color.font_primary'));
++
++      Column() {
++        Text('当前笔记内容尚未保存，切换将丢失修改。')
++          .fontSize(14)
++          .fontColor($r('sys.color.font_primary'));
++        Text('是否继续切换？')
++          .fontSize(14)
++          .fontColor($r('sys.color.font_primary'));
++      };
++
++      Flex({ justifyContent: FlexAlign.SpaceAround }) {
++        Row() {
++          Text('取消')
++            .fontColor($r('sys.color.icon_emphasize'))
++            .fontSize(16);
++        }
++        .justifyContent(FlexAlign.Center)
++        .width('50%')
++        .onClick(() => {
++          this.pcSwitchNoteDialogController.close();
++          this.tabletEditorState.pendingSwitchNoteId = '';
++        });
++
++        Row() {
++          Text('继续切换')
++            .fontColor($r('sys.color.icon_emphasize'))
++            .fontSize(16);
++        }
++        .justifyContent(FlexAlign.Center)
++        .width('50%')
++        .onClick(() => {
++          const target = this.tabletEditorState.pendingSwitchNoteId;
++          this.pcSwitchNoteDialogController.close();
++          this.tabletEditorState.pendingNewNoteCategoryId = '';
++          this.tabletEditorState.pendingIsRecordingNote = false;
++          this.tabletEditorState.pendingSwitchNoteId = '';
++          AppStorage.setOrCreate('notes_embed_dirty', false);
++          if (target) {
++            this.tabletEditorState.selectedNoteId = target;
++          }
++        });
++      }
++      .padding({ top: 10 });
++    }
++    .justifyContent(FlexAlign.Center)
++    .backgroundColor($r('sys.color.background_secondary'))
++    .borderRadius(32)
++    .height(170)
++    .width(420);
+   }
+ 
+   aboutToDisappear(): void {
+@@ -244,6 +703,16 @@ struct Index {
+     });
+   }
+ 
++  @Monitor('notesRefreshSignal.tick')
++  private onNotesRefreshTickChange(): void {
++    this.noteList = this.noteService.getNoteList(
++      this.currentCategory.id,
++      this.sortController.sortBy,
++      this.noteSearchController.searchKeyword,
++    );
++    this.updateDataList();
++  }
++
+   // 笔记卡片长按事件
+   handleLangPress(item: Note) {
+     // 非多选状态下生效
+@@ -320,6 +789,8 @@ struct Index {
+ 
+   // 重置分类
+   resetCategory(category: Category) {
++    AppStorage.setOrCreate('notes_pc_current_category_id', category.id);
++    AppStorage.delete('notes_pc_search_keyword');
+     this.currentCategory = category;
+     this.noteSearchController.isSearching = false; // 重置搜索状态
+     this.noteSearchController.searchKeyword = '';
+@@ -358,8 +829,8 @@ struct Index {
+       .backgroundColor('#FFAA00')
+       .zIndex(10)
+       .position({
+-        right: 32,
+-        bottom: 100,
++        right: (this.isPcLayout() ? this.getPcSecondPaneHorizontalInset() : 32) as Dimension,
++        bottom: (this.isPcLayout() ? 40 : 100) as Dimension,
+       })
+       .onClick(() => {
+         const params: Record<string, Object> = { 'noteId': '', 'currentCategory': this.currentCategory };
+@@ -406,12 +877,26 @@ struct Index {
+   @Styles
+   topAreaStyle() {
+     .width('100%')
+-    .padding({
+-      top: 12,
+-      bottom: 20,
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
+-    });
++    .padding(new BreakpointType<Padding>({
++      sm: {
++        top: 12,
++        bottom: 20,
++        left: $r('sys.float.padding_level8'),
++        right: $r('sys.float.padding_level8'),
++      },
++      md: {
++        top: 12,
++        bottom: 20,
++        left: $r('sys.float.padding_level12'),
++        right: $r('sys.float.padding_level12'),
++      },
++      lg: {
++        top: 12,
++        bottom: 20,
++        left: $r('sys.float.padding_level16'),
++        right: $r('sys.float.padding_level16'),
++      },
++    }).getValue(this.globalInfo.currentBreakpoint));
+   }
+ 
+   @Builder
+@@ -451,13 +936,17 @@ struct Index {
+           SymbolGlyph($r('sys.symbol.arrowtriangle_down_fill'))
+             .fontColor([$r('sys.color.font_secondary')]);
+         }.onClick(() => {
+-          this.categoryController.openCategorySheet = true;
++          if (this.isTabletLayout()) {
++            this.categoryDialogController.open();
++          } else {
++            this.categoryController.openCategorySheet = true;
++          }
+         })
+         .id('category_trigger')
+         .bindSheet($$this.categoryController.openCategorySheet, this.showCategoryDialog(), {
+           title: { title: $r('app.string.note_category') },
+-          width: '100%',
+-          height: 400,
++          width: this.globalInfo.currentBreakpoint === BreakpointTypeEnum.SM ? '100%' : 480,
++          height: this.globalInfo.currentBreakpoint === BreakpointTypeEnum.SM ? 400 : 344,
+           radius: {
+             topLeft: 32,
+             topRight: 32,
+@@ -471,27 +960,51 @@ struct Index {
+           .height(20)
+           .width(20)
+           .onClick(() => {
+-            this.sortController.openSortSheet = true;
++            if (this.isTabletLayout()) {
++              this.showMethodDialogController.open();
++            } else {
++              this.sortController.openSortSheet = true;
++            }
+           })
+-          .bindSheet($$this.sortController.openSortSheet, this.sortSheet(), {
+-            width: '100%',
+-            showClose: true,
+-            height: 376,
+-            radius: {
+-              topLeft: 32,
+-              topRight: 32,
+-              bottomLeft: 32,
+-              bottomRight: 32,
+-            },
+-          });
++          .bindSheet($$this.sortController.openSortSheet,
++            this.isFoldExpandedLayout() ? this.sortSheetBottom() : this.sortSheet(), {
++              width: this.globalInfo.currentBreakpoint === BreakpointTypeEnum.SM ? '100%' : 480,
++              showClose: true,
++              height: this.globalInfo.currentBreakpoint === BreakpointTypeEnum.SM ? 376 : 426,
++              radius: {
++                topLeft: 32,
++                topRight: 32,
++                bottomLeft: 32,
++                bottomRight: 32,
++              },
++            });
+       }
+       .width('100%')
+-      .padding({
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
++      .padding(this.isTabletLayout() ? {
++        left: this.getNoteListHorizontalInset(),
++        right: this.getNoteListRightInset(),
+         top: 12,
+         bottom: 12,
+-      });
++      } : new BreakpointType<Padding>({
++        sm: {
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++          top: 12,
++          bottom: 12,
++        },
++        md: {
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++          top: 12,
++          bottom: 12,
++        },
++        lg: {
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++          top: 12,
++          bottom: 12,
++        },
++      }).getValue(this.globalInfo.currentBreakpoint));
+     }
+   }
+ 
+@@ -519,7 +1032,12 @@ struct Index {
+           .fontColor($r('sys.color.font_tertiary'));
+       }
+       .alignItems(HorizontalAlign.Start)
+-      .backgroundColor(this.getNoteItemBgColor(item.isSelected))
++      .backgroundColor(
++        ((this.isTabletLayout() || this.isPcLayout()) && !this.selectedController.isCtrl &&
++          !!this.tabletEditorState.selectedNoteId && item.id === this.tabletEditorState.selectedNoteId)
++          ? $r('sys.color.comp_background_tertiary')
++          : this.getNoteItemBgColor(item.isSelected),
++      )
+       .borderRadius(16)
+       .width('100%')
+       .padding(12);
+@@ -542,20 +1060,108 @@ struct Index {
+         });
+         this.selectedController.selectedCount = count;
+       } else {
+-        // 进入编辑器
+-        const params: Record<string, Object> = { 'noteId': item.id, 'currentCategory': this.currentCategory };
+-        this.appPathStack.pushPathByName('EditNotes', params);
++        if (this.isTabletLayout() || this.isPcLayout()) {
++          // PC/PAD 分栏：切换笔记前，如果当前笔记未保存则二次确认
++          const dirty = AppStorage.get<boolean>('notes_embed_dirty') === true;
++          const dirtyId = AppStorage.get<string>('notes_embed_dirty_note_id') ?? '';
++          if (dirty && dirtyId && dirtyId === this.tabletEditorState.selectedNoteId &&
++            this.tabletEditorState.selectedNoteId !== '' && this.tabletEditorState.selectedNoteId !== item.id) {
++            this.tabletEditorState.pendingSwitchNoteId = item.id;
++            this.pcSwitchNoteDialogController.open();
++            return;
++          }
++          if (this.isPcLayout()) {
++            const now: number = Date.now();
++            if (item.id === this.lastPcNoteTapId && (now - this.lastPcNoteTapTime) < 450) {
++              const noteCat: Category | undefined = this.categoryService.getCategoryById(item.categoryId);
++              if (noteCat) {
++                this.resetCategory(noteCat);
++              }
++              this.lastPcNoteTapId = '';
++              this.lastPcNoteTapTime = 0;
++            } else {
++              this.lastPcNoteTapId = item.id;
++              this.lastPcNoteTapTime = now;
++            }
++          }
++          this.tabletEditorState.pendingNewNoteCategoryId = '';
++          this.tabletEditorState.pendingIsRecordingNote = false;
++          this.tabletEditorState.selectedNoteId = item.id;
++        } else {
++          // 进入编辑器
++          const params: Record<string, Object> = { 'noteId': item.id, 'currentCategory': this.currentCategory };
++          this.appPathStack.pushPathByName('EditNotes', params);
++        }
+       }
+     });
+   }
+ 
++  @Builder
++  private phoneLikeHomeColumn() {
++    Stack({ alignContent: Alignment.TopStart }) {
++      Column() {
++        this.topArea();
++        // 搜索框：外边与笔记列表左右对齐，内边再缩进以缩短输入条
++        Column() {
++          Search({
++            placeholder: $r('app.string.search_note'),
++          })
++            .width('100%')
++            .placeholderFont({ size: $r('sys.float.Body_L') })
++            .placeholderColor($r('sys.color.font_secondary'))
++            .fontColor($r('sys.color.font_primary'))
++            .onSubmit((value: string) => { // 提交搜索
++              this.noteList = this.noteSearchController.onSearch(this.currentCategory.id, value,
++                this.sortController.sortBy);
++              this.updateDataList();
++            })
++            .onChange((value: string) => { // 输入变化时
++              if (!value) {
++                // 清空搜索时恢复列表
++                this.noteList =
++                  this.noteSearchController.onSearch(this.currentCategory.id, '', this.sortController.sortBy);
++                this.updateDataList();
++              }
++            });
++        }
++        .width('100%')
++        .padding({
++          left: this.getTabletSearchExtraHorizontalInset(),
++          right: this.getTabletSearchExtraHorizontalInset(),
++        })
++        .margin({
++          bottom: 12,
++          left: this.getTabletSearchOuterLeftInset(),
++          right: this.getTabletSearchOuterRightInset(),
++        });
++
++        // 上方工具栏
++        this.editorNoteList();
++
++        // 卡片列表
++        this.showNoteList();
++
++        // 多选底部工具栏
++        this.toolBarBuilder();
++      }
++      .width('100%')
++      .height('100%')
++      // 平板侧栏：与顶栏、搜索同一左缘对齐（避免子组件默认居中等导致视觉不齐）
++      .alignItems(HorizontalAlign.Start);
++
++      this.addNoteBuilder();
++    }
++    .width('100%')
++    .height('100%');
++  }
++
+   @Styles
+   cardWrapperStyle() {
+     .width('100%')
+     .margin({ bottom: 10 })
+     .padding({
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
++      left: this.isPcLayout() ? this.getPcSecondPaneHorizontalInset() : this.getNoteListHorizontalInset(),
++      right: this.isPcLayout() ? this.getPcSecondPaneHorizontalInset() : this.getNoteListRightInset(),
+     })
+     .layoutWeight(1);
+   }
+@@ -580,8 +1186,8 @@ struct Index {
+         }, (item: Note) => item.id);
+       }
+       .id('note_list')
+-      // “按列表展示”统一为单列
+-      .lanes(1, 0)
++      // “按列表展示”统一为单列（折叠屏/大屏也保持列表观感）
++      .lanes(1, obtainGutter(this.globalInfo.currentBreakpoint, 'List'))
+       .scrollBar(BarState.Off);
+     }
+     .cardWrapperStyle();
+@@ -614,7 +1220,7 @@ struct Index {
+       }
+       .cachedCount(1)
+       .columnsTemplate('1fr 1fr')
+-      .columnsGap($r('sys.float.padding_level8'))
++      .columnsGap(obtainGutter(this.globalInfo.currentBreakpoint, 'WaterFlow'))
+       .rowsGap(16)
+       .width('100%')
+       .height('100%');
+@@ -625,7 +1231,7 @@ struct Index {
+   @Builder
+   showNoteList() {
+     if (this.noteSearchController.isSearching && this.noteList.length === 0) {
+-      SearchNoResult();
++      SearchNoResult({ alignStart: this.isTabletLayout() });
+     }
+     if (!this.noteSearchController.isSearching && this.noteList.length === 0) {
+       EmptyNotes();
+@@ -677,7 +1283,7 @@ struct Index {
+         .scrollBar(BarState.Off)
+         .edgeEffect(EdgeEffect.None);
+       }
+-      .height(250);
++      .height(this.globalInfo.currentBreakpoint === BreakpointTypeEnum.SM ? 250 : '70%');
+ 
+       Button() {
+         Row() {
+@@ -698,7 +1304,8 @@ struct Index {
+       .width('100%')
+       .backgroundColor('#FFAA00')
+       .margin({
+-        bottom: 30,
++        // 折叠屏/大屏：减小底部留白，让按钮更贴近底部
++        bottom: this.globalInfo.currentBreakpoint === BreakpointTypeEnum.SM ? 30 : 16,
+       })
+       .onClick(() => {
+         this.categoryController.openCategorySheet = false;
+@@ -712,10 +1319,20 @@ struct Index {
+     // 内容区域占满 sheet，避免百分比二次缩放导致列表区域被挤没
+     .width('100%')
+     .height('100%')
+-    .padding({
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
+-    })
++    .padding(new BreakpointType<Padding>({
++      sm: {
++        left: $r('sys.float.padding_level8'),
++        right: $r('sys.float.padding_level8'),
++      },
++      md: {
++        left: $r('sys.float.padding_level12'),
++        right: $r('sys.float.padding_level12'),
++      },
++      lg: {
++        left: $r('sys.float.padding_level16'),
++        right: $r('sys.float.padding_level16'),
++      },
++    }).getValue(this.globalInfo.currentBreakpoint))
+     .backgroundColor($r('sys.color.background_secondary'));
+   }
+ 
+@@ -773,11 +1390,23 @@ struct Index {
+     }
+     .backgroundColor($r('sys.color.background_secondary'))
+     .width('100%')
+-    .padding({
+-      top: 20,
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
+-    });
++    .padding(new BreakpointType<Padding>({
++      sm: {
++        top: 20,
++        left: $r('sys.float.padding_level8'),
++        right: $r('sys.float.padding_level8'),
++      },
++      md: {
++        top: 20,
++        left: $r('sys.float.padding_level12'),
++        right: $r('sys.float.padding_level12'),
++      },
++      lg: {
++        top: 20,
++        left: $r('sys.float.padding_level16'),
++        right: $r('sys.float.padding_level16'),
++      },
++    }).getValue(this.globalInfo.currentBreakpoint));
+   }
+ 
+   @Builder
+@@ -788,53 +1417,416 @@ struct Index {
+     };
+   }
+ 
+-  build() {
+-    Navigation(this.appPathStack) {
+-      Column() {
+-        this.topArea();
+-        Search({
+-          placeholder: $r('app.string.search_note'),
+-        })
+-          .placeholderFont({ size: $r('sys.float.Body_L') })
+-          .placeholderColor($r('sys.color.font_secondary'))
++  @Builder
++  private sortSheetBottom() {
++    Column() {
++      this.sortSheet();
++    }
++    .height('100%')
++    .width('100%')
++    .justifyContent(FlexAlign.End)
++    // 让折叠屏展开态的内容“靠下但不贴底”
++    .padding({ bottom: 28 });
++  }
++
++  @Builder
++  private pcUserCard() {
++    Row() {
++      Image(this.userInfo.userAvatar)
++        .width(56)
++        .height(56)
++        .borderRadius(28)
++        .margin({ left: 12 });
++
++      Text(this.userInfo.userName)
++        .fontSize(18)
++        .fontColor($r('sys.color.font_primary'))
++        .fontWeight(FontWeight.Medium)
++        .margin({ left: 12 });
++    }
++    .width('100%')
++    .height(72)
++    .onClick(() => {
++      if (this.userInfo.isLogin) {
++        this.appPathStack.pushPathByName('MineViewHost', undefined);
++      } else {
++        this.appPathStack.pushPathByName('QuickLoginPage', undefined);
++      }
++    });
++  }
++
++  @Builder
++  private pcCategoryList() {
++    Column() {
++      Button() {
++        Row() {
++          Text($r('app.string.go_note_category'))
++            .fontSize($r('sys.float.Body_L'))
++            .fontColor($r('sys.color.font_on_primary'))
++            .fontWeight(FontWeight.Medium);
++          SymbolGlyph($r('sys.symbol.chevron_right'))
++            .fontWeight(FontWeight.Medium)
++            .fontSize(18)
++            .fontColor([Color.White])
++            .padding({ left: 13 });
++        };
++      }
++      .height(40)
++      .width('100%')
++      .backgroundColor('#FFAA00')
++      .borderRadius(12)
++      .margin({ bottom: 8 })
++      .onClick(() => {
++        const params: Record<string, Object | undefined> =
++          { 'isEditCategory': true, 'currentCategory': this.currentCategory, 'noteList': undefined };
++        this.appPathStack.pushPathByName('EditCategory', params);
++      });
++
++      Row({ space: 8 }) {
++        Text('全部笔记')
++          .fontSize(16)
++          .fontWeight(FontWeight.Medium)
+           .fontColor($r('sys.color.font_primary'))
+-          .margin({
+-            bottom: 12,
+-            left: $r('sys.float.padding_level8'),
+-            right: $r('sys.float.padding_level8'),
+-          })
+-          .onSubmit((value: string) => { // 提交搜索
+-            this.noteList = this.noteSearchController.onSearch(this.currentCategory.id, value,
+-              this.sortController.sortBy);
+-            this.updateDataList();
++          .onClick(() => {
++            const defaultCategory =
++              this.categoryService.getCategoryById('-1') ?? this.categoryService.getFirstCategory();
++            this.resetCategory(defaultCategory);
++          });
++        Blank();
++        SymbolGlyph(this.pcCategoryExpanded ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
++          .fontSize(18)
++          .fontColor([$r('sys.color.font_secondary')])
++          .onClick(() => {
++            this.pcCategoryExpanded = !this.pcCategoryExpanded;
++          });
++      }
++      .width('100%')
++      .height(44)
++      .padding({ left: 12, right: 12 })
++      .backgroundColor($r('sys.color.comp_background_tertiary'))
++      .borderRadius(12);
++
++      if (this.pcCategoryExpanded) {
++        Column() {
++          ForEach(this.categoryService.getCategoryList().filter((c) => c.id !== '-1'),
++            (category: Category, index: number) => {
++              Column() {
++                if (index !== 0) {
++                  Divider().color($r('sys.color.comp_divider'));
++                }
++                Row() {
++                  Text(category.name)
++                    .fontSize(14)
++                    .fontColor(this.currentCategory.id === category.id ?
++                      $r('sys.color.font_primary') : $r('sys.color.font_secondary'))
++                    .fontWeight(this.currentCategory.id === category.id ? FontWeight.Medium : FontWeight.Regular);
++
++                  Blank();
++                  Text(String(category.totalCount))
++                    .fontSize(14)
++                    .fontColor($r('sys.color.font_secondary'));
++                }
++                .width('100%')
++                .height(44);
++              }
++              .padding({ left: 12, right: 12 })
++              .onClick(() => {
++                this.resetCategory(category);
++              });
++            }, (category: Category) => category.id);
++        }
++        .borderRadius(12)
++        .clip(true)
++        .margin({ top: 0, bottom: 12 });
++      }
++    }
++    .width('100%');
++  }
++
++  @Builder
++  private pcFirstPane() {
++    Column({ space: 8 }) {
++      this.pcUserCard();
++      Scroll() {
++        Column({ space: 8 }) {
++          Search({
++            placeholder: $r('app.string.search_note'),
+           })
+-          .onChange((value: string) => { // 输入变化时
+-            if (!value) {
+-              // 清空搜索时恢复列表
+-              this.noteList =
+-                this.noteSearchController.onSearch(this.currentCategory.id, '', this.sortController.sortBy);
++            .placeholderFont({ size: $r('sys.float.Body_L') })
++            .placeholderColor($r('sys.color.font_secondary'))
++            .fontColor($r('sys.color.font_primary'))
++            .borderRadius(20)
++            .onSubmit((value: string) => {
++              this.noteList = this.noteSearchController.onSearch(this.currentCategory.id, value,
++                this.sortController.sortBy);
+               this.updateDataList();
++            })
++            .onChange((value: string) => {
++              if (!value) {
++                this.noteList =
++                  this.noteSearchController.onSearch(this.currentCategory.id, '', this.sortController.sortBy);
++                this.updateDataList();
++              }
++            });
++
++          this.pcCategoryList();
++        }
++        .width('100%')
++        .constraintSize({ minHeight: '100%' })
++        .justifyContent(FlexAlign.Start);
++      }
++      .scrollBar(BarState.Off)
++      .edgeEffect(EdgeEffect.None)
++      .layoutWeight(1)
++      .width('100%');
++    }
++    .padding({
++      left: 12,
++      right: 12,
++      top: 12,
++      bottom: 12,
++    })
++    .width('100%')
++    .height('100%');
++  }
++
++  @Builder
++  private pcSecondPane() {
++    Column() {
++      Row() {
++        // 与「我的」等页 PC 顶栏一致：系统左箭头，用于展开/收起第一栏分类侧栏
++        SymbolGlyph($r('sys.symbol.arrow_left'))
++          .fontSize(20)
++          .fontColor([$r('sys.color.font_primary')])
++          .margin({ right: 8 })
++          .onClick(() => {
++            this.pcShowFirstPane = !this.pcShowFirstPane;
++          });
++        Blank();
++        if (this.selectedController.isCtrl) {
++          // PC 端多选态：显示“取消选择”按钮
++          Image($r('app.media.exit_ctrl'))
++            .height(24)
++            .width(24)
++            .onClick(() => {
++              this.noteList.forEach(item => item.isSelected = false);
++              this.selectedController.recoverInitState();
++            });
++        } else {
++          Image($r('app.media.icon_more'))
++            .height(20)
++            .width(20)
++            .onClick(() => this.showMethodDialogController.open());
++        }
++      }
++      .width('100%')
++      .height(44)
++      .alignItems(VerticalAlign.Center)
++      .padding({
++        left: this.getPcSecondPaneHorizontalInset(),
++        right: this.getPcSecondPaneHorizontalInset(),
++        top: 0,
++        bottom: 8,
++      });
++
++      // 列表区域始终占满剩余高度，避免空态时底部工具栏“跑到上面去”
++      Column() {
++        this.showNoteList();
++      }
++      .layoutWeight(1)
++      .width('100%');
++
++      this.toolBarBuilder();
++      this.addNoteBuilder();
++    }
++    .width('100%')
++    .height('100%');
++  }
++
++  build() {
++    Navigation(this.appPathStack) {
++      if (this.isPcLayout()) {
++        Row() {
++          if (this.pcShowFirstPane) {
++            Column() {
++              this.pcFirstPane();
++            }
++            .layoutWeight(2)
++            .height('100%');
++
++            Divider()
++              .vertical(true)
++              .strokeWidth(1)
++              .color($r('sys.color.comp_divider'))
++              .height('100%');
++          }
++
++          Column() {
++            this.pcSecondPane();
++          }
++          .layoutWeight(this.pcShowFirstPane ? 3 : 5)
++          .height('100%')
++          .backgroundColor($r('sys.color.background_secondary'));
++
++          Column() {
++            Stack({ alignContent: Alignment.TopStart }) {
++              Column() {
++                this.tabletRightPane();
++              }
++              .width('100%')
++              .height('100%')
++              .padding({
++                top: '8px',
++                bottom: '16px',
++                left: 0,
++                right: '16px',
++              })
++              .backgroundColor($r('sys.color.comp_background_list_card'))
++              .borderRadius(16)
++              .clip(true);
+             }
++            .width('100%')
++            .height('100%');
++          }
++          .layoutWeight(5)
++          .height('100%')
++          .backgroundColor($r('sys.color.background_secondary'))
++          .padding({
++            top: 44,
++            bottom: '20px',
++            left: '8px',
++            right: '32px',
+           });
++        }
++        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM, SafeAreaEdge.TOP])
++        .backgroundColor($r('sys.color.background_secondary'))
++        .width('100%')
++        .height('100%');
++      } else if (this.isTabletLayout()) {
++        SideBarContainer() {
++          Column() {
++            this.phoneLikeHomeColumn();
++          }
++          .height('100%')
++          .width('100%')
++          .backgroundColor($r('sys.color.background_secondary'))
++          .padding({ right: 12 })
++          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM]);
+ 
+-        // 上方工具栏
+-        this.editorNoteList();
++          Column() {
++            this.tabletRightPane();
++          }
++          .height('100%')
++          .width('100%')
++          .justifyContent(FlexAlign.Start)
++          .alignItems(HorizontalAlign.Start)
++          .backgroundColor($r('sys.color.comp_background_list_card'))
++          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM]);
++        }
++        .sideBarWidth(this.getTabletSideBarWidthVp())
++        .sideBarPosition(SideBarPosition.Start)
++        .autoHide(false)
++        .showControlButton(false)
++        .showSideBar(true)
++        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM, SafeAreaEdge.TOP])
++        .backgroundColor($r('sys.color.background_secondary'))
++        .width('100%')
++        .height('100%');
++      } else {
++        Column() {
++          this.topArea();
++          Search({
++            placeholder: $r('app.string.search_note'),
++          })
++            .placeholderFont({ size: $r('sys.float.Body_L') })
++            .placeholderColor($r('sys.color.font_secondary'))
++            .fontColor($r('sys.color.font_primary'))
++            .margin(new BreakpointType<Margin>({
++              sm: {
++                bottom: 12,
++                left: $r('sys.float.padding_level8'),
++                right: $r('sys.float.padding_level8'),
++              },
++              md: {
++                bottom: 12,
++                left: $r('sys.float.padding_level12'),
++                right: $r('sys.float.padding_level12'),
++              },
++              lg: {
++                bottom: 12,
++                left: $r('sys.float.padding_level16'),
++                right: $r('sys.float.padding_level16'),
++              },
++            }).getValue(this.globalInfo.currentBreakpoint))
++            .onSubmit((value: string) => { // 提交搜索
++              this.noteList = this.noteSearchController.onSearch(this.currentCategory.id, value,
++                this.sortController.sortBy);
++              this.updateDataList();
++            })
++            .onChange((value: string) => { // 输入变化时
++              if (!value) {
++                // 清空搜索时恢复列表
++                this.noteList =
++                  this.noteSearchController.onSearch(this.currentCategory.id, '', this.sortController.sortBy);
++                this.updateDataList();
++              }
++            });
+ 
+-        // 卡片列表
+-        this.showNoteList();
++          // 上方工具栏
++          this.editorNoteList();
+ 
+-        // 多选底部工具栏
+-        this.toolBarBuilder();
++          // 卡片列表
++          this.showNoteList();
++
++          // 多选底部工具栏
++          this.toolBarBuilder();
+ 
+-        // 新增笔记
+-        this.addNoteBuilder();
++          // 新增笔记
++          this.addNoteBuilder();
++        }
++        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM, SafeAreaEdge.TOP])
++        .backgroundColor($r('sys.color.background_secondary'))
++        .width('100%')
++        .height('100%');
+       }
+-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM, SafeAreaEdge.TOP])
+-      .backgroundColor($r('sys.color.background_secondary'))
+-      .width('100%')
+-      .height('100%');
+     }
+     .hideTitleBar(true)
+-    .mode(NavigationMode.Stack);
++    .mode(NavigationMode.Stack)
++    .onNavBarStateChange(() => {
++      this.resetLayout();
++    });
++  }
++
++  private resetLayout() {
++    this.syncPcCategorySelection();
++    const kw: string | undefined = AppStorage.get<string>('notes_pc_search_keyword');
++    if (kw !== undefined && kw !== '') {
++      this.noteSearchController.searchKeyword = kw;
++      this.noteSearchController.isSearching = true;
++      this.noteList = this.noteSearchController.onSearch(this.currentCategory.id, kw, this.sortController.sortBy);
++      AppStorage.delete('notes_pc_search_keyword');
++    } else {
++      this.noteSearchController.searchKeyword = '';
++      this.noteSearchController.isSearching = false;
++      this.noteList = this.noteService.getNoteList(
++        this.currentCategory.id, this.sortController.sortBy, '');
++    }
++    this.updateDataList();
+   }
+ }
++
++/**
++ * 获取列间距（列表 lane / 瀑布流列间距）
++ * 平板、PC 等大屏下瀑布流两列之间原先用 padding12/16，视觉过宽，WaterFlow 单独收紧。
++ */
++function obtainGutter(breakPoint: BreakpointTypeEnum, type: string): Dimension {
++  const isWaterFlow: boolean = type === 'WaterFlow';
++  switch (breakPoint) {
++    case BreakpointTypeEnum.SM:
++      return type === 'List' ? 0 : $r('sys.float.padding_level8');
++    case BreakpointTypeEnum.MD:
++      return isWaterFlow ? 8 : $r('sys.float.padding_level12');
++    default:
++      return isWaterFlow ? 8 : $r('sys.float.padding_level16');
++  }
++}
+\ No newline at end of file
+diff --git a/product/phone/src/main/ets/pages/mine/AboutUs.ets b/product/phone/src/main/ets/pages/mine/AboutUs.ets
+index 1bc64c1..183b5f2 100644
+--- a/product/phone/src/main/ets/pages/mine/AboutUs.ets
++++ b/product/phone/src/main/ets/pages/mine/AboutUs.ets
+@@ -1,6 +1,7 @@
+-import { AppUtil } from '@ohos_agcit/notes_utils';
++import { AppUtil, BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { BusinessError } from '@kit.BasicServicesKit';
+ import { call } from '@kit.TelephonyKit';
++import { AppStorageV2 } from '@kit.ArkUI';
+ import { checkUpdateAndShowDialog } from 'check_app_update';
+ import { common } from '@kit.AbilityKit';
+ import { hilog } from '@kit.PerformanceAnalysisKit';
+@@ -17,6 +18,8 @@ export function AboutUsBuilder() {
+ export struct AboutUs {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
+   @Local openPhoneSheet: boolean = false;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   @Builder
+   contactBuilder(){
+@@ -102,10 +105,20 @@ export struct AboutUs {
+       }
+       .width('100%')
+       .height('100%')
+-      .padding({
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
+-      })
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++        },
++        md: {
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++        },
++        lg: {
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
+     }
+     .backgroundColor($r('sys.color.background_secondary'))
+     .title('关于')
+diff --git a/product/phone/src/main/ets/pages/mine/FeedBackChoose.ets b/product/phone/src/main/ets/pages/mine/FeedBackChoose.ets
+index 51dcc0c..a03f045 100644
+--- a/product/phone/src/main/ets/pages/mine/FeedBackChoose.ets
++++ b/product/phone/src/main/ets/pages/mine/FeedBackChoose.ets
+@@ -1,4 +1,6 @@
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { SingleArrow } from '../../components/SettingComponents';
++import { AppStorageV2 } from '@kit.ArkUI';
+ 
+ @Builder
+ export function FeedBackChooseBuilder() {
+@@ -8,6 +10,8 @@ export function FeedBackChooseBuilder() {
+ @ComponentV2
+ export struct FeedBackChoose {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   build() {
+     NavDestination() {
+@@ -28,11 +32,23 @@ export struct FeedBackChoose {
+       }
+       .width('100%')
+       .height('100%')
+-      .padding({
+-        top: 10,
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
+-      })
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          top: 10,
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++        },
++        md: {
++          top: 10,
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++        },
++        lg: {
++          top: 10,
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
+     }
+     .backgroundColor($r('sys.color.background_secondary'))
+     .title('意见反馈');
+diff --git a/product/phone/src/main/ets/pages/mine/FeedBackPage.ets b/product/phone/src/main/ets/pages/mine/FeedBackPage.ets
+index fdfc1f8..52a785d 100644
+--- a/product/phone/src/main/ets/pages/mine/FeedBackPage.ets
++++ b/product/phone/src/main/ets/pages/mine/FeedBackPage.ets
+@@ -1,5 +1,7 @@
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { Feedback, FeedbackItemType } from 'feed_back';
+ import { PreferenceUtil, PreferConstant } from 'feed_back';
++import { AppStorageV2 } from '@kit.ArkUI';
+ 
+ 
+ @Builder
+@@ -16,6 +18,8 @@ export struct FeedBackPage {
+     time: ''
+   }
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   build() {
+     NavDestination() {
+@@ -48,10 +52,20 @@ export struct FeedBackPage {
+       }
+       .width('100%')
+       .height('100%')
+-      .padding({
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
+-      })
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++        },
++        md: {
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++        },
++        lg: {
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
+     }
+     .title('反馈问题')
+     .backgroundColor($r('sys.color.background_secondary'))
+diff --git a/product/phone/src/main/ets/pages/mine/FeedbackRecordPage.ets b/product/phone/src/main/ets/pages/mine/FeedbackRecordPage.ets
+index 09fa67b..38448d1 100644
+--- a/product/phone/src/main/ets/pages/mine/FeedbackRecordPage.ets
++++ b/product/phone/src/main/ets/pages/mine/FeedbackRecordPage.ets
+@@ -13,7 +13,9 @@
+  * limitations under the License.
+  */
+ 
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { FeedbackItemType, PreferConstant, PreferenceUtil } from 'feed_back';
++import { AppStorageV2 } from '@kit.ArkUI';
+ 
+ @Builder
+ export function FeedbackRecordPageBuilder() {
+@@ -23,6 +25,8 @@ export function FeedbackRecordPageBuilder() {
+ @ComponentV2
+ export struct FeedbackRecordPage {
+   @Local feedbackList: FeedbackItemType[] = []
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   /**
+    * 数据初始化
+@@ -97,11 +101,23 @@ export struct FeedbackRecordPage {
+         }
+           .height('100%')
+           .width('100%')
+-          .padding({
+-            top: 10,
+-            left: $r('sys.float.padding_level8'),
+-            right: $r('sys.float.padding_level8'),
+-          })
++          .padding(new BreakpointType<Padding>({
++            sm: {
++              top: 10,
++              left: $r('sys.float.padding_level8'),
++              right: $r('sys.float.padding_level8'),
++            },
++            md: {
++              top: 10,
++              left: $r('sys.float.padding_level12'),
++              right: $r('sys.float.padding_level12'),
++            },
++            lg: {
++              top: 10,
++              left: $r('sys.float.padding_level16'),
++              right: $r('sys.float.padding_level16'),
++            },
++          }).getValue(this.globalInfo.currentBreakpoint))
+       }.height('100%').width('100%')
+     }
+     .title('反馈记录')
+diff --git a/product/phone/src/main/ets/pages/mine/MineView.ets b/product/phone/src/main/ets/pages/mine/MineView.ets
+index e7ed8d0..1b3bd6c 100644
+--- a/product/phone/src/main/ets/pages/mine/MineView.ets
++++ b/product/phone/src/main/ets/pages/mine/MineView.ets
+@@ -1,6 +1,8 @@
+ import { COMMON_SERVICE, MinePageCommonService } from '../../constants/MineUiConstants';
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { UserInfo } from 'login';
+ import { ContactItem, MineItem } from '../../components/MineItem';
++import { AppStorageV2 } from '@kit.ArkUI';
+ 
+ @Builder
+ export function MineViewBuilder() {
+@@ -11,6 +13,8 @@ export function MineViewBuilder() {
+ export struct MineViewContent {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
+   private userInfo: UserInfo = UserInfo.instance;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   build() {
+     Column() {
+@@ -69,11 +73,23 @@ export struct MineViewContent {
+     }
+     .width('100%')
+     .height('100%')
+-    .padding({
+-      top: 10,
+-      left: $r('sys.float.padding_level8'),
+-      right: $r('sys.float.padding_level8'),
+-    })
++    .padding(new BreakpointType<Padding>({
++      sm: {
++        top: 10,
++        left: $r('sys.float.padding_level8'),
++        right: $r('sys.float.padding_level8'),
++      },
++      md: {
++        top: 10,
++        left: $r('sys.float.padding_level12'),
++        right: $r('sys.float.padding_level12'),
++      },
++      lg: {
++        top: 10,
++        left: $r('sys.float.padding_level16'),
++        right: $r('sys.float.padding_level16'),
++      },
++    }).getValue(this.globalInfo.currentBreakpoint))
+   }
+ }
+ 
+diff --git a/product/phone/src/main/ets/pages/mine/MineViewHost.ets b/product/phone/src/main/ets/pages/mine/MineViewHost.ets
+new file mode 100644
+index 0000000..dc06290
+--- /dev/null
++++ b/product/phone/src/main/ets/pages/mine/MineViewHost.ets
+@@ -0,0 +1,91 @@
++import { common } from '@kit.AbilityKit';
++import { resourceManager } from '@kit.LocalizationKit';
++import { PcHomeFirstPane } from '../../components/PcHomeFirstPane';
++import { MineViewContent } from './MineView';
++
++@Builder
++export function MineViewHostBuilder() {
++  MineViewHost();
++}
++
++@ComponentV2
++struct MineViewHost {
++  @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  private hostContext: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
++
++  private isPcLayout(): boolean {
++    try {
++      const type = this.hostContext.resourceManager.getDeviceCapabilitySync().deviceType;
++      return type === resourceManager.DeviceType.DEVICE_TYPE_2IN1;
++    } catch (_e) {
++      return false;
++    }
++  }
++
++  @Builder
++  private pcHeader(title: string) {
++    Row({ space: 8 }) {
++      SymbolGlyph($r('sys.symbol.arrow_left'))
++        .fontSize(20)
++        .fontColor([$r('sys.color.font_primary')])
++        .onClick(() => {
++          this.appPathStack.pop();
++        });
++      Text(title)
++        .fontSize(18)
++        .fontWeight(FontWeight.Medium)
++        .fontColor($r('sys.color.font_primary'));
++      Blank();
++    }
++    .width('100%')
++    .height(44)
++    .alignItems(VerticalAlign.Center)
++    .padding({ left: 12, right: 12, top: 12, bottom: 8 });
++  }
++
++  build() {
++    NavDestination() {
++      if (this.isPcLayout()) {
++        Row() {
++          Column() {
++            PcHomeFirstPane();
++          }
++          .layoutWeight(240)
++          .height('100%')
++          .width('100%');
++
++          Divider()
++            .vertical(true)
++            .strokeWidth(1)
++            .color($r('sys.color.comp_divider'))
++            .height('100%');
++
++          Column() {
++            Column() {
++              this.pcHeader('我的');
++              MineViewContent();
++            }
++            .width('100%')
++            .height('100%');
++          }
++          .layoutWeight(860)
++          .height('100%')
++          .width('100%')
++          .backgroundColor($r('sys.color.background_secondary'));
++        }
++        .width('100%')
++        .height('100%')
++        .backgroundColor($r('sys.color.background_secondary'));
++      } else {
++        MineViewContent();
++      }
++    }
++    .title('我的')
++    .hideTitleBar(this.isPcLayout())
++    .onBackPressed(() => {
++      this.appPathStack.pop();
++      return true;
++    });
++  }
++}
++
+diff --git a/product/phone/src/main/ets/pages/mine/PrivacySetting.ets b/product/phone/src/main/ets/pages/mine/PrivacySetting.ets
+index 0d552cb..3820863 100644
+--- a/product/phone/src/main/ets/pages/mine/PrivacySetting.ets
++++ b/product/phone/src/main/ets/pages/mine/PrivacySetting.ets
+@@ -1,5 +1,6 @@
+-import { readDataFromRawFile } from '@ohos_agcit/notes_utils';
++import { BreakpointType, GlobalInfoModel, readDataFromRawFile } from '@ohos_agcit/notes_utils';
+ import { MergeArrow } from '../../components/SettingComponents';
++import { AppStorageV2 } from '@kit.ArkUI';
+ 
+ /**
+  * 关于我们
+@@ -12,6 +13,8 @@ export function PrivacySettingBuilder() {
+ @ComponentV2
+ export struct PrivacySetting {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   build() {
+     NavDestination(){
+@@ -62,11 +65,23 @@ export struct PrivacySetting {
+           .edgeEffect(EdgeEffect.Spring)
+       }
+       .height('100%')
+-      .padding({
+-        top: 10,
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
+-      })
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          top: 10,
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++        },
++        md: {
++          top: 10,
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++        },
++        lg: {
++          top: 10,
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
+     }
+     .backgroundColor($r('sys.color.background_secondary'))
+     .title('隐私设置')
+diff --git a/product/phone/src/main/ets/pages/mine/SecretSetting.ets b/product/phone/src/main/ets/pages/mine/SecretSetting.ets
+index 617eac8..ae29d0d 100644
+--- a/product/phone/src/main/ets/pages/mine/SecretSetting.ets
++++ b/product/phone/src/main/ets/pages/mine/SecretSetting.ets
+@@ -1,4 +1,6 @@
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { SecretLockSwitch } from 'secretlock';
++import { AppStorageV2 } from '@kit.ArkUI';
+ 
+ @Builder
+ export function SecretSettingBuilder() {
+@@ -8,16 +10,28 @@ export function SecretSettingBuilder() {
+ @ComponentV2
+ export struct SecretSetting {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   build() {
+     NavDestination() {
+       SecretLockSwitch({
+         appPathStack: this.appPathStack
+       })
+-        .padding({
+-          left: $r('sys.float.padding_level8'),
+-          right: $r('sys.float.padding_level8'),
+-        })
++        .padding(new BreakpointType<Padding>({
++          sm: {
++            left: $r('sys.float.padding_level8'),
++            right: $r('sys.float.padding_level8'),
++          },
++          md: {
++            left: $r('sys.float.padding_level12'),
++            right: $r('sys.float.padding_level12'),
++          },
++          lg: {
++            left: $r('sys.float.padding_level16'),
++            right: $r('sys.float.padding_level16'),
++          },
++        }).getValue(this.globalInfo.currentBreakpoint))
+ 
+     }
+     .title('保密设置')
+diff --git a/product/phone/src/main/ets/pages/mine/Setting.ets b/product/phone/src/main/ets/pages/mine/Setting.ets
+index 4c0a56c..af5f8ea 100644
+--- a/product/phone/src/main/ets/pages/mine/Setting.ets
++++ b/product/phone/src/main/ets/pages/mine/Setting.ets
+@@ -1,4 +1,6 @@
++import { BreakpointType, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { DarkModeToggle, MergeArrow, NoticeToggle, SingleArrow } from '../../components/SettingComponents';
++import { AppStorageV2 } from '@kit.ArkUI';
+ import { checkUpdateAndShowDialog } from 'check_app_update';
+ import { ThemeController } from '../../controller/ThemeController';
+ import { UserInfo } from 'login';
+@@ -12,6 +14,8 @@ let themeController: ThemeController = ThemeController.instance;
+ export struct Setting {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
+   private userInfo: UserInfo = UserInfo.instance;
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   build() {
+     NavDestination() {
+@@ -73,11 +77,23 @@ export struct Setting {
+         .edgeEffect(EdgeEffect.Spring)
+       }
+       .height('100%')
+-      .padding({
+-        top: 10,
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
+-      })
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          top: 10,
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++        },
++        md: {
++          top: 10,
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++        },
++        lg: {
++          top: 10,
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
+     }
+     .backgroundColor($r('sys.color.background_secondary'))
+     .title('设置');
+diff --git a/product/phone/src/main/ets/pages/mine/Trash.ets b/product/phone/src/main/ets/pages/mine/Trash.ets
+index d6866a9..0d80e60 100644
+--- a/product/phone/src/main/ets/pages/mine/Trash.ets
++++ b/product/phone/src/main/ets/pages/mine/Trash.ets
+@@ -1,8 +1,9 @@
+ import { NoteService, SortEnum } from '@ohos_agcit/notes_datasource';
+-import { DateConstants, DateUtil } from '@ohos_agcit/notes_utils';
++import { BreakpointType, DateConstants, DateUtil, GlobalInfoModel } from '@ohos_agcit/notes_utils';
+ import { NoteSearchController } from '../../controller/NoteSearchController';
+ import { EmptyTrash } from '../../components/EmptyTrash';
+ import { Note } from 'richeditor';
++import { AppStorageV2 } from '@kit.ArkUI';
+ import { KVStore, SerializeUtil } from 'serializer';
+ 
+ @Builder
+@@ -20,6 +21,8 @@ export struct Trash {
+   private currentNote: Note | undefined = undefined;
+   private searchCtrl: NoteSearchController = NoteSearchController.instance;
+   private scroller: ListScroller = new ListScroller();
++  @Local globalInfo: GlobalInfoModel =
++    AppStorageV2.connect<GlobalInfoModel>(GlobalInfoModel, () => new GlobalInfoModel())!;
+ 
+   // 排序相关状态
+   @Local openSortSheet: boolean = false;
+@@ -204,11 +207,23 @@ export struct Trash {
+         .width('100%')
+         .height('100%')
+       }
+-      .padding({
+-        top: 10,
+-        left: $r('sys.float.padding_level8'),
+-        right: $r('sys.float.padding_level8'),
+-      })
++      .padding(new BreakpointType<Padding>({
++        sm: {
++          top: 10,
++          left: $r('sys.float.padding_level8'),
++          right: $r('sys.float.padding_level8'),
++        },
++        md: {
++          top: 10,
++          left: $r('sys.float.padding_level12'),
++          right: $r('sys.float.padding_level12'),
++        },
++        lg: {
++          top: 10,
++          left: $r('sys.float.padding_level16'),
++          right: $r('sys.float.padding_level16'),
++        },
++      }).getValue(this.globalInfo.currentBreakpoint))
+       .width('100%')
+       .height('100%');
+     }
+diff --git a/product/phone/src/main/ets/pages/mine/UserInfoPageHost.ets b/product/phone/src/main/ets/pages/mine/UserInfoPageHost.ets
+index b22573c..e52827f 100644
+--- a/product/phone/src/main/ets/pages/mine/UserInfoPageHost.ets
++++ b/product/phone/src/main/ets/pages/mine/UserInfoPageHost.ets
+@@ -1,4 +1,7 @@
++import { common } from '@kit.AbilityKit';
++import { resourceManager } from '@kit.LocalizationKit';
+ import { UserInfoForm } from 'login';
++import { PcHomeFirstPane } from '../../components/PcHomeFirstPane';
+ 
+ @Builder
+ export function UserInfoPageBuilder() {
+@@ -8,12 +11,76 @@ export function UserInfoPageBuilder() {
+ @ComponentV2
+ struct UserInfoPageHost {
+   @Consumer('appPathStack') appPathStack: NavPathStack = new NavPathStack();
++  private hostContext: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
++
++  private isPcLayout(): boolean {
++    try {
++      const type = this.hostContext.resourceManager.getDeviceCapabilitySync().deviceType;
++      return type === resourceManager.DeviceType.DEVICE_TYPE_2IN1;
++    } catch (_e) {
++      return false;
++    }
++  }
++
++  @Builder
++  private pcHeader(title: string) {
++    Row({ space: 8 }) {
++      SymbolGlyph($r('sys.symbol.arrow_left'))
++        .fontSize(20)
++        .fontColor([$r('sys.color.font_primary')])
++        .onClick(() => {
++          this.appPathStack.pop();
++        });
++      Text(title)
++        .fontSize(18)
++        .fontWeight(FontWeight.Medium)
++        .fontColor($r('sys.color.font_primary'));
++      Blank();
++    }
++    .width('100%')
++    .height(44)
++    .alignItems(VerticalAlign.Center)
++    .padding({ left: 12, right: 12, top: 12, bottom: 8 });
++  }
+ 
+   build() {
+     NavDestination() {
+-      UserInfoForm();
++      if (this.isPcLayout()) {
++        Row() {
++          Column() {
++            PcHomeFirstPane();
++          }
++          .layoutWeight(240)
++          .height('100%')
++          .width('100%');
++
++          Divider()
++            .vertical(true)
++            .strokeWidth(1)
++            .color($r('sys.color.comp_divider'))
++            .height('100%');
++
++          Column() {
++            Column() {
++              this.pcHeader('个人信息');
++              UserInfoForm();
++            }
++            .width('100%')
++            .height('100%');
++          }
++          .layoutWeight(860)
++          .height('100%')
++          .width('100%');
++        }
++        .width('100%')
++        .height('100%')
++        .backgroundColor($r('sys.color.background_secondary'));
++      } else {
++        UserInfoForm();
++      }
+     }
+     .title('个人信息')
++    .hideTitleBar(this.isPcLayout())
+     .onBackPressed(() => {
+       this.appPathStack.pop();
+       return true;
+diff --git a/product/phone/src/main/resources/base/profile/router_map.json b/product/phone/src/main/resources/base/profile/router_map.json
+index 159ed26..13e66af 100644
+--- a/product/phone/src/main/resources/base/profile/router_map.json
++++ b/product/phone/src/main/resources/base/profile/router_map.json
+@@ -13,6 +13,11 @@
+       "pageSourceFile": "src/main/ets/pages/mine/MineView.ets",
+       "buildFunction": "MineViewBuilder"
+     },
++    {
++      "name": "MineViewHost",
++      "pageSourceFile": "src/main/ets/pages/mine/MineViewHost.ets",
++      "buildFunction": "MineViewHostBuilder"
++    },
+     {
+       "name": "UserInfoPage",
+       "pageSourceFile": "src/main/ets/pages/mine/UserInfoPageHost.ets",
