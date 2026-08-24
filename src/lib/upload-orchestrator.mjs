@@ -67,35 +67,16 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
       continue;
     }
 
-    // 收集要打包的目录
-    const sources = [];
-    for (const [dir, pfx] of [
-      [".ohostest-runs", ".ohostest-runs"],
-      ["base", "base"],
-      ["task", "task"],
-      ["diff", "diff"],
-    ]) {
-      const fullDir = path.join(caseDir, dir);
-      if (await exists(fullDir)) sources.push({ dirPath: fullDir, prefix: pfx });
-    }
-    // base 和 task 只取一个
-    const hasBase = sources.some((s) => s.prefix === "base");
-    if (hasBase) {
-      const taskIdx = sources.findIndex((s) => s.prefix === "task");
-      if (taskIdx >= 0) sources.splice(taskIdx, 1);
-    }
-
-    if (!sources.length) {
-      results[caseName] = { url: "", error: "无可打包目录", uploadedAt: new Date().toISOString() };
-      continue;
-    }
-
+    // 打包整个用例目录：base/task、generate/、diff/、.ohostest-runs/、ohostest-workdir/、
+    // whitebox/、cloudtest/ 等全部产物均入包；build/oh_modules 等可再生成目录仍由 zip.mjs 过滤；
+    // zip 输出文件自身排除，防止重复打包时 zip 套 zip
     const zipName = `${caseName}_${batchId}.zip`;
     const localZipPath = path.join(caseDir, zipName);
+    const sources = [{ dirPath: caseDir, prefix: "" }];
 
     try {
-      log(`${caseName}: 打包 ${sources.length} 个目录...`);
-      const zipData = await createZip(sources);
+      log(`${caseName}: 打包整个用例目录...`);
+      const zipData = await createZip(sources, { excludeAbsPaths: new Set([path.resolve(localZipPath)]) });
       // 始终保存 zip 到用例目录
       await fs.writeFile(localZipPath, zipData);
       const sizeMB = (zipData.length / 1024 / 1024).toFixed(1);

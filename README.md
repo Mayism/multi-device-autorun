@@ -342,7 +342,7 @@ node src/upload-results.mjs output/<batchId>
 上传行为：
 
 - 只上传**失败或错误**的用例（整体通过且无测试失败的用例跳过）。
-- 打包用例目录下的 `.ohostest-runs/`、`base/`（或 `task/`）和 `diff/` 三个子目录为 ZIP（DEFLATE 压缩，自动排除 `build`、`oh_modules`、`.hvigor` 等构建产物）。
+- 打包用例目录下的全部内容为 ZIP：包括 `base/`（或 `task/`）、`generate/`、`diff/`、`.ohostest-runs/`、`ohostest-workdir/`、`whitebox/`、`cloudtest/` 等所有产物（ZIP 输出文件本身不重复入包；DEFLATE 压缩，自动排除 `build`、`oh_modules`、`.hvigor`、`node_modules` 等可再生成目录）。
 - ZIP 文件名为 `{CaseName}_{batchId}.zip`，上传路径为 `ohostest/{CaseName}_{batchId}.zip`。
 - 上传支持重试（默认 3 次），每次失败记录原因。每个用例上传后立即写 `upload-results.json`，中断后再次执行会跳过已成功的用例。
 - 上传结果写入 `output/<batchId>/upload-results.json`，格式为 `{ "CaseName": { "url": "下载地址", "error": "失败原因", "uploadedAt": "时间" } }`。

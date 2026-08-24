@@ -32,8 +32,8 @@ function shouldExclude(relPath) {
   return false;
 }
 
-// 递归收集目录下所有文件，返回 [{ absPath, zipPath }]
-async function walkDir(dirPath, prefix = "") {
+// 递归收集目录下所有文件，返回 [{ absPath, zipPath }]；excludeAbs 为需跳过的绝对路径集合
+async function walkDir(dirPath, prefix = "", excludeAbs = null) {
   const entries = [];
   let items;
   try {
@@ -42,11 +42,12 @@ async function walkDir(dirPath, prefix = "") {
     return entries;
   }
   for (const item of items) {
+    const fullPath = path.join(dirPath, item.name);
+    if (excludeAbs?.has(path.resolve(fullPath))) continue;
     const relPath = prefix ? `${prefix}/${item.name}` : item.name;
     if (shouldExclude(relPath)) continue;
-    const fullPath = path.join(dirPath, item.name);
     if (item.isDirectory()) {
-      entries.push(...await walkDir(fullPath, relPath));
+      entries.push(...await walkDir(fullPath, relPath, excludeAbs));
     } else if (item.isFile()) {
       entries.push({ absPath: fullPath, zipPath: relPath });
     }
@@ -57,15 +58,18 @@ async function walkDir(dirPath, prefix = "") {
 /**
  * 创建 ZIP 归档。
  * @param {Array<{dirPath: string, prefix?: string} | {absPath: string, zipPath: string}>} sources
- *   - {dirPath, prefix}：递归收集整个目录，prefix 为 zip 内的根目录名
+ *   - {dirPath, prefix}：递归收集整个目录，prefix 为 zip 内的根目录名（空串表示目录内容直接置于 zip 根）
  *   - {absPath, zipPath}：单个文件
+ * @param {object} [options]
+ * @param {Set<string>} [options.excludeAbsPaths] — 需跳过的绝对文件路径（如 zip 输出文件自身，防止 zip 套 zip）
  * @returns {Promise<Uint8Array>} ZIP 字节
  */
-export async function createZip(sources) {
+export async function createZip(sources, { excludeAbsPaths } = {}) {
+  const excludeAbs = excludeAbsPaths instanceof Set && excludeAbsPaths.size ? excludeAbsPaths : null;
   const fileEntries = [];
   for (const src of sources) {
     if (src.dirPath) {
-      const walked = await walkDir(src.dirPath, src.prefix || "");
+      const walked = await walkDir(src.dirPath, src.prefix || "", excludeAbs);
       fileEntries.push(...walked);
     } else if (src.absPath) {
       fileEntries.push(src);
