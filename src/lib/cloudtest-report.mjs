@@ -37,6 +37,27 @@ export async function fetchTaskReport(client, { taskGroupId, category }) {
   return { apps, overview, problems, taskList, titles, errors };
 }
 
+/**
+ * 把 fetchTaskReport 结果压缩为可持久化的结构化摘要（规则/设备/问题计数）。
+ * 编排器将其写入 cloudtest-result.json 的 report.summary，供批次报表与跨批次
+ * 合并在数据层汇总（不再解析 HTML）。
+ * @param {object} report - fetchTaskReport 返回值
+ * @returns {{deviceCount: number, devicePassed: number, deviceFailed: number,
+ *   rulePassed: number, ruleFailed: number, issueCount: number}}
+ */
+export function summarizeTaskReport(report) {
+  const taskList = Array.isArray(report?.taskList) ? report.taskList : [];
+  const ruleInfo = report?.overview?.categoryResults?.[0]?.ruleInfo || {};
+  return {
+    deviceCount: taskList.length,
+    devicePassed: taskList.filter((t) => Number(t?.resultStatus) === 1).length,
+    deviceFailed: taskList.filter((t) => Number(t?.resultStatus) === 2).length,
+    rulePassed: Number(ruleInfo.passedErrorCount) || 0,
+    ruleFailed: Number(ruleInfo.failedErrorCount) || 0,
+    issueCount: Array.isArray(report?.problems) ? report.problems.length : 0,
+  };
+}
+
 function resultCell(item) {
   if (!item) return '<span class="badge badge-muted">-</span>';
   const value = String(item.resultStatus || "").toUpperCase();
@@ -218,6 +239,7 @@ export async function writeCloudTestHtmlReport({ result, report, outDir }) {
   const apps = Array.isArray(report?.apps) ? report.apps[0] || {} : {};
   const appInfo = apps.appInfo || {};
   const ruleInfo = report?.overview?.categoryResults?.[0]?.ruleInfo || {};
+  const reportSummary = summarizeTaskReport(report);
 
   const htmlPath = path.join(outDir, "cloudtest-report.html");
   const body = `
@@ -234,8 +256,10 @@ export async function writeCloudTestHtmlReport({ result, report, outDir }) {
     <div class="stats">
       ${statCard("状态", badge(result.status || "unknown"))}
       ${statCard("进度", `${taskGroup.processedTestTaskCount ?? 0}/${taskGroup.taskCount ?? (task.devices?.length || "-")}`)}
-      ${statCard("通过规则", String(ruleInfo.passedErrorCount ?? "-"))}
-      ${statCard("失败规则", String(ruleInfo.failedErrorCount ?? "-"))}
+      ${statCard("通过规则", String(ruleInfo.passedErrorCount ?? reportSummary.rulePassed ?? "-"))}
+      ${statCard("失败规则", String(ruleInfo.failedErrorCount ?? reportSummary.ruleFailed ?? "-"))}
+      ${statCard("设备通过/失败", `${reportSummary.devicePassed}/${reportSummary.deviceFailed}`)}
+      ${statCard("问题数量", String(reportSummary.issueCount))}
       ${statCard("测试设备", String(report?.taskList?.length ?? taskGroup.deviceCount ?? "-"))}
       ${statCard("云端执行耗时", apps.executeTime ? fmtDuration(Number(apps.executeTime)) : (result.elapsedSec ? fmtDuration(result.elapsedSec) : "-"))}
       ${statCard("免费额度消耗", taskGroup.freeAmount != null ? `${taskGroup.freeAmount} 分钟` : "-")}

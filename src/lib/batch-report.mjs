@@ -143,7 +143,7 @@ function buildOhosTestSummary(cases) {
   };
 }
 
-function buildWhiteboxSummary(results, enabled) {
+export function buildWhiteboxSummary(results, enabled) {
   const cases = results
     .filter((item) => item?.whitebox)
     .map((item) => ({ case: text(item.case), ...item.whitebox }));

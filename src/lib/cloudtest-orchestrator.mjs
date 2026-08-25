@@ -813,13 +813,19 @@ async function generateHtmlReportFor(client, result, log) {
   const taskGroupId = result.task?.taskGroupId || result.taskGroupId || result.polling?.taskGroup?.id || "";
   try {
     if (!taskGroupId) throw new Error("缺少 taskGroupId");
-    const { fetchTaskReport, writeCloudTestHtmlReport } = await import("./cloudtest-report.mjs");
+    const { fetchTaskReport, writeCloudTestHtmlReport, summarizeTaskReport } = await import("./cloudtest-report.mjs");
     const category = result.task?.testCategories?.[0]?.category
       || result.polling?.taskGroup?.categoryList?.[0]
       || 24;
     const report = await fetchTaskReport(client, { taskGroupId, category });
     const htmlPath = await writeCloudTestHtmlReport({ result, report, outDir: result.outputDir });
-    result.report = { htmlPath, fetchedAt: new Date().toISOString(), ...(report.errors?.length ? { dataErrors: report.errors } : {}) };
+    // 结构化摘要随 result.json 持久化，供批次报表与跨批次合并在数据层汇总
+    result.report = {
+      htmlPath,
+      fetchedAt: new Date().toISOString(),
+      summary: summarizeTaskReport(report),
+      ...(report.errors?.length ? { dataErrors: report.errors } : {}),
+    };
     return htmlPath;
   } catch (error) {
     result.report = { htmlPath: "", fetchedAt: new Date().toISOString(), error: error.message };

@@ -2185,9 +2185,8 @@ const config = await loadAutorunConfig(args.configPath);
 if (args.merge !== undefined) {
   const mergeRoot = args.merge || config.execution.outputRoot;
   try {
-    const merged = mergeOverview({ root: mergeRoot });
+    const merged = await mergeOverview({ root: mergeRoot });
     console.log(`[merge] 已合并 ${merged.batchCount} 个批次 → ${merged.overviewPath}`);
-    console.log(`[merge] 已生成 ${merged.subpageDir}/ （${merged.copiedFiles} 个文件）`);
     process.exit(0);
   } catch (error) {
     console.error(`[merge] ${error.message}`);

@@ -358,10 +358,20 @@ node src/generate-html-report.mjs output/<batchId>
 
 ### 7. 合并批次报告
 
-多轮回归后，可把多个批次的总览报告合并成一份跨批次总览页：统计卡片（用例数、耗时等）按数值/单位/斜杠型自动求和，用例详情行汇总到同一张表，子页面按「批次名__原文件名」前缀隔离防覆盖。
+多轮回归后，可把多个批次的执行结果合并成一份跨批次总览页。合并脚本按五步主流程组织（`src/lib/merge-overview.mjs`，每步独立成模块方法）：
+
+1. **发现批次报告** `discoverBatches`：扫描批次目录，兼容扁平 `<批次>` 与分层 `<分层目录名>/<批次>`（如 harmonyBot / softwareEngineering / baseModel）两种布局，按名称排序；只依据 `summary.json` 识别批次，缺 `summary.json` 的目录跳过并告警。
+2. **清理旧产物** `cleanOldArtifacts`：删除旧 overview.html 与 subpage/ 并重建目录，保证每次合并从干净状态开始。
+3. **读取批次数据** `readBatchData`：读取各批次 `summary.json` / `report.json` / `upload-results.json` 及用例级 runner result，按与批次报告同口径组装 caseRows。
+4. **合并数据** `mergeData`：数据层合并后**逐模块产出 HTML 片段**——配置总览、结果总览、用例执行一览，以及 skill 章节（`merge-skill.mjs` 返回的数据就是 HTML，直接作为片段）。统计口径：计数类（用例总数、完成/失败、总 Token、模型/工具调用、执行用例个数、通过/失败/错误、白盒完成/失败）跨批次求和；白盒平均分复用 `batch-report` 的 `buildWhiteboxSummary` 在全部用例上整体重算；Agent/providerId/模型相同取一个、不同用「/」分隔。
+5. **生成 HTML** `generateHtml`：用 `pageShell` 把各模块片段按序组装（配置总览 → 结果总览 → 用例执行一览 → skill 质量评估 → skill 安全审计）写盘。
+
+- **用例表**：行按批次顺序拼接，不添加批次列，也不含「云测试」「白盒评价」列（云测试见各用例 cloudtest-report.html，白盒见各用例白盒报告，操作列保留入口链接）。
+- **用例详情直链**：不再拷贝 subpage 副本，用例名/查看详情直接链接各批次目录内的 `subpage/<用例>.html`（合并页位于批次目录上一级，链接带「批次相对路径/」前缀）；批次无子页面（如仅有 summary.json 的历史批次）时用例名以纯文本展示。
+- **skill 报告章节（可选）**：若存在 `src/lib/merge-skill.mjs`，第 4 步自动调用其导出的两个章节方法，返回的 HTML 作为 skill 模块片段——`mergeSkillEvalSection`（skill 质量评估，调用带 `await`）与 `mergeSkillAuditSection`（skill 安全审计）。两个方法入参均为 `{ batchDataList, batchNames, outputRoot }`：`batchDataList` 为各批次源数据数组（含 batch 标识与 summary/report/results），`batchNames` 为批次名数组，`outputRoot` 为输出根目录。文件不存在则整体跳过；单个方法缺失时仅跳过对应章节。
 
 ```bash
-# 合并默认 outputRoot（见配置）下所有含 overview.html 的批次目录
+# 合并默认 outputRoot（见配置）下所有含 summary.json 的批次目录
 node autorun.mjs --merge
 
 # 合并指定目录
@@ -375,7 +385,7 @@ node autorun.mjs --merge --config ./config/another.config.json
 
 ### 8. 云测试（主流程默认执行 / `--cloud-test` 独立调试）
 
-云测试是主流程的一部分，默认在每个用例的 Agent 完成后自动执行。**云测试（远端真机）与 ohosTest（本地模拟器）并行**：云测试上传包后只需轮询等待、不占用本地设备，两个分支都结束后合并出用例最终状态，云测试结果记录在用例 `result.json` 的 `cloudTest` 字段。多个用例的云测试提交阶段（构建+上传+提交）串行执行以规避频率限制，轮询阶段并行；模拟器测试保持跨用例串行（设备租约）。构建不与 ohosTest 合并：ohosTest 使用 debug 包（由 Runner 内部构建安装），云测试要求 release 签名包（由本流程构建上传），产物与签名不同，各自独立构建。设置 `cloudTest.enabled: false` 可整体关闭。
+云测试是主流程的一部分，默认在每个用例的 Agent 完成后自动执行。**云测试（远端真机）与 ohosTest（本地模拟器）并行**：云测试上传包后只需轮询等待、不占用本地设备；两个分支互不依赖，控制台的“测试状态”“云测试”两列在各自分支结束时独立定格，全部分支结束后再合并定级用例最终状态，云测试结果记录在用例 `result.json` 的 `cloudTest` 字段。多个用例的云测试提交阶段（构建+上传+提交）串行执行以规避频率限制，轮询阶段并行；模拟器测试保持跨用例串行（设备租约）。构建不与 ohosTest 合并：ohosTest 使用 debug 包（由 Runner 内部构建安装），云测试要求 release 签名包（由本流程构建上传），产物与签名不同，各自独立构建。设置 `cloudTest.enabled: false` 可整体关闭。
 
 每用例的云测试流程：
 
