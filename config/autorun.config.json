@@ -101,5 +101,8 @@
     ],
     "pollIntervalSec": 60,
     "taskTimeoutSec": 3600
+  },
+  "upload": {
+    "enabled": false
   }
 }
