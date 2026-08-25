@@ -14,6 +14,19 @@ function walk(value, visitor) {
   for (const item of Array.isArray(value) ? value : Object.values(value)) walk(item, visitor);
 }
 
+// 识别模型侧 API 限额提示（如「您已达到每周/每月使用上限，您的限额将在 … 重置」、
+// rate limit / quota exceeded / HTTP 429），用于把限额失败与普通失败区分开。
+export function isQuotaExceededMessage(text) {
+  return /使用上限|限额|rate\s*[-_]?limit|usage\s*limit|quota\s*(?:exceeded|limit)?|429/i.test(String(text || ""));
+}
+
+// 周期用量上限（每周/每月/使用上限/含重置时间）在重置点之前不会恢复，继续等待
+// 只会耗到 idle 超时；瞬时限流（普通 429/rate limit）通常短时间内自行恢复，
+// 仍交给 server 重试。导出以便分类侧与测试复用同一判断。
+export function isHardQuotaCap(text) {
+  return /每周|每月|使用上限|限额[^。；]{0,24}重置|weekly|monthly|usage\s*limit|(?:quota|limit)[^.;]{0,32}reset/i.test(String(text || ""));
+}
+
 function eventData(payload) {
   let current = payload;
   const visited = new Set();
@@ -238,6 +251,7 @@ function startSseCapture({
   onProgress,
   onInteraction,
   onSessionError,
+  onQuotaExceeded,
 }) {
   let stopped = false;
   let currentController = null;
@@ -278,7 +292,14 @@ function startSseCapture({
                 const data = eventData(payload);
                 const statusValue = data?.properties?.status || data?.properties?.state || "";
                 const status = String(statusValue?.type || statusValue).toLowerCase();
-                if (status === "idle") for (const id of ids) idleSessions.add(id);
+                if (status === "idle") {
+                  for (const id of ids) idleSessions.add(id);
+                } else if (status === "retry") {
+                  const message = String(statusValue?.message || "");
+                  if (isQuotaExceededMessage(message)) {
+                    onQuotaExceeded?.(message, isHardQuotaCap(message));
+                  }
+                }
               }
               if (type === "session.error") onSessionError?.(sessionError(payload));
               if (type === "question.asked" || type === "permission.asked") onInteraction?.();
@@ -353,6 +374,7 @@ export async function runMonitoredSession({
   maxRuntimeSec = 6000,
   signal,
   onProgress,
+  onQuotaExceeded,
 }) {
   const activeSessionIds = new Set([sessionId]);
   const idleSessions = new Set();
@@ -377,6 +399,7 @@ export async function runMonitoredSession({
   let childActive = false;
   let interactionRequested = true;
   let fatalSessionError = null;
+  let quotaLimited = false;
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
   const sse = startSseCapture({
@@ -388,6 +411,17 @@ export async function runMonitoredSession({
     onProgress,
     onInteraction: () => { interactionRequested = true; },
     onSessionError: (error) => { fatalSessionError ||= error; },
+    onQuotaExceeded: (message, hard) => {
+      quotaLimited = true;
+      onQuotaExceeded?.(message, hard);
+      // 硬上限（每周/每月用量上限）重置前不会恢复，直接终止会话，
+      // 不再陪 server 无限重试到 idle 超时。主循环会在下一次检查时抛出。
+      if (hard) {
+        const error = new Error(`API 用量上限，提前停止 Agent：${message}`);
+        error.code = "AGENT_QUOTA_EXCEEDED";
+        fatalSessionError ||= error;
+      }
+    },
   });
 
   try {
@@ -562,6 +596,7 @@ export async function runMonitoredSession({
           tokenUsage: tokenUsageTracker.total(),
           compileUsage: compileUsageTracker.summary(),
           elapsedSec: Math.round((Date.now() - startedAt) / 1000),
+          quotaLimited,
         };
       }
       await delay(500);
@@ -572,6 +607,7 @@ export async function runMonitoredSession({
     error.childSessionIds = [...children];
     error.lastMessage = latestMessage;
     error.tokenUsage = tokenUsageTracker.total();
+    error.quotaLimited = quotaLimited;
     throw error;
   } finally {
     sse.stop();

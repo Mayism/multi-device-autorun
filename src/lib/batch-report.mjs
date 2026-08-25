@@ -138,7 +138,7 @@ function buildAgentSummary(cases) {
 function buildOhosTestSummary(cases) {
   const devices = cases.flatMap((item) => item.run?.devices || []);
   return {
-    cases: cases.length, completed: cases.filter((item) => item.status === "completed").length, failed: cases.filter((item) => ["failed", "timed_out", "interrupted"].includes(item.status)).length,
+    cases: cases.length, completed: cases.filter((item) => item.status === "completed").length, failed: cases.filter((item) => ["failed", "timed_out", "rate_limited", "interrupted"].includes(item.status)).length,
     devices: devices.length, testsRun: addMetrics(devices, "testsRun"), passes: addMetrics(devices, "passes"), failures: addMetrics(devices, "failures"), errors: addMetrics(devices, "errors"), ignored: addMetrics(devices, "ignored"), caseResults: cases,
   };
 }

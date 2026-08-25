@@ -20,6 +20,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
   - permission 强制全部允许，question 自动选择允许、继续或推荐方案，自由文本确认也会自动回复；
   - 仅把文本、推理、工具状态或工具输出的实际变化计为 Agent 活动；
   - 无活动超时和总运行时间限制；
+  - 实时识别模型 API 限额：周期用量上限立即中止用例并标记「限额」，瞬时限流继续等待重试；
   - 超时后自动中止主 session 和已发现的子 session。
 - 捕获 `Ctrl+C`、终止信号、未捕获异常和自动启动的 Server 子进程退出，收尾运行中的用例状态。
 - 下次启动时自动扫描并修复历史批次中遗留的 `running` 状态。
@@ -523,7 +524,7 @@ Get-Content "D:\autorun\output\<batchId>\<caseName>\generate\agent-output.log" -
 ```text
 pending -> running/preparing -> session_creating -> agent_running
         -> artifacting -> ohostest_queued -> ohostest_running
-        -> completed | failed | timed_out | interrupted
+        -> completed | failed | timed_out | rate_limited | interrupted
 ```
 
 ## 常见问题
@@ -602,6 +603,15 @@ hvigorw.bat tasks --no-daemon
 Autorun 会在正常可捕获的中断中把正在执行的用例标记为 `interrupted`，尚未开始的用例标记为 `cancelled`，并写入 `result.json` 和批次 `summary.json`。
 
 对于任务管理器强制结束、断电等无法现场收尾的情况，下次执行 `node autorun.mjs` 或 `node autorun.mjs --check` 时会扫描工程内的 `output/`，将遗留批次标记为 `interrupted`。已完成、失败或超时的用例状态不会被覆盖。
+
+### 用例状态显示「限额」（API 限额）
+
+Autorun 实时监听 OpenCode SSE 的 `session.status` 事件，模型 API 返回限额提示时按两类处理：
+
+- **周期用量上限**：消息含「每周/每月使用上限」「限额将在 … 重置」等（如 `您已达到每周/每月使用上限，您的限额将在 2026-08-26 10:01:54 重置。`）。重置时间之前限额不会恢复，继续等待只会耗到空闲超时，因此检测到后立即中止主/子 session，用例状态标记为 `rate_limited`，终端生成状态列和 HTML 报告显示「限额」，「当前操作」列会提示原始限额消息。
+- **瞬时限流**：普通 429 / rate limit，通常短时间内自行恢复，继续交给 OpenCode 重试并提示「检测到 API 限流，等待恢复」；若最终仍因限流失败，同样标记为 `rate_limited`。
+
+判定依据保留在 `generate/opencode-sse.jsonl`，`result.json` 中记录 `quotaLimited: true`，`agentError` 含原始限额消息与重置时间。限额属于账号级问题：并发中的其他用例和后续用例通常会在各自首个模型请求时同样快速失败为「限额」，是否继续执行剩余队列由 `execution.continueOnError`（默认 `true`）决定。处理方式：等待配额重置（以限额消息中的重置时间为准）、更换 API Key 或提升配额后，使用「重试失败用例」重新执行。
 
 ### API 请求返回 401、403 或模型不可用
 

@@ -88,6 +88,7 @@ export const STATUS_META = {
   succeeded: { label: "成功", cls: "ok" },
   failed: { label: "失败", cls: "fail" },
   timed_out: { label: "超时", cls: "fail" },
+  rate_limited: { label: "限额", cls: "fail" },
   interrupted: { label: "中断", cls: "warn" },
   cancelled: { label: "取消", cls: "muted" },
   skipped: { label: "跳过", cls: "muted" },

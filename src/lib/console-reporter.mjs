@@ -14,6 +14,7 @@ const STATUS_LABELS = {
   completed: "已完成",
   failed: "失败",
   timed_out: "超时",
+  rate_limited: "限额",
   interrupted: "已中断",
   cancelled: "已取消",
 };

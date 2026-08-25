@@ -8,7 +8,7 @@ import { createConnection, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { OpenCodeClient } from "./src/lib/opencode-client.mjs";
-import { runMonitoredSession } from "./src/lib/session-monitor.mjs";
+import { runMonitoredSession, isQuotaExceededMessage } from "./src/lib/session-monitor.mjs";
 import { copyProject } from "./src/lib/sandbox-copy.mjs";
 import { ConsoleReporter } from "./src/lib/console-reporter.mjs";
 import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/lib/token-usage.mjs";
@@ -605,7 +605,21 @@ class BatchStateStore {
   }
 }
 
-const FINISHED_CASE_STATUSES = new Set(["completed", "failed", "timed_out", "cancelled", "interrupted"]);
+const FINISHED_CASE_STATUSES = new Set(["completed", "failed", "timed_out", "rate_limited", "cancelled", "interrupted"]);
+
+// 兜底：SSE 事件流异常中断时（如连接闪断），从落盘的 opencode-sse.jsonl
+// 逐行识别 session.status 的限额提示，避免漏判 rate_limited。
+async function sseLogIndicatesQuota(filePath) {
+  try {
+    const text = await fs.readFile(filePath, "utf8");
+    for (const line of text.split("\n")) {
+      if (line.includes("session.status") && isQuotaExceededMessage(line)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 async function readJson(filePath) {
   try {
@@ -1228,6 +1242,7 @@ async function runCase({
 
     let lastConsoleProgressAt = 0;
     let lastInteractionErrorAt = 0;
+    let lastQuotaNotifiedAt = 0;
     const monitored = await runMonitoredSession({
       client,
       sessionId,
@@ -1267,6 +1282,14 @@ async function runCase({
           writeAgentConsole("interaction-error", `${data.kind || "interaction"} 自动处理失败，将继续重试：${data.error || "unknown error"}`).catch(() => {});
         }
       },
+      onQuotaExceeded: (message, hard) => {
+        if (Date.now() - lastQuotaNotifiedAt > 5000) {
+          lastQuotaNotifiedAt = Date.now();
+          const action = hard ? "用量上限，停止用例" : "限流，等待恢复";
+          reporter.caseProgress(caseName, `检测到 API ${action}：${message}`);
+          writeAgentConsole("quota", message).catch(() => {});
+        }
+      },
     });
 
     await fs.writeFile(path.join(generateDir, "output.txt"), monitored.output || "", "utf8");
@@ -1298,6 +1321,7 @@ async function runCase({
       case: caseName,
       status: pendingStages ? "running" : "completed",
       agentStatus: "completed",
+      quotaLimited: monitored.quotaLimited || false,
       sessionId,
       childSessionIds: monitored.childSessionIds,
       agent: execution.agent,
@@ -1378,12 +1402,18 @@ async function runCase({
     reporter.caseCompileUsage(caseName, agentCompile);
     const interrupted = error.code === "AUTORUN_INTERRUPTED";
     const timedOut = /无活动|总运行时间超过/.test(error.message);
-    const status = interrupted ? "interrupted" : timedOut ? "timed_out" : "failed";
+    // 限额优先于超时：限流重试期间没有消息活动，会先触发 idle 超时，
+    // 但根因是 API 限额，应显示 rate_limited 而不是 timed_out。
+    const rateLimited = Boolean(error.quotaLimited)
+      || isQuotaExceededMessage(error.message)
+      || await sseLogIndicatesQuota(path.join(generateDir, "opencode-sse.jsonl"));
+    const status = interrupted ? "interrupted" : rateLimited ? "rate_limited" : timedOut ? "timed_out" : "failed";
     const result = {
       case: caseName,
       status,
       agentStatus: status,
       agentError: error.message,
+      quotaLimited: rateLimited,
       sessionId: error.sessionId || sessionId,
       childSessionIds: error.childSessionIds || [],
       error: error.message,
