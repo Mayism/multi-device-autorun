@@ -122,6 +122,11 @@ export async function readBatchData(batch) {
       testSummary: testRows.length
         ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`
         : (result?.ohosTest?.status ? badge(result.ohosTest.status) : "--"),
+      // 用例级通过率：通过 / (通过+失败+错误)，百分比取整
+      passRate: (() => {
+        const denom = ts.passes + ts.failures + ts.errors;
+        return denom > 0 ? `${Math.round((ts.passes / denom) * 100)}%` : "--";
+      })(),
     });
   }
   return { batch, summary, report, results, caseRows, executionInfo };
@@ -252,9 +257,9 @@ function buildStatsSection({ summary, report }) {
   const agentTotals = report?.agent || {};
   const ohosTotals = report?.ohosTest || {};
   const whiteboxTotals = report?.whitebox || {};
-  const passRate = ohosTotals.testsRun
-    ? `${Math.round((ohosTotals.passes / ohosTotals.testsRun) * 1000) / 10}%`
-    : "--";
+  // 通过率：通过 / (通过+失败+错误)，百分比取整
+  const passDenom = (ohosTotals.passes ?? 0) + (ohosTotals.failures ?? 0) + (ohosTotals.errors ?? 0);
+  const passRate = passDenom > 0 ? `${Math.round(((ohosTotals.passes ?? 0) / passDenom) * 100)}%` : "--";
   const statCards = [
     { k: "用例总数", v: summary.total ?? "--" },
     { k: "完成 / 失败", v: `${summary.completed ?? 0} / ${summary.failed ?? 0}` },
@@ -262,8 +267,8 @@ function buildStatsSection({ summary, report }) {
     { k: "模型调用", v: agentTotals.modelCalls ?? "--" },
     { k: "工具调用", v: agentTotals.toolCalls ?? "--" },
     { k: "执行用例个数", v: ohosTotals.testsRun ?? "--" },
-    { k: "用例执行通过率", v: passRate },
     { k: "通过 / 失败 / 错误", v: `<span class="pass">${ohosTotals.passes ?? 0}</span> / <span class="fail">${ohosTotals.failures ?? 0}</span> / <span class="error">${ohosTotals.errors ?? 0}</span>`, html: true },
+    { k: "通过率", v: passRate },
     { k: "白盒完成 / 失败", v: `${whiteboxTotals.completed ?? 0} / ${whiteboxTotals.failed ?? 0}` },
     { k: "白盒平均分", v: whiteboxTotals.averageScore ?? "--" },
   ];
@@ -289,6 +294,7 @@ function buildCaseTableSection({ summary, caseRows }) {
       <td class="num" title="输入 ${fmtToken(c.tokenIn)} / 输出 ${fmtToken(c.tokenOut)} / 推理 ${fmtToken(c.tokenReasoning)} / 缓存 ${fmtToken(c.tokenCacheRead)}">${fmtToken(c.tokenTotal)}</td>
       <td>${badge(c.status)}</td>
       <td>${c.testSummary}</td>
+      <td class="num">${c.passRate}</td>
       <td>${detailCell}${c.whiteboxReport ? ` <a class="link" href="${esc(c.whiteboxReport)}">白盒报告</a>` : ""}${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
     </tr>`;
   }).join("");
@@ -311,9 +317,10 @@ function buildCaseTableSection({ summary, caseRows }) {
           <th class="num">Token 消耗</th>
           <th>测试结果</th>
           <th>执行结果</th>
+          <th class="num">通过率</th>
           <th>操作</th>
         </tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="11" class="empty">暂无用例数据</td></tr>`}</tbody>
+        <tbody>${rowsHtml || `<tr><td colspan="12" class="empty">暂无用例数据</td></tr>`}</tbody>
       </table>
     </div>
     <p class="legend">说明：「Agent执行耗时」为 Agent 改造代码阶段；「用例执行耗时」为 ohosTest 设备测试阶段；「总耗时」≈「Agent执行耗时」+「用例执行耗时」（相差不超过 1 秒为时间取整）；「交互(模型/工具)」为模型调用次数 / 工具调用次数。</p>`;
