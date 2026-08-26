@@ -19,6 +19,7 @@ import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 import { mergeOverview } from "./src/lib/merge-overview.mjs";
 import { serverAllowsEverything } from "./src/lib/permission-policy.mjs";
+import { detectDevEcoCli } from "./src/lib/deveco-cli.mjs";
 import {
   filterGeneratedArtifactPatch,
   GENERATED_ARTIFACT_GIT_EXCLUDES,
@@ -2360,6 +2361,14 @@ process.once("unhandledRejection", onUnhandledRejection);
 
 try {
   checkLoadAgents(config);
+  const devecoCli = await detectDevEcoCli();
+  if (devecoCli.installed) {
+    const version = devecoCli.version ? ` ${devecoCli.version}` : "";
+    const versionWarning = devecoCli.versionError ? `；版本读取失败: ${devecoCli.versionError}` : "";
+    console.log(`[check] DevEco CLI 已安装: ${devecoCli.command}${version}（${devecoCli.executable}）${versionWarning}`);
+  } else {
+    console.warn(`[warn] 未检测到 DevEco CLI 命令 ${devecoCli.command}；如需安装请执行: ${devecoCli.installCommand}`);
+  }
   const recovered = await recoverInterruptedRuns(config.execution.outputRoot);
   for (const item of recovered) {
     console.warn(`[recovery] 已收尾上次未正常完成的批次: ${item.batchId}`);
