@@ -1,5 +1,5 @@
 // upload-orchestrator.mjs
-// 可复用的上传编排：对批次中的失败用例打包并上传到 AGC 云存储。
+// 可复用的打包上传编排：对批次中的所有用例打包本地 ZIP；upload.enabled 时仅上传失败/错误用例到 AGC 云存储。
 // 被 src/upload-results.mjs（CLI）和 batch-report.mjs（自动集成）共用。
 
 import fs from "node:fs/promises";
@@ -24,7 +24,7 @@ function caseNeedsUpload(summaryResult, caseOhosResult) {
 }
 
 /**
- * 对批次中的失败用例打包上传。
+ * 对批次中的所有用例打包本地 ZIP，失败/错误用例在启用时上传。
  * @param {object} options
  * @param {string} options.batchRoot — 批次目录
  * @param {object} options.summary — summary.json 内容
@@ -56,10 +56,9 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
       log(`${caseName}: 已上传，跳过`);
       continue;
     }
-    if (!caseNeedsUpload(result, ohosByCase.get(caseName))) {
-      log(`${caseName}: 无失败/错误，跳过`);
-      continue;
-    }
+    // 打包所有用例（含 completed/skipped）：本地 ZIP 用于归档与结果分发；
+    // 上传仍仅限失败/错误用例（caseNeedsUpload），避免把通过的用例灌进云存储
+    const shouldUpload = enabled && caseNeedsUpload(result, ohosByCase.get(caseName));
 
     const caseDir = path.join(batchRoot, caseName);
     if (!await exists(caseDir)) {
@@ -82,7 +81,9 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
       const sizeMB = (zipData.length / 1024 / 1024).toFixed(1);
       log(`${caseName}: ${sizeMB} MB → ${localZipPath}`);
 
-      if (enabled) {
+      if (!enabled) {
+        log(`${caseName}: ✓ 已保存到本地（上传未开启）`);
+      } else if (shouldUpload) {
         const objectName = `${prefix}/${zipName}`;
         log(`${caseName}: 上传 ${objectName}`);
         const uploadResult = await uploadBytes(uploadConfig, zipData, objectName, log);
@@ -91,7 +92,7 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
         // 仅上传模式下写 upload-results.json
         await fs.writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
       } else {
-        log(`${caseName}: ✓ 已保存到本地（上传未开启）`);
+        log(`${caseName}: ✓ 已保存到本地（无失败/错误，不上传）`);
       }
     } catch (error) {
       results[caseName] = { url: "", error: error.message, uploadedAt: new Date().toISOString() };

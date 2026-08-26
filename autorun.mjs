@@ -2195,7 +2195,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     } : {}),
   };
   try {
-    summary.reports = await writeBatchReport({ batchRoot, summary });
+    summary.reports = await writeBatchReport({ batchRoot, summary, uploadConfig: config.upload });
   } catch (error) {
     summary.reportError = error.message;
     console.warn(`[warn] 批次报告生成失败: ${error.message}`);

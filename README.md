@@ -337,11 +337,11 @@ node src/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\softwar
 node src/run-opencode-serve.mjs --help
 ```
 
-### 6. 上传失败用例产物
+### 6. 打包与上传用例产物
 
-批次完成后，失败用例（整体状态非完成或测试项有失败/错误）的产物会自动打包为 ZIP 保存到各用例目录下。`upload.enabled` 设为 `true` 时同时上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示；设为 `false`（默认）时仅保留本地 ZIP，不上传、不写 `upload-results.json`、HTML 不显示下载按钮。
+批次完成后，**所有用例**（含 completed/skipped）的产物都会自动打包为 ZIP 保存到各用例目录下，用于归档与结果分发。`upload.enabled` 设为 `true` 时，失败或错误用例（整体状态非完成或测试项有失败/错误）的 ZIP 同时上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示；设为 `false`（默认）时仅保留本地 ZIP，不上传、不写 `upload-results.json`、HTML 不显示下载按钮。
 
-**手动上传**（对已有批次补传）：
+**手动补打包/上传**（对已有批次）：
 
 ```bash
 node src/upload-results.mjs output/<batchId>
@@ -349,7 +349,7 @@ node src/upload-results.mjs output/<batchId>
 
 上传行为：
 
-- 只上传**失败或错误**的用例（整体通过且无测试失败的用例跳过）。
+- **所有用例**都会生成本地 ZIP；只上传**失败或错误**的用例到 AGC 云存储（整体通过且无测试失败的用例仅保留本地 ZIP）。
 - 打包用例目录下的全部内容为 ZIP：包括 `base/`（或 `task/`）、`generate/`、`diff/`、`.ohostest-runs/`、`ohostest-workdir/`、`whitebox/`、`cloudtest/` 等所有产物（ZIP 输出文件本身不重复入包；DEFLATE 压缩，自动排除 `build`、`oh_modules`、`.hvigor`、`node_modules` 等可再生成目录）。
 - ZIP 文件名为 `{CaseName}_{batchId}.zip`，上传路径为 `ohostest/{CaseName}_{batchId}.zip`。
 - 上传支持重试（默认 3 次），每次失败记录原因。每个用例上传后立即写 `upload-results.json`，中断后再次执行会跳过已成功的用例。
