@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { TextDecoder } from "node:util";
@@ -7,58 +5,21 @@ import { TextDecoder } from "node:util";
 export const DEVECO_CLI_COMMAND = "devecocli";
 export const DEVECO_CLI_INSTALL_COMMAND = "npm install -g @deveco/deveco-cli@latest";
 
-function pathEntries(env) {
-  const value = env.PATH || env.Path || env.path || "";
-  return value
-    .split(path.delimiter)
-    .map((entry) => entry.trim().replace(/^"|"$/g, ""))
-    .filter(Boolean);
-}
-
-function executableNames(platform, env) {
-  if (platform !== "win32") return [DEVECO_CLI_COMMAND];
-  const extensions = String(env.PATHEXT || ".COM;.EXE;.BAT;.CMD")
-    .split(";")
-    .map((extension) => extension.trim().toLowerCase())
-    .filter(Boolean);
-  // npm on Windows creates both an extensionless POSIX shim and a .cmd shim.
-  // cmd.exe cannot execute the extensionless file, so only consider PATHEXT
-  // candidates executable on Windows.
-  return [...new Set(extensions.map((extension) => (
-    `${DEVECO_CLI_COMMAND}${extension.startsWith(".") ? extension : `.${extension}`}`
-  )))];
-}
-
-async function findDevEcoCli({ env, platform }) {
-  const accessMode = platform === "win32" ? fs.constants.F_OK : fs.constants.X_OK;
-  for (const directory of pathEntries(env)) {
-    for (const name of executableNames(platform, env)) {
-      const candidate = path.join(directory, name);
-      try {
-        await fs.access(candidate, accessMode);
-        return candidate;
-      } catch {
-        // 继续检查 PATH 中的下一个候选文件。
-      }
-    }
+export function createDevEcoCliVersionInvocation({ env, platform }) {
+  if (platform === "win32") {
+    return {
+      command: `${DEVECO_CLI_COMMAND} --version`,
+      args: [],
+      // Let cmd.exe resolve the npm-generated devecocli.cmd shim from PATH.
+      // Passing a fixed command string through Node's shell integration avoids
+      // manually nesting and escaping quotes around an absolute .cmd path.
+      shell: env.ComSpec || env.COMSPEC || "cmd.exe",
+    };
   }
-  return "";
-}
-
-function versionInvocation(executable, { env, platform }) {
-  if (platform !== "win32") {
-    return { command: executable, args: ["--version"] };
-  }
-  const extension = path.extname(executable).toLowerCase();
-  if (extension !== ".cmd" && extension !== ".bat") {
-    return { command: executable, args: ["--version"] };
-  }
-  // `call` keeps a quoted .cmd/.bat path with spaces from being misparsed as
-  // cmd.exe's own outer command quotes.
-  const commandLine = `call "${executable.replaceAll('"', '""')}" --version`;
   return {
-    command: env.ComSpec || env.COMSPEC || "cmd.exe",
-    args: ["/d", "/s", "/c", commandLine],
+    command: DEVECO_CLI_COMMAND,
+    args: ["--version"],
+    shell: false,
   };
 }
 
@@ -78,14 +39,15 @@ export function decodeDevEcoCliOutput(chunks, platform) {
   }
 }
 
-function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
-  const invocation = versionInvocation(executable, { env, platform });
+function readVersion({ env, platform, timeoutMs = 5000 }) {
+  const invocation = createDevEcoCliVersionInvocation({ env, platform });
   return new Promise((resolve) => {
     const stdoutChunks = [];
     const stderrChunks = [];
     let settled = false;
     const child = spawn(invocation.command, invocation.args, {
       env,
+      shell: invocation.shell,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -93,7 +55,7 @@ function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
       if (settled) return;
       child.kill();
       settled = true;
-      resolve({ version: "", error: `版本检测超过 ${timeoutMs}ms` });
+      resolve({ ok: false, version: "", error: `版本检测超过 ${timeoutMs}ms` });
     }, timeoutMs);
     timer.unref?.();
     child.stdout?.on("data", (chunk) => { stdoutChunks.push(chunk); });
@@ -102,7 +64,7 @@ function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ version: "", error: error.message });
+      resolve({ ok: false, version: "", error: error.message });
     });
     child.once("close", (code) => {
       if (settled) return;
@@ -112,9 +74,13 @@ function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
       const stderr = decodeDevEcoCliOutput(stderrChunks, platform);
       const output = `${stdout}\n${stderr}`.trim();
       const version = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+      const ok = code === 0 && Boolean(version);
       resolve({
-        version: code === 0 ? version : "",
-        error: code === 0 ? "" : output || `退出码 ${code}`,
+        ok,
+        version: ok ? version : "",
+        error: ok
+          ? ""
+          : output || (code === 0 ? "命令执行成功但未返回版本" : `退出码 ${code}`),
       });
     });
   });
@@ -125,21 +91,14 @@ export async function detectDevEcoCli({
   platform = process.platform,
   versionReader = readVersion,
 } = {}) {
-  const executable = await findDevEcoCli({ env, platform });
-  if (!executable) {
-    return {
-      installed: false,
-      command: DEVECO_CLI_COMMAND,
-      installCommand: DEVECO_CLI_INSTALL_COMMAND,
-    };
-  }
-  const result = await versionReader(executable, { env, platform });
+  const result = await versionReader({ env, platform });
+  const version = String(result?.version || "").trim();
+  const error = String(result?.error || "").trim();
   return {
-    installed: true,
+    installed: result?.ok === true && Boolean(version),
     command: DEVECO_CLI_COMMAND,
-    executable,
-    version: String(result?.version || "").trim(),
-    versionError: String(result?.error || "").trim(),
+    version,
+    error,
     installCommand: DEVECO_CLI_INSTALL_COMMAND,
   };
 }

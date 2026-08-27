@@ -70,7 +70,7 @@ npm --prefix whitebox-evaluation install
 npm --prefix whitebox-evaluation run build
 ```
 
-Autorun 启动时还会检测可选的 DevEco CLI（命令名为 `devecocli`）并显示本机路径及版本。未安装只会告警，不阻断现有任务；可按官方方式安装：
+Autorun 启动时还会实际执行 `devecocli --version`，验证可选的 DevEco CLI 是否可用并显示版本。命令不可用只会告警，不阻断现有任务；可按官方方式安装或修复：
 
 ```bash
 npm install -g @deveco/deveco-cli@latest
@@ -271,7 +271,7 @@ node autorun.mjs --check
 - 可执行用例数量；
 - 配置的 Agent 是否存在；
 - 配置的模型及 Provider 是否存在。
-- 本机是否安装可选的 DevEco CLI，并输出路径、版本或安装提示。
+- 本机的可选 DevEco CLI 是否可以实际运行，并输出版本或安装提示。
 
 预检不会执行正式 Agent 任务。
 

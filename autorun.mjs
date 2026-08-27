@@ -2377,11 +2377,10 @@ try {
   checkLoadAgents(config);
   const devecoCli = await detectDevEcoCli();
   if (devecoCli.installed) {
-    const version = devecoCli.version ? ` ${devecoCli.version}` : "";
-    const versionWarning = devecoCli.versionError ? `；版本读取失败: ${devecoCli.versionError}` : "";
-    console.log(`[check] DevEco CLI 已安装: ${devecoCli.command}${version}（${devecoCli.executable}）${versionWarning}`);
+    console.log(`[check] DevEco CLI 可用: ${devecoCli.command} ${devecoCli.version}`);
   } else {
-    console.warn(`[warn] 未检测到 DevEco CLI 命令 ${devecoCli.command}；如需安装请执行: ${devecoCli.installCommand}`);
+    const detail = devecoCli.error ? `；检测失败: ${devecoCli.error.replace(/\s+/g, " ").trim()}` : "";
+    console.warn(`[warn] DevEco CLI 不可用${detail}；安装或修复请执行: ${devecoCli.installCommand}`);
   }
   const recovered = await recoverInterruptedRuns(config.execution.outputRoot);
   for (const item of recovered) {
