@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { TextDecoder } from "node:util";
 
 export const DEVECO_CLI_COMMAND = "devecocli";
 export const DEVECO_CLI_INSTALL_COMMAND = "npm install -g @deveco/deveco-cli@latest";
@@ -20,7 +21,12 @@ function executableNames(platform, env) {
     .split(";")
     .map((extension) => extension.trim().toLowerCase())
     .filter(Boolean);
-  return [DEVECO_CLI_COMMAND, ...extensions.map((extension) => `${DEVECO_CLI_COMMAND}${extension}`)];
+  // npm on Windows creates both an extensionless POSIX shim and a .cmd shim.
+  // cmd.exe cannot execute the extensionless file, so only consider PATHEXT
+  // candidates executable on Windows.
+  return [...new Set(extensions.map((extension) => (
+    `${DEVECO_CLI_COMMAND}${extension.startsWith(".") ? extension : `.${extension}`}`
+  )))];
 }
 
 async function findDevEcoCli({ env, platform }) {
@@ -43,18 +49,40 @@ function versionInvocation(executable, { env, platform }) {
   if (platform !== "win32") {
     return { command: executable, args: ["--version"] };
   }
-  const commandLine = `"${executable.replaceAll('"', '""')}" --version`;
+  const extension = path.extname(executable).toLowerCase();
+  if (extension !== ".cmd" && extension !== ".bat") {
+    return { command: executable, args: ["--version"] };
+  }
+  // `call` keeps a quoted .cmd/.bat path with spaces from being misparsed as
+  // cmd.exe's own outer command quotes.
+  const commandLine = `call "${executable.replaceAll('"', '""')}" --version`;
   return {
     command: env.ComSpec || env.COMSPEC || "cmd.exe",
     args: ["/d", "/s", "/c", commandLine],
   };
 }
 
+export function decodeDevEcoCliOutput(chunks, platform) {
+  const buffer = Buffer.concat(chunks.map((chunk) => (
+    Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+  )));
+  if (!buffer.length) return "";
+  if (platform !== "win32") return new TextDecoder("utf-8").decode(buffer);
+  try {
+    // Node-based CLI output is normally UTF-8 (and versions are ASCII), while
+    // cmd.exe localized errors follow the Windows code page. Prefer valid UTF-8
+    // and fall back to GB18030 for Simplified Chinese Windows diagnostics.
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    return new TextDecoder("gb18030").decode(buffer);
+  }
+}
+
 function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
   const invocation = versionInvocation(executable, { env, platform });
   return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
+    const stdoutChunks = [];
+    const stderrChunks = [];
     let settled = false;
     const child = spawn(invocation.command, invocation.args, {
       env,
@@ -68,8 +96,8 @@ function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
       resolve({ version: "", error: `版本检测超过 ${timeoutMs}ms` });
     }, timeoutMs);
     timer.unref?.();
-    child.stdout?.on("data", (chunk) => { stdout += chunk; });
-    child.stderr?.on("data", (chunk) => { stderr += chunk; });
+    child.stdout?.on("data", (chunk) => { stdoutChunks.push(chunk); });
+    child.stderr?.on("data", (chunk) => { stderrChunks.push(chunk); });
     child.once("error", (error) => {
       if (settled) return;
       settled = true;
@@ -80,6 +108,8 @@ function readVersion(executable, { env, platform, timeoutMs = 5000 }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      const stdout = decodeDevEcoCliOutput(stdoutChunks, platform);
+      const stderr = decodeDevEcoCliOutput(stderrChunks, platform);
       const output = `${stdout}\n${stderr}`.trim();
       const version = output.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
       resolve({
