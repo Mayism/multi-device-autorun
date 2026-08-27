@@ -26,7 +26,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自�
 - 下次启动时自动扫描并修复历史批次中遗留的 `running` 状态。
 - 自动建立 Git 基线并生成 `changes.patch`。
 - 保存批次状态、单用例状态、Agent 输出、SSE 事件和轮询记录。
-- 批次完成后自动生成 HTML 报告（总览页 + 每用例详情页），总览页支持导出 Excel。
+- 批次完成后自动生成 HTML 报告（总览页 + 每用例详情页），总览页支持导出 Excel，并含白盒评价（状态/总分/裁判模型 + 详情直链）与云测试（统计卡片 + 报告直链）章节。
 - 失败用例产物可打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。
 - 支持合并多个批次的报告：把多轮回归的总览页数值自动求和、用例行汇总，生成跨批次总览页（`node autorun.mjs --merge`）。
 - 支持集成 AGC 云测试：本地构建签名包 → 上传云测试 → 提交真机任务 → 轮询结果（`node autorun.mjs --cloud-test`）。
@@ -369,10 +369,10 @@ node src/generate-html-report.mjs output/<batchId>
 1. **发现批次报告** `discoverBatches`：扫描批次目录，兼容扁平 `<批次>` 与分层 `<分层目录名>/<批次>`（如 harmonyBot / softwareEngineering / baseModel）两种布局，按名称排序；只依据 `summary.json` 识别批次，缺 `summary.json` 的目录跳过并告警。
 2. **清理旧产物** `cleanOldArtifacts`：删除旧 overview.html 与 subpage/ 并重建目录，保证每次合并从干净状态开始。
 3. **读取批次数据** `readBatchData`：读取各批次 `summary.json` / `report.json` / `upload-results.json` 及用例级 runner result，按与批次报告同口径组装 caseRows。
-4. **合并数据** `mergeData`：数据层合并后**逐模块产出 HTML 片段**——配置总览、结果总览、用例执行一览，以及 skill 章节（`merge-skill.mjs` 返回的数据就是 HTML，直接作为片段）。统计口径：计数类（用例总数、完成/失败、总 Token、模型/工具调用、执行用例个数、通过/失败/错误、白盒完成/失败）跨批次求和；白盒平均分复用 `batch-report` 的 `buildWhiteboxSummary` 在全部用例上整体重算；Agent/providerId/模型相同取一个、不同用「/」分隔。
-5. **生成 HTML** `generateHtml`：用 `pageShell` 把各模块片段按序组装（配置总览 → 结果总览 → 用例执行一览 → skill 质量评估 → skill 安全审计）写盘。
+4. **合并数据** `mergeData`：数据层合并后**逐模块产出 HTML 片段**——配置总览、结果总览、用例执行一览、白盒评价、云测试，以及 skill 章节（`merge-skill.mjs` 返回的数据就是 HTML，直接作为片段）。统计口径：计数类（用例总数、完成/失败、总 Token、模型/工具调用、执行用例个数、通过/失败/错误、白盒完成/失败）跨批次求和；白盒平均分复用 `batch-report` 的 `buildWhiteboxSummary` 在全部用例上整体重算；Agent/providerId/模型相同取一个、不同用「/」分隔。**白盒评价章节**合并各批次用例的 `whitebox` 结果（状态/总分/裁判模型），详情链接直连各批次 `<Case>/whitebox/report.html`；**云测试章节**合并各用例 `cloudTest` 结果（状态取 result.json，设备/规则/问题指标读各用例 `cloudtest/cloudtest-result.json` 的 `report.summary`），卡片（参与用例、设备通过/失败、规则通过/失败、问题数量）跨批次求和，报告链接直连各用例 `cloudtest-report.html`。两个阶段均按批次开关过滤：`whiteboxEvaluation.enabled` / `cloudTest.enabled` 为 false 的批次，其白盒与云测试结果既不进章节也不参与合并统计；批次页面同理，未开启的阶段整章省略（忽略历史残留数据），开启但零数据时渲染空态。
+5. **生成 HTML** `generateHtml`：用 `pageShell` 把各模块片段按序组装（配置总览 → 结果总览 → 用例执行一览 → 白盒评价 → 云测试 → skill 质量评估 → skill 安全审计）写盘。
 
-- **用例表**：行按批次顺序拼接，不添加批次列，也不含「云测试」「白盒评价」列（云测试见各用例 cloudtest-report.html，白盒见各用例白盒报告，操作列保留入口链接）。
+- **用例表**：行按批次顺序拼接，不添加批次列，也不含「云测试」「白盒评价」列；两者的结果分别在紧随其后的「白盒评价」「云测试」独立章节展示（含各自报告的直链入口）。
 - **用例详情直链**：不再拷贝 subpage 副本，用例名/查看详情直接链接各批次目录内的 `subpage/<用例>.html`（合并页位于批次目录上一级，链接带「批次相对路径/」前缀）；批次无子页面（如仅有 summary.json 的历史批次）时用例名以纯文本展示。
 - **skill 报告章节（可选）**：若存在 `src/lib/merge-skill.mjs`，第 4 步自动调用其导出的两个章节方法，返回的 HTML 作为 skill 模块片段——`mergeSkillEvalSection`（skill 质量评估，调用带 `await`）与 `mergeSkillAuditSection`（skill 安全审计）。两个方法入参均为 `{ batchDataList, batchNames, outputRoot }`：`batchDataList` 为各批次源数据数组（含 batch 标识与 summary/report/results），`batchNames` 为批次名数组，`outputRoot` 为输出根目录。文件不存在则整体跳过；单个方法缺失时仅跳过对应章节。
 

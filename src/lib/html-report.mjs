@@ -357,10 +357,156 @@ function reasonModalMarkup() {
   </div>`;
 }
 
+// ============ 白盒评价 / 云测试章节（批次总览页与跨批次合并页共用） ============
+
+// 产物绝对路径转相对链接（相对页面所在目录；分 segment 编码，兼容中文与空格）
+function relHref(pageDir, targetPath) {
+  const target = text(targetPath).trim();
+  if (!target) return "";
+  let rel = "";
+  try {
+    rel = path.relative(path.resolve(pageDir), path.resolve(pageDir, target));
+  } catch {
+    return "";
+  }
+  if (!rel) return "";
+  return rel.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
+}
+
+// 白盒评价行：数据取 summary.results[].whitebox（编排器写入的完整值，
+// 含 status/totalScore/judge/reportPath），reportPath 指向单文件 HTML 详情页。
+// enabled=false（阶段明确关闭）时返回空数组，忽略历史残留数据
+export function collectWhiteboxRows(results, pageDir, { enabled } = {}) {
+  if (enabled === false) return [];
+  const rows = [];
+  for (const result of Array.isArray(results) ? results : []) {
+    const whitebox = result?.whitebox;
+    if (!whitebox) continue;
+    const score = Number(whitebox.totalScore);
+    rows.push({
+      case: text(whitebox.case) || text(result?.case),
+      status: text(whitebox.status),
+      totalScore: Number.isFinite(score) ? score : null,
+      judge: [text(whitebox.judge?.providerId), text(whitebox.judge?.modelId)].filter(Boolean).join("/"),
+      hardGateTriggered: whitebox.hardGateTriggered === true,
+      error: text(whitebox.error),
+      detailHref: relHref(pageDir, whitebox.reportPath),
+    });
+  }
+  return rows;
+}
+
+// 云测试行：result.cloudTest 提供状态/任务组；设备与规则指标读
+// outputDir/cloudtest-result.json 的 report.summary（结构化摘要，失败或旧数据可能缺失）。
+// enabled=false（阶段明确关闭）时忽略历史残留数据，返回空行集与零值合计
+export async function collectCloudTestRows(results, pageDir, { enabled } = {}) {
+  const emptyTotals = { cases: 0, devicePassed: 0, deviceFailed: 0, rulePassed: 0, ruleFailed: 0, issueCount: 0 };
+  if (enabled === false) return { rows: [], totals: emptyTotals };
+  const rows = [];
+  const totals = emptyTotals;
+  for (const result of Array.isArray(results) ? results : []) {
+    const cloud = result?.cloudTest;
+    if (!cloud) continue;
+    totals.cases += 1;
+    const run = await readJson(cloud.outputDir ? path.join(cloud.outputDir, "cloudtest-result.json") : "");
+    const summary = run?.report?.summary && typeof run.report.summary === "object" ? run.report.summary : null;
+    if (summary) {
+      totals.devicePassed += num(summary.devicePassed);
+      totals.deviceFailed += num(summary.deviceFailed);
+      totals.rulePassed += num(summary.rulePassed);
+      totals.ruleFailed += num(summary.ruleFailed);
+      totals.issueCount += num(summary.issueCount);
+    }
+    const htmlPath = text(run?.report?.htmlPath) || (cloud.outputDir ? path.join(cloud.outputDir, "cloudtest-report.html") : "");
+    rows.push({
+      case: text(result?.case),
+      status: text(cloud.status),
+      taskGroupId: text(cloud.taskGroupId),
+      taskName: text(cloud.taskName),
+      error: text(cloud.error) || text(run?.error),
+      summary,
+      reportHref: htmlPath && await pathExists(htmlPath) ? relHref(pageDir, htmlPath) : "",
+    });
+  }
+  return { rows, totals };
+}
+
+export function buildWhiteboxSection({ rows, showWhenEmpty = false }) {
+  if (!rows.length && !showWhenEmpty) return "";
+  const bodyHtml = rows.length
+    ? rows.map((row) => `<tr>
+        <td style="text-align:left">${esc(row.case)}</td>
+        <td${row.error ? ` title="${esc(row.error)}"` : ""}>${badge(row.status)}</td>
+        <td class="num"${row.hardGateTriggered ? ' title="已触发硬门槛封顶"' : ""}>${row.totalScore == null ? "--" : esc(row.totalScore)}</td>
+        <td>${esc(row.judge || "--")}</td>
+        <td>${row.detailHref ? `<a class="link" href="${esc(row.detailHref)}">详情</a>` : "--"}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="5" class="empty">暂无白盒评价数据（用例均未进入白盒评价阶段）</td></tr>`;
+  return `
+    <h2>白盒评价</h2>
+    <div class="card tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>用例名称</th><th>状态</th><th class="num">总分</th><th>裁判模型</th><th>操作</th>
+        </tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+// 单用例结果概要：设备/规则通过比 + 问题数（summary 缺失时回退 --）
+function cloudSummaryHtml(summary) {
+  if (!summary) return `<span class="muted">--</span>`;
+  const deviceTotal = num(summary.deviceCount) || num(summary.devicePassed) + num(summary.deviceFailed);
+  const ruleTotal = num(summary.rulePassed) + num(summary.ruleFailed);
+  const issues = num(summary.issueCount);
+  return `设备 <span class="pass">${num(summary.devicePassed)}</span>/<span class="muted">${deviceTotal}</span> 通过 · 规则 <span class="pass">${num(summary.rulePassed)}</span>/<span class="muted">${ruleTotal}</span> 通过 · 问题 <span class="${issues ? "error" : "muted"}">${issues}</span>`;
+}
+
+export function buildCloudTestSection({ rows, totals, showWhenEmpty = false }) {
+  if (!rows.length && !showWhenEmpty) return "";
+  const cards = [
+    { k: "参与用例", v: totals?.cases ?? rows.length },
+    { k: "设备通过", v: totals?.devicePassed ?? 0 },
+    { k: "设备失败", v: totals?.deviceFailed ?? 0 },
+    { k: "规则通过", v: totals?.rulePassed ?? 0 },
+    { k: "规则失败", v: totals?.ruleFailed ?? 0 },
+    { k: "问题数量", v: totals?.issueCount ?? 0 },
+  ];
+  const bodyHtml = rows.length
+    ? rows.map((row) => `<tr>
+        <td style="text-align:left">${esc(row.case)}</td>
+        <td${row.error ? ` title="${esc(row.error)}"` : ""}>${badge(row.status)}</td>
+        <td class="mono">${esc(row.taskGroupId || "--")}</td>
+        <td>${cloudSummaryHtml(row.summary)}</td>
+        <td>${row.reportHref ? `<a class="link" href="${esc(row.reportHref)}">云测试报告</a>` : "--"}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="5" class="empty">暂无云测试数据（云测试阶段未执行或未产生结果）</td></tr>`;
+  return `
+    <h2>云测试</h2>
+    <div class="stats">${cards.map((s) => `<div class="stat"><div class="k">${esc(s.k)}</div><div class="v">${esc(s.v)}</div></div>`).join("")}</div>
+    <div class="card tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>用例名称</th><th>状态</th><th>任务组</th><th>结果概要</th><th>操作</th>
+        </tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>`;
+}
+
 // ============ 总览页 ============
 
-// 导出供跨批次合并复用（仅增加 export，逻辑与单批次报告完全一致）
-export function buildOverview({ summary, report, caseRows, executionInfo }) {
+// 导出供跨批次合并复用（仅增加 export，逻辑与单批次报告完全一致）；
+// whitebox / cloudTest 为可选章节数据，未传或未启用时对应章节省略
+export function buildOverview({
+  summary,
+  report,
+  caseRows,
+  executionInfo,
+  whitebox = { rows: [] },
+  cloudTest = { rows: [], totals: {} },
+}) {
   const batch = summary || {};
   const agentTotals = report?.agent || {};
   const ohosTotals = report?.ohosTest || {};
@@ -515,7 +661,14 @@ export function buildOverview({ summary, report, caseRows, executionInfo }) {
   }
   </script>`;
 
-  return pageShell({ title: `批次总览 · ${batch.batchId || ""}`, body: head + table, extraHead: exportScript });
+  const whiteboxSection = buildWhiteboxSection(whitebox);
+  const cloudSection = buildCloudTestSection(cloudTest);
+
+  return pageShell({
+    title: `批次总览 · ${batch.batchId || ""}`,
+    body: head + table + whiteboxSection + cloudSection,
+    extraHead: exportScript,
+  });
 }
 
 // ============ 详情页 ============
@@ -674,8 +827,30 @@ export async function writeHtmlReport({ batchRoot, summary }) {
     });
   }
 
+  // 白盒评价 / 云测试章节数据：相对链接基于批次根目录（overview.html 所在目录）。
+  // 阶段开关按 summary/report 记录判定：明确关闭时整节省略（忽略残留数据），
+  // 开启但无数据时渲染空态章节，历史批次无标记但有数据仍展示
+  const whiteboxFlag = report?.whitebox?.enabled ?? summary?.whiteboxEvaluation?.enabled;
+  const cloudFlag = summary?.cloudTest?.enabled;
+  const whiteboxRows = collectWhiteboxRows(results, batchRoot, { enabled: whiteboxFlag });
+  const cloud = await collectCloudTestRows(results, batchRoot, { enabled: cloudFlag });
+
   // 写 overview.html
-  const overviewHtml = buildOverview({ summary, report, caseRows, executionInfo });
+  const overviewHtml = buildOverview({
+    summary,
+    report,
+    caseRows,
+    executionInfo,
+    whitebox: {
+      rows: whiteboxRows,
+      showWhenEmpty: whiteboxFlag === true,
+    },
+    cloudTest: {
+      rows: cloud.rows,
+      totals: cloud.totals,
+      showWhenEmpty: cloudFlag === true,
+    },
+  });
   await fs.writeFile(path.join(batchRoot, "overview.html"), overviewHtml, "utf8");
 
   // 写 subpage/<case>.html

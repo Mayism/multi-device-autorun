@@ -245,12 +245,7 @@ export async function writeCloudTestHtmlReport({ result, report, outDir }) {
   const body = `
   <div class="wrap">
     <h1>云测试报告 · ${esc(task.taskName || taskGroup.taskGroupName || "未命名任务")}</h1>
-    <p class="sub cloudtest-sub">
-      任务组 <code>${esc(task.taskGroupId || taskGroup.id || "-")}</code>
-      ${badge(result.status || "unknown")}
-      <a class="link" href="https://developer.huawei.com/consumer/cn/service/josp/agc/index.html" target="_blank" rel="noopener">AGC 控制台 ↗</a>
-      <a class="link" href="cloudtest-result.json">result.json</a>
-    </p>
+    <p class="sub cloudtest-sub">任务组 <code>${esc(task.taskGroupId || taskGroup.id || "-")}</code></p>
 
     <h2>结果总览</h2>
     <div class="stats">

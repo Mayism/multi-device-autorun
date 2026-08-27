@@ -9,7 +9,19 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pageShell, esc, badge, fmtDuration, fmtDateTime, agentDisplayName, resolveAgentSourceMode } from "./html-report.mjs";
+import {
+  pageShell,
+  esc,
+  badge,
+  fmtDuration,
+  fmtDateTime,
+  agentDisplayName,
+  resolveAgentSourceMode,
+  collectWhiteboxRows,
+  collectCloudTestRows,
+  buildWhiteboxSection,
+  buildCloudTestSection,
+} from "./html-report.mjs";
 import { buildWhiteboxSummary } from "./batch-report.mjs";
 
 async function readJson(filePath) {
@@ -165,15 +177,43 @@ function summarizeTestRows(rows) {
 
 // ============ 模块 4：合并数据（逐模块产出 HTML 片段）============
 
+// 批次阶段开关：whitebox 取 report.json 记录值，回退 summary；
+// cloudTest 仅记录在 summary。返回 true/false/undefined（历史批次无标记）
+function stageEnabledFlag(pb, stage) {
+  if (stage === "cloudTest") return pb.summary?.cloudTest?.enabled;
+  return pb.report?.whitebox?.enabled ?? pb.summary?.whiteboxEvaluation?.enabled;
+}
+
 export async function mergeData({ perBatch, batches, outputRoot }) {
-  const merged = mergeBatchData(perBatch);
+  // 阶段开关按批次生效：明确关闭（flag=false）的批次，其白盒/云测试残留结果
+  // 既不进章节表格行也不进合并统计；无标记的历史批次结果仍参与
+  const poolOf = (stage) =>
+    perBatch.filter((pb) => stageEnabledFlag(pb, stage) !== false).flatMap((pb) => pb.results || []);
+  const anyEnabledOf = (stage) => perBatch.some((pb) => stageEnabledFlag(pb, stage) === true);
+
+  const whiteboxResults = poolOf("whitebox");
+  const merged = mergeBatchData(perBatch, { whiteboxResults, whiteboxAnyEnabled: anyEnabledOf("whitebox") });
   const skillSections = await mergeSkillReports({ perBatch, batches, outputRoot });
+  // 白盒评价 / 云测试章节：详情/报告链接指向各批次目录内的产物
+  // （相对合并 overview.html 所在根目录）；阶段开启但零数据时渲染空态章节
+  const whiteboxSection = buildWhiteboxSection({
+    rows: collectWhiteboxRows(whiteboxResults, outputRoot),
+    showWhenEmpty: anyEnabledOf("whitebox"),
+  });
+  const cloud = await collectCloudTestRows(poolOf("cloudTest"), outputRoot);
+  const cloudTestSection = buildCloudTestSection({
+    rows: cloud.rows,
+    totals: cloud.totals,
+    showWhenEmpty: anyEnabledOf("cloudTest"),
+  });
   return {
     title: merged.summary.batchId,
     sections: {
       configSection: buildConfigSection(merged),
       statsSection: buildStatsSection(merged),
       caseTableSection: buildCaseTableSection(merged),
+      whiteboxSection,
+      cloudTestSection,
       skillEvalSection: skillSections.evalSection,
       skillAuditSection: skillSections.auditSection,
     },
@@ -181,14 +221,12 @@ export async function mergeData({ perBatch, batches, outputRoot }) {
   };
 }
 
-function mergeBatchData(perBatch) {
+function mergeBatchData(perBatch, { whiteboxResults = [], whiteboxAnyEnabled = false } = {}) {
   const allCaseRows = [];
-  const allResults = [];
   for (const pb of perBatch) {
     for (const row of pb.caseRows) {
       allCaseRows.push(row);
     }
-    allResults.push(...pb.results);
   }
 
   const identity = (field) =>
@@ -223,10 +261,7 @@ function mergeBatchData(perBatch) {
       failures: sum(ohosReports.map((r) => r.failures)),
       errors: sum(ohosReports.map((r) => r.errors)),
     },
-    whitebox: buildWhiteboxSummary(
-      allResults,
-      perBatch.some((pb) => pb.report?.whitebox?.enabled === true),
-    ),
+    whitebox: buildWhiteboxSummary(whiteboxResults, whiteboxAnyEnabled),
   };
   const executionInfo = {
     agent: summary.agent,
@@ -435,6 +470,8 @@ export function generateHtml({ root, title, sections, extraHead = "", outputName
     sections?.configSection,
     sections?.statsSection,
     sections?.caseTableSection,
+    sections?.whiteboxSection,
+    sections?.cloudTestSection,
     sections?.skillEvalSection,
     sections?.skillAuditSection,
   ];

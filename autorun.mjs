@@ -2174,6 +2174,10 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
     skipped: skippedCases.map((item) => ({ case: item.name, reason: item.skipReason })),
     tokenUsage,
     agentCompile,
+    // 供批次/合并报告判断云测试章节空态（启用但零数据时渲染「暂无云测试数据」）
+    cloudTest: {
+      enabled: cloudTest.enabled,
+    },
     whiteboxEvaluation: {
       enabled: whiteboxConfig.enabled,
       judge: whiteboxOrchestrator?.judge,
