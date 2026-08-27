@@ -1594,6 +1594,10 @@ async function executeOhosTestForCase({
     };
   }
 
+  // ohosTest 与云测试等分支相互独立，结束时立即定格“测试状态”列；
+  // deferFinish 时最终 caseFinished 仍会随全部分支汇总统一收尾。
+  reporter.caseOhosTestFinished(caseName, ohosTest);
+
   const retainedOhosTestWorkDir = ohosTest.workDir
     || (await exists(path.join(caseRunDir, "ohostest-workdir"))
       ? path.join(caseRunDir, "ohostest-workdir")
@@ -1935,13 +1939,18 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
       onLog,
     }));
     cloudSubmitTail = submitted.catch(() => {});
-    return submitted.then(
+    const outcome = submitted.then(
       (ctx) => finishCloudTestPolling({ ...ctx, signal, onLog }).then(
         (cloudResult) => cloudResult,
         (error) => fallback(error),
       ),
       (error) => fallback(error),
     );
+    // 云测试列独立定格：分支出结果立即上报，不等 ohosTest/白盒汇总
+    return outcome.then((cloudResult) => {
+      reporter.caseCloudTestFinished(caseName, cloudResult);
+      return cloudResult;
+    });
   }
 
   // ohosTest 分支：本地模拟器，跨用例串行（设备租约）；返回用例级最终结果（不 reject）。
@@ -1979,6 +1988,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
           finishedAt: failed.finishedAt,
           ohosTest: failed.ohosTest,
         }).catch(() => {});
+        reporter.caseOhosTestFinished(caseInfo.name, failed.ohosTest);
         return failed;
       },
     );

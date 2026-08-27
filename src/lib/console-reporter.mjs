@@ -218,6 +218,24 @@ export class ConsoleReporter {
     this.render(true);
   }
 
+  // ohosTest 与云测试是相互独立的任务：各自结束时立即定格自己的状态列，
+  // 不等待其余分支汇总（最终 caseFinished 仍会统一覆盖一次）。
+  caseOhosTestFinished(caseName, ohosTest = {}) {
+    const item = this.cases.get(caseName);
+    if (!item) return;
+    item.ohosTestStatus = ohosTest.status || "failed";
+    const errorText = String(ohosTest.error || "").replace(/\s+/g, " ").trim();
+    if (item.phase !== "finished") {
+      item.phase = "ohostest_finished";
+      const cloudPending = item.cloudTestStatus === "queued" || item.cloudTestStatus === "running";
+      item.activity = item.ohosTestStatus === "completed"
+        ? (cloudPending ? "ohosTest 已完成，等待云测试" : "ohosTest 已完成")
+        : `ohosTest ${statusText(item.ohosTestStatus)}${errorText ? `：${errorText}` : ""}`;
+    }
+    if (this.mode !== "dashboard") this.write(`[case:${caseName}] ${item.activity}`);
+    this.render(true);
+  }
+
   caseCloudTestQueued(caseName) {
     const item = this.cases.get(caseName);
     if (!item) return;
@@ -231,6 +249,20 @@ export class ConsoleReporter {
     // 只更新云测试列，不占用“当前操作”列（那里留给 ohosTest 等本地阶段）
     item.cloudTestStatus = status;
     if (this.mode === "verbose") this.write(`[case:${caseName}] ${String(activity || "云测试执行中")}`);
+  }
+
+  caseCloudTestFinished(caseName, cloudResult = {}) {
+    const item = this.cases.get(caseName);
+    if (!item) return;
+    item.cloudTestStatus = cloudResult.status || "failed";
+    if (this.mode !== "dashboard") {
+      const errorText = String(cloudResult.error || "").replace(/\s+/g, " ").trim();
+      const label = item.cloudTestStatus === "completed"
+        ? "云测试已完成"
+        : `云测试${statusText(item.cloudTestStatus)}${errorText ? `：${errorText}` : ""}`;
+      this.write(`[case:${caseName}] ${label}`);
+    }
+    this.render(true);
   }
 
   caseFinished(result) {
