@@ -3,9 +3,11 @@ import { defaultCommandExecutor, runDetachedCommand } from "./command.js";
 import { sleep } from "./utils/sleep.js";
 import { buildTestHapCommand, runBuild } from "./build.js";
 import {
+  buildEmulatorProcessQueryCommand,
   buildStartEmulatorCommand,
   buildStopEmulatorCommand,
   installHaps,
+  isEmulatorProcessListed,
   prepareDevice,
   waitForTargetDisconnected,
 } from "./device.js";
@@ -263,17 +265,48 @@ async function runDevice(input: DeviceRunInput): Promise<DeviceRunResult> {
   return foldCleanupFailed ? applyFoldCleanupFailure(result) : result;
 }
 
+// start 命令经 cmd start 包装后，Emulator.exe 启动即退不会反映到退出码（恒为 0）。
+// 启动后先探测进程是否真的出现，把"没起来"（emulator_start_failed，快速失败）
+// 和"起来了但 target 未连接"（hdc_not_connected，走原有 120 轮等待）区分开。
+const emulatorStartDetectMs = 15000;
+const emulatorStartDetectIntervalMs = 2000;
+const emulatorStartRetryDelayMs = 5000;
+const emulatorStartMaxAttempts = 2;
+
 async function startEmulatorIfNeeded(
   input: DeviceRunInput,
   started: number,
 ): Promise<DeviceRunResult | undefined> {
   if (!input.device.startEmulator) return undefined;
-  const start = await input.runDetached(
-    buildStartEmulatorCommand(input.config, input.device),
-  );
-  return start.exitCode === 0
-    ? undefined
-    : blockedDevice(input, started, "emulator_start_failed");
+  for (let attempt = 1; attempt <= emulatorStartMaxAttempts; attempt += 1) {
+    const start = await input.runDetached(
+      buildStartEmulatorCommand(input.config, input.device),
+    );
+    if (start.exitCode !== 0) {
+      return blockedDevice(input, started, "emulator_start_failed");
+    }
+    if (await waitForEmulatorProcess(input)) return undefined;
+    // 偶发的实例状态抖动会导致启动即退：延迟后自动重试一次
+    if (attempt < emulatorStartMaxAttempts) {
+      await sleep(emulatorStartRetryDelayMs);
+    }
+  }
+  return blockedDevice(input, started, "emulator_start_failed");
+}
+
+async function waitForEmulatorProcess(
+  input: DeviceRunInput,
+): Promise<boolean> {
+  const query = buildEmulatorProcessQueryCommand();
+  // 平台不支持进程探测时（如 linux），维持原有的纯 target 等待行为
+  if (!query) return true;
+  const deadline = Date.now() + emulatorStartDetectMs;
+  while (Date.now() < deadline) {
+    const result = await input.executor(query, input.config.project);
+    if (isEmulatorProcessListed(result.stdout)) return true;
+    await sleep(emulatorStartDetectIntervalMs);
+  }
+  return false;
 }
 
 async function prepareRunDevice(input: DeviceRunInput): Promise<void> {

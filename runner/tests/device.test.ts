@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  buildHideEmulatorCommand,
   buildStartEmulatorCommand,
   ensureTargetReady,
   installHaps,
+  isEmulatorProcessListed,
   isInstallFailure,
   parseScreenLocked,
   prepareDevice,
@@ -418,8 +420,70 @@ test("buildStartEmulatorCommand quotes Windows profile and instance path with do
 
   assert.equal(
     command,
-    '"D:\\Software\\Deveco Studio\\tools\\emulator\\Emulator.exe" -start "Mate 80 Pro" -instancePath "D:\\Software\\Deveco Studio\\emulator\\deployed" -hdcport 15001',
+    'start "" /min "D:\\Software\\Deveco Studio\\tools\\emulator\\Emulator.exe" -start "Mate 80 Pro" -instancePath "D:\\Software\\Deveco Studio\\emulator\\deployed" -hdcport 15001',
   );
+});
+
+test("buildStartEmulatorCommand keeps non-Windows commands unwrapped", () => {
+  const device: DeviceConfig = {
+    id: "phone",
+    profile: "Mate 80 Pro",
+    target: "127.0.0.1:15001",
+    hdcPort: 15001,
+    startEmulator: true,
+  };
+
+  const command = buildStartEmulatorCommand(makeConfig(), device, "darwin");
+
+  assert.doesNotMatch(command, /^start /);
+  assert.match(command, /^'D:\\Software\\Deveco Studio\\tools\\emulator\\Emulator\.exe' -start /);
+});
+
+test("buildHideEmulatorCommand dispatches per platform", () => {
+  assert.match(
+    buildHideEmulatorCommand("win32"),
+    /^powershell -NoProfile -ExecutionPolicy Bypass -File ".*hide-emulator-windows\.ps1"$/,
+  );
+  assert.match(
+    buildHideEmulatorCommand("darwin"),
+    /^osascript -e 'tell application "System Events" to set visible of every process whose name is "Emulator" to false'$/,
+  );
+  assert.equal(buildHideEmulatorCommand("linux"), "");
+});
+
+test("isEmulatorProcessListed matches Emulator rows per platform output", () => {
+  const csv = [
+    '"notepad.exe","123","Console","1","10,000 K"',
+    '"Emulator.exe","33560","Console","1","2,670,392 K"',
+    '"emulator-crash-service.exe","40584","Console","1","23,776 K"',
+  ].join("\r\n");
+  assert.equal(isEmulatorProcessListed(csv, "win32"), true);
+  assert.equal(isEmulatorProcessListed('"notepad.exe","123"', "win32"), false);
+  assert.equal(
+    isEmulatorProcessListed('"emulator-crash-service.exe","40584"', "win32"),
+    false,
+  );
+  assert.equal(isEmulatorProcessListed("", "win32"), false);
+  assert.equal(isEmulatorProcessListed("501 Emulator\n502 Emulator", "darwin"), true);
+  assert.equal(isEmulatorProcessListed("501 loginwindow", "darwin"), false);
+  assert.equal(isEmulatorProcessListed("501 Emulator", "linux"), false);
+});
+
+test("buildStartEmulatorCommand wraps macOS .app bundles with open -j", () => {
+  const config = makeConfig();
+  config.paths.emulatorBin =
+    "/Applications/DevEco Studio.app/Contents/tools/emulator/Emulator.app";
+  const device: DeviceConfig = {
+    id: "phone",
+    profile: "Mate 80 Pro",
+    target: "127.0.0.1:15001",
+    hdcPort: 15001,
+    startEmulator: true,
+  };
+
+  const command = buildStartEmulatorCommand(config, device, "darwin");
+
+  assert.match(command, /^open -j -a '.*Emulator\.app' --args -start /);
 });
 
 test("ensureTargetReady waits up to 120 polling attempts for slow Windows emulator startup", async () => {
@@ -442,7 +506,11 @@ test("ensureTargetReady waits up to 120 polling attempts for slow Windows emulat
       device,
       cwd: config.project,
       outDir: "out",
-      runCommand: async () => {
+      runCommand: async (command: string) => {
+        if (!command.includes("list targets")) {
+          // 模拟器窗口隐藏等辅助命令
+          return { stdout: "0", stderr: "", exitCode: 0, durationMs: 1 };
+        }
         attempts += 1;
         return {
           stdout:
@@ -491,7 +559,10 @@ test("ensureTargetReady logs only the final polling result", async (t) => {
     runCommand: async () => {
       throw new Error("polling must use the raw executor");
     },
-    pollCommand: async () => {
+    pollCommand: async (command: string) => {
+      if (!command.includes("list targets")) {
+        return { stdout: "0", stderr: "", exitCode: 0, durationMs: 0 };
+      }
       attempts += 1;
       return {
         stdout: attempts === 3 ? "127.0.0.1:15001\tConnected\n" : "[Empty]\n",
