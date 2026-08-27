@@ -40,6 +40,38 @@ function text(value) {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
 
+// Agent 来源分类（值与批次分层目录名一致，见 autorun.mjs resolveBatchModeDirectoryName）：
+//   harmonyBot         → 自研：使用 huaweideveloperserviceplatform.harmonyosdevassistantforvscode-* 插件
+//   softwareEngineering → 软工：software-multi-device，opencode 来源含 Skills
+//   baseModel          → 裸模：software-multi-device，opencode 来源无 Skills
+const AGENT_SOURCE_LABELS = { harmonyBot: "自研", softwareEngineering: "软工", baseModel: "裸模" };
+
+export function agentSourceLabel(mode) {
+  return AGENT_SOURCE_LABELS[text(mode).trim()] || "";
+}
+
+// 展示为「agent名称/（自研｜软工｜裸模）」；分类未知时仅展示名称
+export function agentDisplayName(agent, mode) {
+  const name = text(agent).trim();
+  const label = agentSourceLabel(mode);
+  return name && label ? `${name}/${label}` : name;
+}
+
+// 解析批次 Agent 来源分类：优先 summary 记录值（新批次），
+// 其次批次所在分层目录名（harmonyBot/softwareEngineering/baseModel），
+// 旧扁平布局无分层信息时按 Agent 名兜底（harmonyos-multi-device 仅由自研插件提供）
+export function resolveAgentSourceMode({ summary, batchRoot, relPath, agent }) {
+  const recorded = text(summary?.opencodeSourceMode).trim();
+  if (recorded) return recorded;
+  const rel = text(relPath).trim().replace(/\\/g, "/");
+  const layer = rel.includes("/") ? rel.split("/")[0] : "";
+  const parent = layer || path.basename(path.dirname(path.resolve(batchRoot)));
+  if (Object.hasOwn(AGENT_SOURCE_LABELS, parent)) return parent;
+  const agentName = text(agent ?? summary?.agent).trim();
+  if (agentName === "harmonyos-multi-device") return "harmonyBot";
+  return "";
+}
+
 export function esc(value) {
   return text(value)
     .replace(/&/g, "&amp;")
@@ -354,7 +386,7 @@ export function buildOverview({ summary, report, caseRows, executionInfo }) {
     { k: "白盒平均分", v: whiteboxTotals.averageScore ?? "--" },
   ];
 
-  const agentName = text(executionInfo?.agent || batch.agent);
+  const agentName = agentDisplayName(executionInfo?.agent || batch.agent, executionInfo?.sourceMode);
   const modelName = text(executionInfo?.modelId || batch.modelId);
 
   const head = `
@@ -597,6 +629,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
     agent: text(summary?.agent || report?.agent?.type || representativeResult.agent),
     providerId: text(summary?.providerId || report?.agent?.providerId || representativeResult.providerId),
     modelId: text(summary?.modelId || report?.agent?.modelId || representativeResult.modelId),
+    sourceMode: resolveAgentSourceMode({ summary, batchRoot, agent: text(summary?.agent || report?.agent?.type || representativeResult.agent) }),
   };
 
   // report.json 中按用例名的 agent 指标索引

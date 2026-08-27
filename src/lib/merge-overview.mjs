@@ -9,7 +9,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { pageShell, esc, badge, fmtDuration, fmtDateTime } from "./html-report.mjs";
+import { pageShell, esc, badge, fmtDuration, fmtDateTime, agentDisplayName, resolveAgentSourceMode } from "./html-report.mjs";
 import { buildWhiteboxSummary } from "./batch-report.mjs";
 
 async function readJson(filePath) {
@@ -89,6 +89,8 @@ export async function readBatchData(batch) {
     agent: summary.agent || report.agent?.type || representativeResult.agent || "",
     providerId: summary.providerId || report.agent?.providerId || representativeResult.providerId || "",
     modelId: summary.modelId || report.agent?.modelId || representativeResult.modelId || "",
+    // Agent 来源分类（自研/软工/裸模），新批次读 summary 记录值，旧批次按分层目录名/Agent 名推断
+    sourceMode: resolveAgentSourceMode({ summary, batchRoot: batch.dir, relPath: batch.rel, agent: summary.agent || report.agent?.type || representativeResult.agent || "" }),
   };
   const agentByCase = new Map((report.agent?.cases || []).map((c) => [c.case, c]));
   const caseRows = [];
@@ -191,12 +193,15 @@ function mergeBatchData(perBatch) {
 
   const identity = (field) =>
     joinDistinct(perBatch.map((pb) => pb.summary?.[field] || pb.executionInfo?.[field]));
+  // Agent 展示为「名称/（自研｜软工｜裸模）」后去重：各批次 Agent 与分类一致时合并为单值
+  const agent = joinDistinct(perBatch.map((pb) =>
+    agentDisplayName(pb.summary?.agent || pb.executionInfo?.agent, pb.summary?.opencodeSourceMode || pb.executionInfo?.sourceMode)));
   const agentReports = perBatch.map((pb) => pb.report?.agent || {});
   const ohosReports = perBatch.map((pb) => pb.report?.ohosTest || {});
 
   const summary = {
     batchId: `${perBatch.length} 个批次合并`,
-    agent: identity("agent"),
+    agent,
     providerId: identity("providerId"),
     modelId: identity("modelId"),
     total: sum(perBatch.map((pb) => pb.summary?.total ?? pb.caseRows.length)),
