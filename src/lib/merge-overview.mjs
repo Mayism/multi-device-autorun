@@ -115,9 +115,6 @@ export async function readBatchData(batch) {
       tokenCacheRead: result?.tokenUsage?.cacheRead,
       tokenTotal: result?.tokenUsage?.total,
       status: result.status,
-      whiteboxReport: result?.whitebox?.reportPath
-        ? path.relative(batch.dir, result.whitebox.reportPath).split(path.sep).join("/")
-        : "",
       downloadUrl: uploadResults[caseName]?.url || "",
       testSummary: testRows.length
         ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`
@@ -187,7 +184,6 @@ function mergeBatchData(perBatch) {
   const allResults = [];
   for (const pb of perBatch) {
     for (const row of pb.caseRows) {
-      if (row.whiteboxReport) row.whiteboxReport = `${pb.batch.rel}/${row.whiteboxReport}`;
       allCaseRows.push(row);
     }
     allResults.push(...pb.results);
@@ -245,7 +241,7 @@ function fmtToken(value) {
 function buildConfigSection({ summary, executionInfo }) {
   const modelName = [executionInfo?.providerId, executionInfo?.modelId].filter(Boolean).join("/");
   return `
-    <h1>Autorun 批次执行总览</h1>
+    <h1>Autorun 执行总览</h1>
     <h2>配置总览</h2>
     <div class="stats">
       <div class="stat"><div class="k">Agent</div><div class="v">${esc(executionInfo?.agent || summary?.agent || "--")}</div></div>
@@ -295,7 +291,7 @@ function buildCaseTableSection({ summary, caseRows }) {
       <td>${badge(c.status)}</td>
       <td>${c.testSummary}</td>
       <td class="num">${c.passRate}</td>
-      <td>${detailCell}${c.whiteboxReport ? ` <a class="link" href="${esc(c.whiteboxReport)}">白盒报告</a>` : ""}${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
+      <td>${detailCell}${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
     </tr>`;
   }).join("");
 
