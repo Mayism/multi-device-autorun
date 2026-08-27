@@ -127,7 +127,6 @@ function parseArgs(argv) {
     runtimeRoot: process.env.OPENCODE_RUNTIME_ROOT || '',
     workspace: process.env.WORKSPACE || '',
     devecoHome: process.env.DEVECO_HOME || '',
-    loadAgents: process.env.LOAD_AGENTS || '',
   };
 
   const needValue = (flag) => {
@@ -172,9 +171,6 @@ function parseArgs(argv) {
       case '--deveco-home':
       case '-d':
         opts.devecoHome = takeTwo(i, v); i++;
-        break;
-      case '--load-agents':
-        opts.loadAgents = takeTwo(i, v); i++;
         break;
       default:
         if (v.startsWith('-')) {
@@ -288,7 +284,7 @@ for (const d of [
 
 // ─── 生成 Autorun 专用配置 ─────────────────────────────────────
 // 不修改来源包；始终生成运行时副本并强制所有全局及 Agent 权限为 allow。
-// loadAgents 非空时同时只保留指定 Agent。skills/plugin/provider 仍链接来源目录。
+// skills/plugin/provider 仍链接来源目录。
 // 运行时配置目录按来源路径隔离（config-autorun-<来源哈希>）：切换
 // harmonyBot / softwareEngineering 来源或扩展升级后各自使用独立目录，互不污染。
 const sourceKey = createHash('sha256')
@@ -297,9 +293,6 @@ const sourceKey = createHash('sha256')
   .slice(0, 10);
 const effectiveConfigDir = path.join(opencodeHostRoot, `config-autorun-${sourceKey}`);
 mkdirSync(effectiveConfigDir, { recursive: true });
-const loadAgents = opts.loadAgents
-  ? opts.loadAgents.split(',').map((s) => s.trim()).filter(Boolean)
-  : [];
 let rawConfig;
 try {
   rawConfig = JSON.parse(readFileSync(path.join(bundledConfigDir, 'opencode.json'), 'utf8'));
@@ -307,16 +300,13 @@ try {
   err(`[error] 无法解析 opencode.json: ${e.message}`);
   process.exit(1);
 }
-const forced = forceAllowEverything(rawConfig, loadAgents);
+const config = forceAllowEverything(rawConfig);
 const finalPermissionPlugin = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), 'opencode-auto-approve-plugin.mjs')).href;
-forced.config.plugin = [
-  ...(Array.isArray(forced.config.plugin) ? forced.config.plugin : []),
+config.plugin = [
+  ...(Array.isArray(config.plugin) ? config.plugin : []),
   finalPermissionPlugin,
 ];
-writeFileSync(path.join(effectiveConfigDir, 'opencode.json'), JSON.stringify(forced.config, null, 2) + '\n', 'utf8');
-if (forced.missingAgents.length) {
-  err(`[warn] loadAgents 中以下 agent 在 opencode.json 不存在，已忽略: ${forced.missingAgents.join(', ')}`);
-}
+writeFileSync(path.join(effectiveConfigDir, 'opencode.json'), JSON.stringify(config, null, 2) + '\n', 'utf8');
 for (const name of ['skills', 'plugin', 'provider']) {
   const src = path.join(bundledConfigDir, name);
   const dst = path.join(effectiveConfigDir, name);
@@ -356,7 +346,6 @@ out('[run] workspace:        ' + workspace);
 out('[run] config source:    ' + bundledConfigDir);
 out('[run] opencode host:    ' + opencodeHostRoot);
 out('[run] config dir:       ' + effectiveConfigDir + '  (Autorun runtime config, permissions=allow)');
-if (loadAgents.length) out('[run] load agents:      ' + loadAgents.join(', ') + ' (仅加载这些 Agent)');
 out('[run] deveco home:      ' + devecoContents);
 out('[run] port:             ' + port);
 out('[run] log root:         ' + logRoot);

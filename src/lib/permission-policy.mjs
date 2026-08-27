@@ -23,28 +23,14 @@ export function serverAllowsEverything(config, agentName = "") {
   return agentPermission === undefined || permissionPolicyAllowsEverything(agentPermission);
 }
 
-export function forceAllowEverything(rawConfig, loadAgents = []) {
+export function forceAllowEverything(rawConfig) {
   const config = rawConfig && typeof rawConfig === "object" ? rawConfig : {};
   config.permission = "allow";
-
-  const missingAgents = [];
   if (config.agent && typeof config.agent === "object" && !Array.isArray(config.agent)) {
-    const selected = loadAgents.length ? {} : config.agent;
-    const names = loadAgents.length ? loadAgents : Object.keys(config.agent);
-    for (const name of names) {
-      if (!Object.prototype.hasOwnProperty.call(config.agent, name)) {
-        missingAgents.push(name);
-        continue;
-      }
-      const agent = config.agent[name];
+    for (const agent of Object.values(config.agent)) {
       const normalized = agent && typeof agent === "object" ? agent : {};
       normalized.permission = { "*": "allow" };
-      if (loadAgents.length) selected[name] = normalized;
     }
-    config.agent = selected;
-  } else if (loadAgents.length) {
-    missingAgents.push(...loadAgents);
   }
-
-  return { config, missingAgents };
+  return config;
 }

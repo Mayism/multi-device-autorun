@@ -21,10 +21,10 @@ test("runtime config forces global and agent permissions to allow", () => {
       hidden: { prompt: "hidden" },
     },
   };
-  const { config, missingAgents } = forceAllowEverything(raw, ["selected"]);
+  const config = forceAllowEverything(raw);
   assert.equal(config.permission, "allow");
-  assert.deepEqual(Object.keys(config.agent), ["selected"]);
+  assert.deepEqual(Object.keys(config.agent), ["selected", "hidden"]);
   assert.deepEqual(config.agent.selected.permission, { "*": "allow" });
-  assert.deepEqual(missingAgents, []);
+  assert.deepEqual(config.agent.hidden.permission, { "*": "allow" });
   assert.equal(serverAllowsEverything(config, "selected"), true);
 });
