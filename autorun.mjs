@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createConnection, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -18,8 +18,17 @@ import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling 
 import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 import { mergeOverview } from "./src/lib/merge-overview.mjs";
-import { serverAllowsEverything } from "./src/lib/permission-policy.mjs";
+import { serverAllowsEverything, serverAllowsExecution } from "./src/lib/permission-policy.mjs";
 import { detectDevEcoCli } from "./src/lib/deveco-cli.mjs";
+import {
+  prepareAgentSkillRuntime,
+  summarizeAgentSkillRuntime,
+  installProjectSkill,
+  buildAgentSandboxPolicy,
+  inspectSkillWorkflow,
+} from "./src/lib/agent-skill-runtime.mjs";
+import { normalizeAgentTargets, normalizeGenerationModel } from "./src/lib/agent-targets.mjs";
+import { writeAgentComparisonReport } from "./src/lib/agent-comparison-report.mjs";
 import {
   filterGeneratedArtifactPatch,
   GENERATED_ARTIFACT_GIT_EXCLUDES,
@@ -38,19 +47,6 @@ const SKILL_READY_TIMEOUT_SEC = 180;
 const SKILL_RETRY_INTERVAL_MS = 2_000;
 const SESSION_CREATE_TIMEOUT_SEC = 120;
 let activeReporter = null;
-
-const AGENT_SANDBOX_POLICY = `# 工作目录隔离要求（强制）
-
-- 只允许访问当前工程工作目录及其子目录；下文明确给出的设备租约工具和租约文件路径除外，且只能用于获取/释放设备租约。
-- 不得枚举、读取或尝试访问工作目录外的用例、补丁、元数据、运行结果或评测文件。
-- 任务所需信息仅以本提示词和当前工程内容为准。
-
-# 设备验证与测试阶段边界（强制）
-
-- 你的职责是修改当前工程的业务源代码；可执行静态检查、依赖安装、编译验证。仅在无法仅靠代码和编译确认修复效果时，才可启动模拟器/真机并使用 hdc 做必要的运行时验证。
-- 所有模拟器、hdc、HAP 安装或 UI 自动化命令都必须在同一次“设备租约”命令内完成；该命令会与其他 Agent 及 ohostest 串行化设备访问。
-- 若启动了任何模拟器实例，必须在该设备租约命令结束前停止本次启动的同名实例，并确认不再保留由本次会话启动的设备进程或安装/测试任务。
-- 不得执行 ohostest；正式设备测试由 Autorun 在 Agent 会话结束后统一串行编排。完成必要验证和清理后应结束任务。`;
 
 const AGENT_AUTO_APPROVAL_POLICY = `# 无人值守确认策略（强制）
 
@@ -181,14 +177,14 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
   normalized.__baseDir = baseDir;
   normalized.server ||= {};
   normalized.execution ||= {};
-  const source = normalized.server.opencodeSource;
-  if (!source || typeof source !== "object" || Array.isArray(source)) {
-    throw new Error("缺少 server.opencodeSource 配置");
-  }
-  normalized.server.opencodeSource = {
-    mode: String(source.mode || "").trim(),
-    root: resolveFrom(baseDir, source.root || ""),
-  };
+  const targetConfig = normalizeAgentTargets(normalized.server.opencodeSource, {
+    baseDir,
+    defaultAgent: normalized.execution.agent,
+  });
+  normalized.server.opencodeTargets = targetConfig;
+  // 下游单 Agent 逻辑继续读取 opencodeSource；串行编排时会为每个 target
+  // 克隆配置并覆盖为当前来源。
+  normalized.server.opencodeSource = { ...targetConfig.targets[0] };
   normalized.execution.casesRoot = resolveFrom(baseDir, normalized.execution.casesRoot || "./cases");
   normalized.execution.outputRoot = resolveFrom(
     baseDir,
@@ -198,6 +194,12 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
     baseDir,
     normalized.server.runtimeRoot || path.join(normalized.execution.outputRoot, "_runtime", "opencode"),
   );
+  const generationModel = normalizeGenerationModel(normalized.execution, {
+    requireProvider: targetConfig.multiple,
+  });
+  normalized.execution.model = generationModel.modelId;
+  normalized.execution.providerId = generationModel.providerId;
+  normalized.execution.generationModel = generationModel;
   normalized.whiteboxEvaluation = normalizeWhiteboxConfig(
     normalized.whiteboxEvaluation,
     normalized.execution.outputRoot,
@@ -400,7 +402,13 @@ async function waitForSkills(client, directory, {
   throw new Error(`OpenCode Server Skill 加载超时（${timeoutSec} 秒）${detail}`, { cause: lastError });
 }
 
-async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) {
+async function ensureOpenCodeServer(config, {
+  log = console.log,
+  signal,
+  reuseExisting = true,
+  workspace = AUTORUN_ROOT,
+  isolateConfig = false,
+} = {}) {
   if (signal?.aborted) throw interruptionError(signal.reason);
   const source = await resolveOpenCodeSource(config.server.opencodeSource);
   log(`[server] OpenCode 来源模式: ${source.mode}`);
@@ -408,7 +416,7 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   if (!configuredServerUrl) throw new Error("未配置 server.url");
   let serverUrl = configuredServerUrl;
   let client = new OpenCodeClient(serverUrl);
-  if (await client.health()) {
+  if (reuseExisting && await client.health()) {
     log("[server] 健康检查通过，正在等待 Agent、Plugin、Skill 和 Provider 配置加载");
     const serverConfig = await waitForServerConfig(client, { signal });
     const expectedAgent = source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
@@ -419,6 +427,8 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
       return { client, serverConfig, owned: false, child: null, logPath: "" };
     }
     log(`[server] 已运行的 OpenCode Server 未强制全部允许，改为启动 Autorun 专用 Server`);
+  } else if (!reuseExisting && await client.health()) {
+    log("[server] 隔离执行不复用已有 OpenCode Server，将自动选择独立端口");
   }
 
   serverUrl = await selectAvailableServerUrl(configuredServerUrl);
@@ -440,9 +450,16 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
     serveScript,
     "--source", source.resourcesDir,
     "--runtime-root", runtimeRoot,
-    "--workspace", AUTORUN_ROOT,
+    "--workspace", workspace,
     "--port", port,
   ];
+  if (isolateConfig) args.push("--isolate-config");
+  if (source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
+    args.push("--strict-source-skills");
+  }
+  if (config.server.providerOverlayPath) {
+    args.push("--provider-overlay", config.server.providerOverlayPath);
+  }
   if (config.server.devecoHome) args.push("--deveco-home", config.server.devecoHome);
 
   if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
@@ -461,6 +478,10 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
     await logFile.close();
   }
 
+  let toolResources;
+  child.on("message", (message) => {
+    if (message?.type === "autorun:tool-runtime") toolResources = message.resources;
+  });
   let spawnError = null;
   child.once("error", (error) => { spawnError = error; });
   const healthDeadline = Date.now() + 120_000;
@@ -497,7 +518,7 @@ async function ensureOpenCodeServer(config, { log = console.log, signal } = {}) 
   }
   child.unref();
   log(`[server] OpenCode Server 已就绪: ${serverUrl}`);
-  return { client, serverConfig, owned: true, child, logPath, serverUrl };
+  return { client, serverConfig, owned: true, child, logPath, serverUrl, toolResources };
 }
 
 async function stopOwnedServer(server, { log = console.log } = {}) {
@@ -515,8 +536,8 @@ async function stopOwnedServer(server, { log = console.log } = {}) {
   }
 }
 
-// 批次 ID = 批次启动时间戳（YYYYMMDDHHmmss），批次目录按 <分层目录名>/<批次ID> 分层。
-// 同秒冲突时由 runBatch 在分配目录时追加序号保证唯一。
+// 批次 ID = 批次启动时间戳（YYYYMMDDHHmmss），目录为 <outputRoot>/<批次ID>/<agentId>。
+// 同秒冲突时由 allocateRunDirectory 追加序号保证唯一。
 function batchId() {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, "0");
@@ -527,8 +548,8 @@ function safeName(value) {
   return String(value || "case").replace(/[^0-9A-Za-z._-]+/g, "_").slice(0, 120) || "case";
 }
 
-// 批次分层目录名默认等于 opencodeSource.mode；softwareEngineering 模式按来源 skills
-// 目录是否有内容区分：有内容 → softwareEngineering（含 Skills），无内容 → baseModel（纯基座模型）。
+// 报告中的 Agent 来源分类：softwareEngineering 模式按来源 skills 是否为空
+// 区分 softwareEngineering（含 Skills）与 baseModel（纯基座模型）。
 async function resolveBatchModeDirectoryName(source) {
   if (source?.mode !== OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) return source?.mode || "default";
   const resolved = await resolveOpenCodeSource(source);
@@ -550,6 +571,211 @@ async function atomicWriteJson(filePath, value) {
   const temporary = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
   await fs.writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await fs.rename(temporary, filePath);
+}
+
+async function allocateRunDirectory(outputRoot) {
+  await fs.mkdir(outputRoot, { recursive: true });
+  const baseId = batchId();
+  let id = baseId;
+  for (let attempt = 2; await exists(path.join(outputRoot, id)); attempt += 1) {
+    id = `${baseId}-${attempt}`;
+  }
+  const runRoot = path.join(outputRoot, id);
+  await fs.mkdir(runRoot);
+  return { runId: id, runRoot };
+}
+
+function targetRuntimeRoot(config, runId, targetId) {
+  return path.join(config.server.runtimeRoot, runId, safeName(targetId));
+}
+
+function configForTarget(config, target, runId, casesRoot, phase = "") {
+  const targetConfig = structuredClone(config);
+  const baseRuntimeRoot = targetRuntimeRoot(config, runId, target.id);
+  const runtimeRoot = phase ? path.join(baseRuntimeRoot, safeName(phase)) : baseRuntimeRoot;
+  targetConfig.server.opencodeSource = { ...target };
+  targetConfig.server.runtimeRoot = path.join(runtimeRoot, "opencode");
+  targetConfig.execution.agent = target.agent;
+  targetConfig.execution.casesRoot = casesRoot;
+  targetConfig.whiteboxEvaluation.runtimeRoot = path.join(runtimeRoot, "whitebox");
+  return { config: targetConfig, runtimeRoot };
+}
+
+async function fingerprintDirectory(root) {
+  const entries = [];
+  const visit = async (directory) => {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      const relative = path.relative(root, absolute).split(path.sep).join("/");
+      if (entry.isDirectory()) {
+        await visit(absolute);
+      } else if (entry.isSymbolicLink()) {
+        entries.push({ relative, type: "link", value: await fs.readlink(absolute) });
+      } else if (entry.isFile()) {
+        entries.push({ relative, type: "file", absolute });
+      }
+    }
+  };
+  await visit(root);
+  entries.sort((left, right) => left.relative.localeCompare(right.relative));
+  const hash = createHash("sha256");
+  for (const entry of entries) {
+    const value = entry.type === "file" ? await fs.readFile(entry.absolute) : entry.value;
+    hash.update(entry.type).update("\0").update(entry.relative).update("\0").update(value).update("\0");
+  }
+  return { sha256: hash.digest("hex"), fileCount: entries.length };
+}
+
+async function prepareSharedGenerationProvider(config, runId) {
+  const { providerId, modelId } = config.execution.generationModel;
+  const preferredTargetId = String(config.execution.providerSourceTargetId || "").trim();
+  const targets = config.server.opencodeTargets.targets;
+  if (preferredTargetId && !targets.some((target) => target.id === preferredTargetId)) {
+    throw new Error(`execution.providerSourceTargetId 不存在: ${preferredTargetId}`);
+  }
+  const orderedTargets = preferredTargetId
+    ? [
+      ...targets.filter((target) => target.id === preferredTargetId),
+      ...targets.filter((target) => target.id !== preferredTargetId),
+    ]
+    : targets;
+  let selected;
+  for (const target of orderedTargets) {
+    const source = await resolveOpenCodeSource(target);
+    const rawConfig = await readJson(path.join(source.resourcesDir, "opencode.json"));
+    const provider = rawConfig?.provider?.[providerId];
+    if (!provider || !Object.hasOwn(provider?.models || {}, modelId)) continue;
+    selected = {
+      targetId: target.id,
+      provider: {
+        ...provider,
+        models: { [modelId]: provider.models[modelId] },
+      },
+    };
+    break;
+  }
+  if (!selected) {
+    throw new Error(`所有 Agent 来源都未配置统一生成模型 ${providerId}/${modelId}`);
+  }
+  const overlayPath = path.join(config.server.runtimeRoot, runId, "shared", "generation-provider.json");
+  await atomicWriteJson(overlayPath, { providerId, provider: selected.provider });
+  await fs.chmod(overlayPath, 0o600).catch(() => {});
+  console.log(`[isolation] 统一模型 Provider 已从 ${selected.targetId} 冻结并注入全部 Agent: ${providerId}/${modelId}`);
+  return overlayPath;
+}
+
+async function createSharedCasesSnapshot(config, runId, runRoot) {
+  const snapshotRoot = path.join(config.server.runtimeRoot, runId, "shared", "cases");
+  console.log(`[isolation] 正在冻结本次对比的用例输入: ${snapshotRoot}`);
+  await copyProject(config.execution.casesRoot, snapshotRoot);
+  const fingerprint = await fingerprintDirectory(snapshotRoot);
+  await atomicWriteJson(path.join(runRoot, "input-snapshot.json"), {
+    schemaVersion: "autorun-input-snapshot-v1",
+    sourceCasesRoot: config.execution.casesRoot,
+    snapshotRoot,
+    ...fingerprint,
+    createdAt: new Date().toISOString(),
+  });
+  console.log(`[isolation] 用例输入已冻结：${fingerprint.fileCount} 个文件，sha256=${fingerprint.sha256.slice(0, 12)}…`);
+  return snapshotRoot;
+}
+
+function sanitizedConfigFingerprint(value) {
+  const secretKey = /(api[-_]?key|token|secret|password|authorization|cookie|credential)/i;
+  const clean = (item) => {
+    if (Array.isArray(item)) return item.map(clean);
+    if (!item || typeof item !== "object") return item;
+    return Object.fromEntries(Object.keys(item).sort().map((key) => [key, secretKey.test(key) ? "<redacted>" : clean(item[key])]));
+  };
+  return createHash("sha256").update(JSON.stringify(clean(value))).digest("hex");
+}
+
+async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig, source, server, model, signal }) {
+  const skills = await waitForSkills(server.client, targetConfig.execution.casesRoot, { signal });
+  server.skillRuntime = await prepareAgentSkillRuntime({
+    resources: server.toolResources,
+    registeredSkills: Array.isArray(skills) ? skills : [],
+    agent: targetConfig.execution.agent,
+    sourceMode: target.mode,
+    signal,
+  });
+  const registeredSkills = (Array.isArray(skills) ? skills : [])
+    .map((item) => String(item?.name || item?.id || "").trim())
+    .filter(Boolean)
+    .sort();
+  const sourceSkillEntries = await fs.readdir(path.join(source.resourcesDir, "skills"), { withFileTypes: true }).catch(() => []);
+  const sourceSkills = sourceSkillEntries
+    .map((item) => item.name)
+    .filter((name) => name && !name.startsWith("."))
+    .sort();
+  let loadedSkills = registeredSkills;
+  let blockedSkills = [];
+  if (target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
+    const sourceSet = new Set(sourceSkills);
+    const registeredSet = new Set(registeredSkills);
+    const missing = sourceSkills.filter((name) => !registeredSet.has(name));
+    if (missing.length) {
+      throw new Error(`Agent ${target.id} 来源 Skill 未注册: ${missing.join(", ")}`);
+    }
+    const agentPermission = server.serverConfig?.agent?.[targetConfig.execution.agent]?.permission;
+    const skillPermission = (agentPermission || server.serverConfig?.permission)?.skill;
+    const allowedByPermission = Object.entries(skillPermission || {})
+      .filter(([name, action]) => name !== "*" && action === "allow")
+      .map(([name]) => name)
+      .sort();
+    if (skillPermission?.["*"] !== "deny"
+      || JSON.stringify(allowedByPermission) !== JSON.stringify(sourceSkills)) {
+      throw new Error(`Agent ${target.id} 未应用来源 Skill 精确白名单`);
+    }
+    loadedSkills = registeredSkills.filter((name) => sourceSet.has(name));
+    blockedSkills = registeredSkills.filter((name) => !sourceSet.has(name));
+  } else if (!sourceSkills.length && loadedSkills.length) {
+    throw new Error(`Agent ${target.id} 来源 skills 为空，但 Server 实际加载了 Skill: ${loadedSkills.join(", ")}`);
+  }
+  const provider = server.serverConfig?.provider?.[model.providerId] || {};
+  const providerIdentity = Object.fromEntries(Object.entries(provider).filter(([key]) => key !== "models"));
+  const manifest = {
+    schemaVersion: "autorun-agent-environment-v1",
+    targetId: target.id,
+    label: target.label,
+    mode: target.mode,
+    agent: targetConfig.execution.agent,
+    generationModel: {
+      ...model,
+      configFingerprint: sanitizedConfigFingerprint({
+        provider: providerIdentity,
+        model: provider?.models?.[model.modelId],
+      }),
+    },
+    source: {
+      root: source.root,
+      resourcesDir: source.resourcesDir,
+      version: source.installation?.version || "",
+      configFingerprint: sanitizedConfigFingerprint({
+        opencode: server.serverConfig,
+        provider,
+        model: provider?.models?.[model.modelId],
+      }),
+    },
+    isolation: {
+      dedicatedServer: true,
+      runtimeRoot: targetConfig.server.runtimeRoot,
+      workspace: path.join(path.dirname(targetConfig.server.runtimeRoot), "workspace"),
+      configAssets: "copied_snapshot",
+      skillPolicy: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? "strict_source_allowlist"
+        : "source_snapshot",
+    },
+    skills: {
+      sourceDirectories: sourceSkills,
+      loaded: loadedSkills,
+      ...(blockedSkills.length ? { blocked: blockedSkills } : {}),
+    },
+    skillRuntime: summarizeAgentSkillRuntime(server.skillRuntime),
+    createdAt: new Date().toISOString(),
+  };
+  await atomicWriteJson(path.join(targetRoot, "environment.json"), manifest);
+  return manifest;
 }
 
 function interruptionError(reason = "Autorun 执行被中断") {
@@ -629,8 +855,15 @@ async function loadRetryPlan(outputRoot, batchId, requestedCaseName = "") {
 
   let sourceBatchRoot = path.resolve(resolvedOutputRoot, normalizedBatchId);
   if (!await exists(path.join(sourceBatchRoot, "batch.json")) && !normalizedBatchId.includes("/")) {
-    // 允许省略模式目录前缀：在 <opencodeSource.mode>/<批次时间戳> 分层下按批次名查找
+    // 兼容旧版 <来源>/<批次>，并支持新版在只有一个 Agent 时省略
+    // `<agentId>`，直接通过 `<批次>` 查找。
     const matches = [];
+    const runRoot = path.join(resolvedOutputRoot, normalizedBatchId);
+    for (const target of await fs.readdir(runRoot, { withFileTypes: true }).catch(() => [])) {
+      if (!target.isDirectory()) continue;
+      const candidate = path.join(runRoot, target.name);
+      if (await exists(path.join(candidate, "batch.json"))) matches.push(candidate);
+    }
     for (const entry of await fs.readdir(resolvedOutputRoot, { withFileTypes: true }).catch(() => [])) {
       if (!entry.isDirectory()) continue;
       const candidate = path.join(resolvedOutputRoot, entry.name, normalizedBatchId);
@@ -718,7 +951,7 @@ function isProcessAlive(pid) {
 async function recoverInterruptedRuns(outputRoot) {
   if (!await exists(outputRoot)) return [];
   const recovered = [];
-  // 收集遗留批次目录：兼容旧版扁平 <批次> 与新版分层 <opencodeSource.mode>/<批次> 两种布局
+  // 收集遗留 Agent 批次目录：兼容旧版 <来源>/<批次> 与新版 <批次>/<agentId>。
   const batchDirs = [];
   const topEntries = await fs.readdir(outputRoot, { withFileTypes: true });
   for (const entry of topEntries) {
@@ -1138,6 +1371,7 @@ async function runCase({
   client,
   model,
   execution,
+  skillRuntime,
   ohosTestEnabled,
   cloudTestEnabled,
   preserveForWhitebox,
@@ -1191,16 +1425,22 @@ async function runCase({
     const sourcePrompt = await fs.readFile(caseInfo.promptPath, "utf8");
     if (!sourcePrompt.trim()) throw new Error(`PROMPT.md 内容为空: ${caseInfo.promptPath}`);
     const additionalPrompt = String(execution.additionalPrompt || "").trim();
+    await copyProject(caseInfo.projectDir, originalDir);
+    await copyProject(originalDir, projectDir);
+    const installedSkill = await installProjectSkill({ runtime: skillRuntime, projectDir, signal });
+    await atomicWriteJson(path.join(generateDir, "skill-runtime.json"), {
+      ...summarizeAgentSkillRuntime(skillRuntime),
+      installedSkill,
+    });
+    if (installedSkill) await writeAgentConsole("skill_prepared", `${installedSkill.name} 已预装到 ${installedSkill.root}`);
     const prompt = `${[
       sourcePrompt.trim(),
       additionalPrompt,
       AGENT_AUTO_APPROVAL_POLICY,
-      AGENT_SANDBOX_POLICY,
+      buildAgentSandboxPolicy({ runtime: skillRuntime, projectDir }),
       agentDeviceLeasePolicy(caseName, deviceLeasePath),
     ].filter(Boolean).join("\n\n")}\n`;
     await fs.writeFile(path.join(generateDir, "input.txt"), prompt, "utf8");
-    await copyProject(caseInfo.projectDir, originalDir);
-    await copyProject(originalDir, projectDir);
     baseline = await initializeGitBaseline(projectDir);
     throwIfInterrupted(signal);
     reporter.caseProgress(caseName, "工程沙箱已就绪，正在创建 Agent 会话");
@@ -1283,6 +1523,14 @@ async function runCase({
     reporter.caseCompileUsage(caseName, agentCompile);
     reporter.caseProgress(caseName, "Agent 已结束，正在生成结果和差异文件");
     await updateState({ stage: "artifacting", childSessionIds: monitored.childSessionIds });
+    const skillWorkflow = await inspectSkillWorkflow({ runtime: skillRuntime, projectDir, signal });
+    if (skillWorkflow) {
+      await atomicWriteJson(path.join(generateDir, "skill-workflow.json"), skillWorkflow);
+      await writeAgentConsole("skill_workflow", `Skill 账本/状态/报告检查：${skillWorkflow.status}`);
+      if (skillWorkflow.status !== "validated") {
+        reporter.caseProgress(caseName, "Skill 流程产物不完整，已记录 skill-workflow.json；继续独立测试与评价");
+      }
+    }
     await generatePatch(projectDir, baseline, patchPath);
     await cleanupCaseArtifacts({
       caseName,
@@ -1317,6 +1565,7 @@ async function runCase({
       tokenUsage,
       agentCompile,
       agentCompileAttempts: agentLogs.agentCompileAttempts,
+      ...(skillWorkflow ? { skillWorkflow } : {}),
       projectName: caseInfo.projectName,
       projectDir,
       patchPath,
@@ -1679,8 +1928,8 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
 
 async function validateServerConfig(client, execution, loadedConfig, sourceMode, signal) {
   const config = loadedConfig || await client.getConfig(120);
-  if (!serverAllowsEverything(config, execution.agent)) {
-    throw new Error(`OpenCode Server 未对 Agent ${execution.agent} 强制启用全部权限 allow`);
+  if (!serverAllowsExecution(config, execution.agent)) {
+    throw new Error(`OpenCode Server 未对 Agent ${execution.agent} 启用运行权限（Skill 来源白名单除外）`);
   }
   const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
   if (!usesBuiltInAgent && !Object.hasOwn(config?.agent || {}, execution.agent)) {
@@ -1699,15 +1948,37 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode,
       }
     }
   }
-  for (const [providerId, provider] of Object.entries(config?.provider || {})) {
-    if (Object.hasOwn(provider?.models || {}, execution.model)) {
-      return { providerId, modelId: execution.model };
+  const requestedProviderId = String(execution.providerId || "").trim();
+  if (requestedProviderId) {
+    const provider = config?.provider?.[requestedProviderId];
+    if (!provider) {
+      throw new Error(`Server 未配置指定 Provider: ${requestedProviderId}`);
     }
+    if (!Object.hasOwn(provider?.models || {}, execution.model)) {
+      throw new Error(`Server Provider ${requestedProviderId} 未配置模型: ${execution.model}`);
+    }
+    return { providerId: requestedProviderId, modelId: execution.model };
+  }
+  const matches = Object.entries(config?.provider || {})
+    .filter(([, provider]) => Object.hasOwn(provider?.models || {}, execution.model))
+    .map(([providerId]) => providerId);
+  if (matches.length === 1) {
+    return { providerId: matches[0], modelId: execution.model };
+  }
+  if (matches.length > 1) {
+    throw new Error(`模型 ${execution.model} 同时存在于多个 Provider（${matches.join(", ")}），请配置 execution.providerId`);
   }
   throw new Error(`Server 未配置模型: ${execution.model}`);
 }
 
-async function runBatch(config, client, serverConfig, checkOnly = false, { signal, retryPlan } = {}) {
+async function runBatch(config, client, serverConfig, checkOnly = false, {
+  signal,
+  skillRuntime,
+  retryPlan,
+  runId = "",
+  targetRoot = "",
+  targetId = "",
+} = {}) {
   throwIfInterrupted(signal);
   const sourceMode = config.server.opencodeSource.mode;
   const configuredAgent = String(config.execution.agent || "").trim();
@@ -1789,23 +2060,18 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   }
   if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest, whiteboxEvaluation: whiteboxConfig };
 
-  // 分配批次目录：<outputRoot>/<分层目录名>/<批次时间戳>；同秒冲突时追加序号。
-  // softwareEngineering 无 skills 时分层目录名为 baseModel，见 resolveBatchModeDirectoryName。
+  // Agent 来源分类仍用于报告展示；目录层级由一次运行的共享 runId 和 targetId 决定。
   const modeDirectoryName = await resolveBatchModeDirectoryName(config.server.opencodeSource);
   if (sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
     console.log(`[check] softwareEngineering 来源 skills 目录${modeDirectoryName === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING ? "有内容" : "为空"}，批次目录分层: ${modeDirectoryName}`);
   }
-  const modeRoot = path.join(execution.outputRoot, safeName(modeDirectoryName));
-  await fs.mkdir(modeRoot, { recursive: true });
-  const baseId = batchId();
-  let id = baseId;
-  for (let attempt = 2; await exists(path.join(modeRoot, id)); attempt += 1) {
-    id = `${baseId}-${attempt}`;
-  }
-  const batchRoot = path.join(modeRoot, id);
-  await fs.mkdir(batchRoot);
+  const id = runId || batchId();
+  const resolvedTargetId = safeName(targetId || config.server.opencodeSource.id || modeDirectoryName);
+  const batchRoot = targetRoot || path.join(execution.outputRoot, id, resolvedTargetId);
+  await fs.mkdir(batchRoot, { recursive: true });
   const state = {
     batchId: id,
+    targetId: resolvedTargetId,
     status: "running",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -2099,6 +2365,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
           client,
           model,
           execution,
+          skillRuntime,
           ohosTestEnabled: ohosTest.enabled,
           cloudTestEnabled: cloudTest.enabled,
           preserveForWhitebox: whiteboxConfig.enabled,
@@ -2162,6 +2429,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, { signa
   const agentCompile = addCompileUsage(...results.map((item) => item.agentCompile));
   const summary = {
     batchId: id,
+    targetId: resolvedTargetId,
     status: interrupted ? "interrupted" : failedCount ? "completed_with_failures" : "completed",
     finishedAt: new Date().toISOString(),
     agent: execution.agent,
@@ -2308,9 +2576,10 @@ let serverStopping = false;
 let batchSettled = false;
 let serverStopPromise;
 let shutdownFallbackTimer;
+let forceStopOwnedServer = false;
 
 function beginOwnedServerStop() {
-  if (!server?.owned || config.server.stopWhenFinished === false) {
+  if (!server?.owned || (config.server.stopWhenFinished === false && !forceStopOwnedServer)) {
     return Promise.resolve();
   }
   serverStopping = true;
@@ -2370,25 +2639,201 @@ try {
     console.warn(`[recovery] 已收尾上次未正常完成的批次: ${item.batchId}`);
   }
   if (args.retryBatchId) {
+    if (config.server.opencodeTargets.multiple) {
+      throw new Error("多 Agent 对比暂不支持 --retry；请使用单 Agent 配置重试指定目标");
+    }
     retryPlan = await loadRetryPlan(config.execution.outputRoot, args.retryBatchId, args.retryCaseName);
   }
-  server = await ensureOpenCodeServer(config, { signal: shutdownController.signal });
-  if (server?.owned && server.child) {
-    server.child.once("exit", (code, signal) => {
-      if (serverStopping || batchSettled) return;
-      requestShutdown(`OpenCode Server 意外退出（code=${code ?? "null"}, signal=${signal || "none"}）`);
-    });
-    server.child.once("error", (error) => {
-      if (serverStopping || batchSettled) return;
-      requestShutdown("OpenCode Server 子进程错误", error);
-    });
+  const targetPlan = config.server.opencodeTargets;
+  const allocated = args.checkOnly
+    ? { runId: `${batchId()}-check`, runRoot: "" }
+    : await allocateRunDirectory(config.execution.outputRoot);
+  if (targetPlan.multiple) {
+    config.server.providerOverlayPath = await prepareSharedGenerationProvider(config, allocated.runId);
   }
-  const summary = await runBatch(config, server.client, server.serverConfig, args.checkOnly, {
-    signal: shutdownController.signal,
-    retryPlan,
-  });
-  batchSettled = true;
-  if (!args.checkOnly && summary.failed) exitCode = 1;
+  const casesRoot = targetPlan.multiple && !args.checkOnly
+    ? await createSharedCasesSnapshot(config, allocated.runId, allocated.runRoot)
+    : config.execution.casesRoot;
+  const targetResults = [];
+  forceStopOwnedServer = true;
+
+  // 对比运行必须在任何 Agent Session 创建前确认所有来源都提供完全一致的
+  // Provider/模型配置。预检严格串行且每次立即关闭 Server，避免后一个目标
+  // 到运行阶段才暴露模型缺失，导致前一个目标已经消耗配额却无法形成有效对比。
+  if (targetPlan.multiple && !args.checkOnly) {
+    console.log(`[preflight] 开始校验 ${targetPlan.targets.length} 个 Agent 的隔离环境和统一模型`);
+    const fingerprints = [];
+    for (const target of targetPlan.targets) {
+      const targetRoot = path.join(allocated.runRoot, safeName(target.id));
+      await fs.mkdir(targetRoot, { recursive: true });
+      const prepared = configForTarget(config, target, allocated.runId, casesRoot, "preflight");
+      const workspace = path.join(prepared.runtimeRoot, "workspace");
+      await fs.mkdir(workspace, { recursive: true });
+      let preflightServer;
+      try {
+        const source = await resolveOpenCodeSource(prepared.config.server.opencodeSource);
+        preflightServer = await ensureOpenCodeServer(prepared.config, {
+          signal: shutdownController.signal,
+          reuseExisting: false,
+          workspace,
+          isolateConfig: true,
+        });
+        server = preflightServer;
+        const model = await validateServerConfig(
+          preflightServer.client,
+          prepared.config.execution,
+          preflightServer.serverConfig,
+          target.mode,
+          shutdownController.signal,
+        );
+        const environment = await writeTargetEnvironmentManifest({
+          targetRoot,
+          target,
+          targetConfig: prepared.config,
+          source,
+          server: preflightServer,
+          model,
+          signal: shutdownController.signal,
+        });
+        fingerprints.push(environment.generationModel.configFingerprint);
+        console.log(`[preflight] ${target.label} 校验通过`);
+      } catch (error) {
+        await atomicWriteJson(path.join(targetRoot, "target-error.json"), {
+          targetId: target.id,
+          status: "preflight_failed",
+          error: error.message,
+          finishedAt: new Date().toISOString(),
+        });
+        throw new Error(`Agent ${target.label} 预检失败: ${error.message}`, { cause: error });
+      } finally {
+        await stopOwnedServer(preflightServer).catch((error) => {
+          console.warn(`[warn] 预检 Server 关闭失败: ${error.message}`);
+        });
+        server = null;
+      }
+    }
+    if (new Set(fingerprints).size !== 1) {
+      throw new Error("多 Agent 的 Provider/模型配置指纹不一致，禁止开始对比执行");
+    }
+    console.log("[preflight] 所有 Agent 的 Provider/模型配置一致，开始串行执行");
+  }
+
+  for (let index = 0; index < targetPlan.targets.length; index += 1) {
+    const target = targetPlan.targets[index];
+    if (shutdownController.signal.aborted) break;
+    const targetRoot = args.checkOnly
+      ? path.join(targetRuntimeRoot(config, allocated.runId, target.id), "check")
+      : path.join(allocated.runRoot, safeName(target.id));
+    await fs.mkdir(targetRoot, { recursive: true });
+    const prepared = configForTarget(config, target, allocated.runId, casesRoot);
+    const workspace = path.join(prepared.runtimeRoot, "workspace");
+    await fs.mkdir(workspace, { recursive: true });
+    console.log(`[target] ${index + 1}/${targetPlan.targets.length} 开始执行 ${target.label}（${target.id}）`);
+    server = null;
+    serverStopping = false;
+    serverStopPromise = undefined;
+    batchSettled = false;
+    try {
+      const source = await resolveOpenCodeSource(prepared.config.server.opencodeSource);
+      server = await ensureOpenCodeServer(prepared.config, {
+        signal: shutdownController.signal,
+        reuseExisting: false,
+        workspace,
+        isolateConfig: true,
+      });
+      const watchedServer = server;
+      if (server?.owned && server.child) {
+        server.child.once("exit", (code, childSignal) => {
+          if (serverStopping || batchSettled || server !== watchedServer) return;
+          requestShutdown(`OpenCode Server 意外退出（code=${code ?? "null"}, signal=${childSignal || "none"}）`);
+        });
+        server.child.once("error", (error) => {
+          if (serverStopping || batchSettled || server !== watchedServer) return;
+          requestShutdown("OpenCode Server 子进程错误", error);
+        });
+      }
+      // 在创建任何 Agent Session 前验证 Agent、模型和实际 Skill 清单；尤其是
+      // 来源 skills 为空的目标，若发现全局/历史 Skill 泄漏会立即失败。
+      const validatedModel = await validateServerConfig(
+        server.client,
+        prepared.config.execution,
+        server.serverConfig,
+        target.mode,
+        shutdownController.signal,
+      );
+      await writeTargetEnvironmentManifest({
+        targetRoot,
+        target,
+        targetConfig: prepared.config,
+        source,
+        server,
+        model: validatedModel,
+        signal: shutdownController.signal,
+      });
+      const summary = await runBatch(prepared.config, server.client, server.serverConfig, args.checkOnly, {
+        signal: shutdownController.signal,
+        skillRuntime: server.skillRuntime,
+        retryPlan,
+        runId: allocated.runId,
+        targetRoot,
+        targetId: target.id,
+      });
+      batchSettled = true;
+      targetResults.push({ ...target, targetRoot, summary });
+      if (!args.checkOnly && summary.failed) exitCode = 1;
+      console.log(`[target] ${target.label} 执行结束：${summary.status || "checked"}`);
+    } catch (error) {
+      batchSettled = true;
+      activeReporter?.pauseDashboard();
+      activeReporter = null;
+      console.error(`[target:${target.id}] ${error.stack || error.message}`);
+      targetResults.push({ ...target, targetRoot, error: error.message });
+      if (!args.checkOnly) {
+        await atomicWriteJson(path.join(targetRoot, "target-error.json"), {
+          targetId: target.id,
+          status: "failed",
+          error: error.message,
+          finishedAt: new Date().toISOString(),
+        });
+      }
+      exitCode = 1;
+      if (shutdownController.signal.aborted || !targetPlan.continueOnTargetError) break;
+    } finally {
+      await beginOwnedServerStop();
+      server = null;
+      serverStopping = false;
+      serverStopPromise = undefined;
+    }
+  }
+
+  if (!args.checkOnly && allocated.runRoot) {
+    for (const target of targetPlan.targets) {
+      if (targetResults.some((item) => item.id === target.id)) continue;
+      targetResults.push({
+        ...target,
+        targetRoot: path.join(allocated.runRoot, safeName(target.id)),
+        error: shutdownController.signal.aborted ? "Autorun 已中断，目标未执行" : "前序目标失败，目标未执行",
+      });
+    }
+    const configuredModel = config.execution.generationModel;
+    const firstModel = targetResults.find((item) => item.summary)?.summary || {};
+    const generationModel = {
+      providerId: configuredModel.providerId || firstModel.providerId || "",
+      modelId: configuredModel.modelId,
+    };
+    const report = await writeAgentComparisonReport({
+      runRoot: allocated.runRoot,
+      runId: allocated.runId,
+      generationModel,
+      targets: targetResults,
+    });
+    console.log(`[report] 执行总览: ${report.overviewPath}`);
+    if (report.comparisonPath) console.log(`[report] Agent 对比数据: ${report.comparisonPath}`);
+    if (targetPlan.multiple && !report.comparison.sameModelValidated) {
+      console.error("[error] 多 Agent 实际使用的 Provider/模型不一致，对比结果无效");
+      exitCode = 1;
+    }
+  }
 } catch (error) {
   activeReporter?.pauseDashboard();
   console.error(`[error] ${error.stack || error.message}`);

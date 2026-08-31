@@ -23,7 +23,8 @@ export function isGeneratedArtifactExcluded(relativePath) {
   return parts.some((part, index) => part === "evidence" && parts[index + 1] === "tmp");
 }
 
-function isGeneratedArtifactPrunable(relativePath) {
+// 临时缓存可以清理，也不应进入归档；.onemulti 的正式产物需保留并打包。
+export function isGeneratedArtifactPrunable(relativePath) {
   const normalized = normalizeRelativePath(relativePath);
   const parts = normalized.split("/").filter(Boolean);
   if (parts.includes("__pycache__")) return true;

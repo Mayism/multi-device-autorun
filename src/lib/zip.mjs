@@ -5,7 +5,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { deflateRawSync } from "node:zlib";
-import { isGeneratedArtifactExcluded } from "./generated-artifact-filter.mjs";
+import { isGeneratedArtifactPrunable } from "./generated-artifact-filter.mjs";
 
 // ─── CRC32 ──────────────────────────────────────────────────────
 const crcTable = [];
@@ -26,7 +26,7 @@ const EXCLUDE_FILES = new Set(["opencode.json", "oh-package-lock.json5"]);
 
 function shouldExclude(relPath) {
   const parts = relPath.split(/[\\/]/);
-  if (isGeneratedArtifactExcluded(relPath)) return true;
+  if (isGeneratedArtifactPrunable(relPath)) return true;
   if (parts.some((p) => EXCLUDE_DIRS.has(p))) return true;
   if (EXCLUDE_FILES.has(parts[parts.length - 1])) return true;
   return false;
@@ -71,7 +71,7 @@ export async function createZip(sources, { excludeAbsPaths } = {}) {
     if (src.dirPath) {
       const walked = await walkDir(src.dirPath, src.prefix || "", excludeAbs);
       fileEntries.push(...walked);
-    } else if (src.absPath) {
+    } else if (src.absPath && !shouldExclude(src.zipPath) && !excludeAbs?.has(path.resolve(src.absPath))) {
       fileEntries.push(src);
     }
   }

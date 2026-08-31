@@ -27,7 +27,8 @@ async function copyProjectEntry(
   relativePath: string,
   ignoreScopes: readonly IgnoreScope[],
 ): Promise<void> {
-  if (path.basename(source) === ".git") {
+  // Skill 由 Autorun 预装，不依赖它修改业务 .gitignore 来隔离测试输入。
+  if ([".git", ".onemulti"].includes(path.basename(source))) {
     return;
   }
 

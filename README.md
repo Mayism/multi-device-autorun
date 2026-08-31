@@ -1,12 +1,12 @@
 # Muti-Device-Autorun
 
-Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会自动启动或复用 OpenCode Server，扫描 `execution.casesRoot` 配置目录下的用例，并通过固定并发的 Worker Pool 持续执行任务。
+Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会为每个 Agent 自动启动独立 OpenCode Server，扫描 `execution.casesRoot` 配置目录下的用例，并通过固定并发的 Worker Pool 持续执行任务。
 
 每个用例都使用独立的 OpenCode session、工程副本和结果目录。Agent 不会直接修改用例根目录中的原始工程。
 
 ## 主要功能
 
-- 自动启动或复用 OpenCode Server。
+- 为每个 Agent 自动启动并关闭独立 OpenCode Server。
 - 支持 Windows、macOS 和 Linux 的 Node.js 运行环境。
 - 自动扫描 `execution.casesRoot` 配置目录下的可执行用例。
 - 从每个用例的 `PROMPT.md` 读取任务提示词。
@@ -70,11 +70,16 @@ npm --prefix whitebox-evaluation install
 npm --prefix whitebox-evaluation run build
 ```
 
-Autorun 启动时还会实际执行 `devecocli --version`，验证可选的 DevEco CLI 是否可用并显示版本。命令不可用只会告警，不阻断现有任务；可按官方方式安装或修复：
+Autorun 启动时会执行 `devecocli --version`，检查 DevEco CLI 并显示版本。通用启动检查中，命令不可用只会告警；但 `harmonyBot` 的 `harmonyos-multi-device` 需要按一多 Skill 使用该 CLI，因此还会在 Agent 的实际 PATH 下做必需依赖预检，缺失时阻断模型会话。可安装或修复：
 
 ```bash
 npm install -g @deveco/deveco-cli@latest
+devecocli --version
 ```
+
+安装成功后，从能执行 `devecocli --version` 的同一个终端重启 Autorun。使用 nvm 时，全局包属于安装时选中的 Node 版本；切换版本或从 IDE 启动可能导致 Agent 的 PATH 找不到已安装命令。
+
+启动 Autorun 的 Node 也必须满足所安装 CLI 的版本要求（例如 `devecocli 1.3.1` 要求 Node >=22）。在 macOS/Linux 上，Autorun 为 PATH 中已安装的 Node 版 `devecocli` 创建私有启动脚本，固定使用启动 Autorun 的 Node；预检和 Agent 共用该脚本，避免 DevEco 自带的 Node 18 抢占解释器。此设置不改变 Hvigor/ohpm 原有的 PATH；启动日志会显示 `devecocli Node` 的路径和版本。
 
 ## 用例格式
 
@@ -109,6 +114,7 @@ npm install -g @deveco/deveco-cli@latest
   "execution": {
     "casesRoot": "D:\\cases",
     "agent": "harmonyos-multi-device",
+    "providerId": "deepseek",
     "model": "deepseek-v4-flash",
     "additionalPrompt": "",
     "concurrency": 3
@@ -165,16 +171,20 @@ npm install -g @deveco/deveco-cli@latest
 | 配置 | 说明 |
 | --- | --- |
 | `server.url` | OpenCode Server 地址。地址不可用时会自动启动 Server。 |
-| `server.opencodeSource.mode` | OpenCode 来源模式，只支持 `harmonyBot` 或 `softwareEngineering`，二者互斥且不会合并、回退。 |
-| `server.opencodeSource.root` | 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
+| `server.opencodeSource.mode` | 单 Agent 兼容配置的来源模式，只支持 `harmonyBot` 或 `softwareEngineering`。 |
+| `server.opencodeSource.root` | 单 Agent 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
+| `server.opencodeSource.targets` | 多 Agent 串行目标数组。每项必须提供唯一 `id`、`mode`、`root`，`harmonyBot` 目标还可单独指定 `agent`。目标严格按数组顺序串行执行。 |
+| `server.opencodeSource.continueOnTargetError` | 某个 Agent 启动或执行失败后是否继续下一个 Agent，默认 `true`。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
 | `server.hvigorw` / `server.ohpm` | 机器级工具路径（与 `devecoHome` 同级，云测试构建使用）：`hvigorw` 填 hvigorw.js 路径（自动以当前 node 运行）或可执行命令，`ohpm` 填 ohpm 命令；**含空格的路径会自动加引号**（如 Windows `D:\deveco\DevEco Studio\…`）；未配置则复用 `ohosTest.paths` 已有键，再退到 PATH 裸命令。 |
 | `server.sdkHome` / `server.javaHome` | 可选：设置后注入 `DEVECO_SDK_HOME`/`JAVA_HOME`（云测试构建），未设置继承当前环境。 |
-| `server.stopWhenFinished` | 是否关闭本次 Autorun 自动启动的 Server，默认 `true`。启动前已存在的 Server 不会被关闭。 |
+| `server.stopWhenFinished` | 单来源兼容字段。隔离执行始终在每个 Agent 结束后关闭其专属 Server，避免状态进入下一个 Agent。 |
 | `execution.casesRoot` | 用例根目录。 |
 | `execution.outputRoot` | 批次、工程副本、报告及 OpenCode 运行数据的输出根目录，默认是项目根目录下的 `output`。Windows 下使用 Hvigor 时建议配置成 `D:/out`、`D:/ar` 等尽可能短的绝对路径，降低 259 字符路径上限导致的构建失败风险。 |
 | `execution.agent` | `harmonyBot` 模式使用的 OpenCode Agent 名称。`softwareEngineering` 只有 Skills，固定使用 OpenCode 内置 `build` Agent，该字段在该模式下会被忽略。 |
-| `execution.model` | 模型 ID。程序会从 Server `/config` 自动解析 Provider。 |
+| `execution.providerId` | 生成模型 Provider ID。多 Agent 对比时必填；Autorun 从一个包含该模型的来源冻结 Provider 配置并注入全部目标。 |
+| `execution.providerSourceTargetId` | 可选：指定从哪个 Agent 目标读取统一 Provider 配置；未指定时按 `targets` 顺序选择第一个包含指定模型的来源。 |
+| `execution.model` | 全局生成模型 ID。所有 Agent 共用，目标配置不能覆盖；单 Agent 未配置 `providerId` 时会从 Server 唯一匹配。 |
 | `execution.additionalPrompt` | 统一追加到每个用例 `PROMPT.md` 内容后的提示词。未配置、空字符串或仅包含空白时不追加；不会修改源用例文件，实际发送内容可在用例输出的 `generate/input.txt` 中核对。 |
 | `execution.concurrency` | 同时运行的 Agent 数量。任意任务结束后立即补充下一个任务。 |
 | `execution.consoleMode` | 控制台模式：`dashboard`（默认动态看板）、`summary`（仅开始/结束）或 `verbose`（逐条进度）。非交互输出会自动退化为 `summary`。 |
@@ -217,11 +227,45 @@ npm install -g @deveco/deveco-cli@latest
 }
 ```
 
-该模式会在 `root` 下查找最高版本且资源完整的 HarmonyBot 扩展。`softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`，只加载其中的模型配置和 Skills，并使用 OpenCode 内置 `build` Agent。两种模式都将所选 `resources/opencode` 直接设置为 `OPENCODE_CONFIG_DIR`，不会复制、合并或回退到另一来源。修改模式、模型或权限配置后，应先结束已有 OpenCode Server 再重新执行，否则 Autorun 会复用旧 Server。
+该模式会在 `root` 下查找最高版本且资源完整的 HarmonyBot 扩展。`softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`，加载其中的模型配置和 Skills，并使用 OpenCode 内置 `build` Agent。正式执行时 Autorun 会把所选来源的 `plugin`、`skills`、`provider` 复制到当前目标的私有 runtime 配置快照，不会合并或回退到另一来源，也不会复用启动前已有的 OpenCode Server。`softwareEngineering` 还会关闭 `~/.agents/skills` 和 `~/.claude/skills` 扫描，并通过精确权限白名单阻止 OpenCode 内置 Skill，只向 Agent 暴露来源 `resources/opencode/skills` 下的 Skill。
+
+多 Agent 串行对比配置示例：
+
+```json
+{
+  "server": {
+    "opencodeSource": {
+      "strategy": "serial",
+      "continueOnTargetError": true,
+      "targets": [
+        {
+          "id": "harmonybot",
+          "label": "HarmonyBot",
+          "mode": "harmonyBot",
+          "root": "C:\\Users\\HW\\.vscode\\extensions",
+          "agent": "harmonyos-multi-device"
+        },
+        {
+          "id": "software-engineering",
+          "label": "Software Engineering",
+          "mode": "softwareEngineering",
+          "root": "C:\\tools\\software-multi-device"
+        }
+      ]
+    }
+  },
+  "execution": {
+    "providerId": "deepseek",
+    "model": "deepseek-v4-flash"
+  }
+}
+```
+
+每个目标使用独立 OpenCode Server、配置资产副本、数据库、状态、缓存、日志和 workspace。批次级 Provider 配置只包含统一生成模型及其连接配置，不会携带来源的 Agent、Plugin 或 Skill；它会以权限受限的快照文件注入所有目标。`softwareEngineering` 会在 Agent Session 创建前校验来源 Skill 与权限白名单完全一致；OpenCode 固定注册但已被拒绝的内置 Skill 只记录在 `environment.json` 的 `skills.blocked`，不会进入 `skills.loaded` 或模型会话。多个目标还会共用一份启动时冻结的用例输入快照，保证后执行的 Agent 不会读取前一个 Agent 修改后的工程。
 
 ### Windows/Hvigor 输出路径建议
 
-Autorun 会在 `outputRoot/<分层目录名>/<batchId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。分层目录名默认为 `opencodeSource.mode`（如 `harmonyBot`）；`softwareEngineering` 模式下会检查来源 `resources/opencode/skills` 目录，有内容时分层为 `softwareEngineering`，为空时分层为 `baseModel`（纯基座模型，不带 Skills）。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
+Autorun 会在 `outputRoot/<batchId>/<agentId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
 
 ```json
 {
@@ -232,7 +276,7 @@ Autorun 会在 `outputRoot/<分层目录名>/<batchId>/<caseName>/<base|task>` �
 }
 ```
 
-修改后，批次报告和详细结果也会写入 `D:/out/<opencodeSource.mode>/<batchId>/`，OpenCode 运行数据默认写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
+修改后，批次报告和详细结果会写入 `D:/out/<batchId>/<agentId>/`，根级总览位于 `D:/out/<batchId>/overview.html`。OpenCode 运行数据默认按 `<batchId>/<agentId>` 隔离写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
 ohosTest 不会在 `.ohostest-runs/<runId>` 下编译工程，而是将 Agent 输出的 `base/task`
 复制到同一用例目录下的浅层临时目录，应用隐藏测试 patch 后在该目录构建。报告仍写入
@@ -342,31 +386,31 @@ node src/run-opencode-serve.mjs --help
 **手动补打包/上传**（对已有批次）：
 
 ```bash
-node src/upload-results.mjs output/<batchId>
+node src/upload-results.mjs output/<batchId>/<agentId>
 ```
 
 上传行为：
 
 - **所有用例**都会生成本地 ZIP；只上传**失败或错误**的用例到 AGC 云存储（整体通过且无测试失败的用例仅保留本地 ZIP）。
-- 打包用例目录下的全部内容为 ZIP：包括 `base/`（或 `task/`）、`generate/`、`diff/`、`.ohostest-runs/`、`ohostest-workdir/`、`whitebox/`、`cloudtest/` 等所有产物（ZIP 输出文件本身不重复入包；DEFLATE 压缩，自动排除 `build`、`oh_modules`、`.hvigor`、`node_modules` 等可再生成目录）。
+- 打包用例目录下的全部内容为 ZIP：包括 `base/`（或 `task/`）、工程内的 `.onemulti/`（Skill 脚本、账本、正式证据和适配 HTML 报告）、`generate/`、`diff/`、`.ohostest-runs/`、`ohostest-workdir/`、`whitebox/`、`cloudtest/` 等产物（ZIP 输出文件本身不重复入包；DEFLATE 压缩，仍排除 `build`、`oh_modules`、`.hvigor`、`node_modules`、`__pycache__`、`*.pyc` 和 `**/evidence/tmp/` 等可再生成或临时内容）。
 - ZIP 文件名为 `{CaseName}_{batchId}.zip`，上传路径为 `ohostest/{CaseName}_{batchId}.zip`。
-- 上传支持重试（默认 3 次），每次失败记录原因。每个用例上传后立即写 `upload-results.json`，中断后再次执行会跳过已成功的用例。
-- 上传结果写入 `output/<batchId>/upload-results.json`，格式为 `{ "CaseName": { "url": "下载地址", "error": "失败原因", "uploadedAt": "时间" } }`。
+- 上传支持重试（默认 3 次），每次失败记录原因。每个用例上传后立即写 `upload-results.json`，再次执行仍重建本地 ZIP，但已有上传链接的用例不重复上传。旧 ZIP 不会自动迁移；手动补打包可把本地仍保留的 `.onemulti` 加入归档，已有云端 ZIP 不会随本地重建自动更新。
+- 上传结果写入 `output/<batchId>/<agentId>/upload-results.json`，格式为 `{ "CaseName": { "url": "下载地址", "error": "失败原因", "uploadedAt": "时间" } }`。
 
 上传成功后，重新生成 HTML 报告即可在总览页的「操作」列看到**下载**按钮，点击直接下载对应 ZIP。
 
 ```bash
 # 先上传
-node src/upload-results.mjs output/<batchId>
+node src/upload-results.mjs output/<batchId>/<agentId>
 # 再刷新 HTML（自动读取 upload-results.json）
-node src/generate-html-report.mjs output/<batchId>
+node src/generate-html-report.mjs output/<batchId>/<agentId>
 ```
 
 ### 7. 合并批次报告
 
 多轮回归后，可把多个批次的执行结果合并成一份跨批次总览页。合并脚本按五步主流程组织（`src/lib/merge-overview.mjs`，每步独立成模块方法）：
 
-1. **发现批次报告** `discoverBatches`：扫描批次目录，兼容扁平 `<批次>` 与分层 `<分层目录名>/<批次>`（如 harmonyBot / softwareEngineering / baseModel）两种布局，按名称排序；只依据 `summary.json` 识别批次，缺 `summary.json` 的目录跳过并告警。
+1. **发现批次报告** `discoverBatches`：扫描批次目录，兼容旧版 `<来源>/<批次>` 和新版 `<批次>/<agentId>` 两层布局，按名称排序；只依据 `summary.json` 识别 Agent 批次，缺 `summary.json` 的目录跳过并告警。
 2. **清理旧产物** `cleanOldArtifacts`：删除旧 overview.html 与 subpage/ 并重建目录，保证每次合并从干净状态开始。
 3. **读取批次数据** `readBatchData`：读取各批次 `summary.json` / `report.json` / `upload-results.json` 及用例级 runner result，按与批次报告同口径组装 caseRows。
 4. **合并数据** `mergeData`：数据层合并后**逐模块产出 HTML 片段**——配置总览、结果总览、用例执行一览、白盒评价、云测试，以及 skill 章节（`merge-skill.mjs` 返回的数据就是 HTML，直接作为片段）。统计口径：计数类（用例总数、完成/失败、总 Token、模型/工具调用、执行用例个数、通过/失败/错误、白盒完成/失败）跨批次求和；白盒平均分复用 `batch-report` 的 `buildWhiteboxSummary` 在全部用例上整体重算；Agent/providerId/模型相同取一个、不同用「/」分隔。**白盒评价章节**合并各批次用例的 `whitebox` 结果（状态/总分/裁判模型），详情链接直连各批次 `<Case>/whitebox/report.html`；**云测试章节**合并各用例 `cloudTest` 结果（状态取 result.json，设备/规则/问题指标读各用例 `cloudtest/cloudtest-result.json` 的 `report.summary`），卡片（参与用例、设备通过/失败、规则通过/失败、问题数量）跨批次求和，报告链接直连各用例 `cloudtest-report.html`。合并页**不看阶段开关**：批次结果里有数据就合并、没有就跳过，章节由行数据驱动。批次页则跟随开关：未开启的阶段整章省略（忽略 retry 继承的残留数据），开启但零数据时渲染空态。
@@ -442,63 +486,60 @@ Worker 3 -> Case 3
 
 启用 `ohosTest` 后，Agent Worker 和测试队列相互独立：Agent 每完成一个用例，就立即将该用例放入 ohosTest 队列，然后继续领取下一个 Agent 用例。ohosTest 队列固定并发数为 1，前一个用例完成模拟器启动、设备测试和清理后，才会执行下一个用例，避免多个用例争抢模拟器和端口。
 
-Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata、测试 patch 以及 Runner 校验所需的 golden patch 复制到 `output/<batchId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 或 `task/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`；Runner 结束后删除临时 golden patch。Autorun 会将当前配置中的 `ohosTest.paths` 和 `ohosTest.devices` 写入本次运行目录的 `machine.json`，再通过 `--machine-config` 传给内置 Runner。
+Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会放入 `metadata.json`、`test_patch.patch` 或 `golden_patch.patch`。Agent 完成后，Autorun 才把源 case 的 metadata、测试 patch 以及 Runner 校验所需的 golden patch 复制到 `output/<batchId>/<agentId>/<caseName>/`，并执行 `ohostest:case --run swe`。此时 Runner 以 Agent 修改后的 `base/` 或 `task/` 为候选工程，只应用 `test_patch.patch`，不会应用 `golden_patch.patch`；Runner 结束后删除临时 golden patch。Autorun 会将当前配置中的 `ohosTest.paths` 和 `ohosTest.devices` 写入本次运行目录的 `machine.json`，再通过 `--machine-config` 传给内置 Runner。
 
-Agent 的实际提示词会追加无人值守确认和工作目录隔离要求：所有 permission 自动允许，question 自动采用允许、继续、推荐或默认方案，同时仍通过提示词禁止枚举或读取当前工程以外的用例和评测文件。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。
+Agent 的实际提示词会追加无人值守确认和“业务工程 + 授权工具资源”边界：所有 permission 自动允许，question 自动采用允许、继续、推荐或默认方案；禁止读取其他用例、隐藏测试、标准答案和评测结果，但允许读取当前来源实际注册的 Skill 快照，并从工程 cwd 调用其中的脚本，以及读取明确列出的 SDK/工具目录。授权不扩大到整个 runtime、父目录或 Provider 配置。这是提示词约束，不是操作系统级文件沙箱。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。
+
+`harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version`、必需脚本和关键脚本的 `--help`；缺少必需依赖即在模型会话前报错。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约。
+
+Agent 正常结束后，Autorun 运行 Skill 的账本与状态校验并检查汇总 HTML，结果写入 `generate/skill-workflow.json` 和用例 `result.json.skillWorkflow`。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
 
 当前版本只扫描启动时已经存在的用例。运行过程中新增到 `casesRoot` 的用例需要在下一次启动时执行。
 
 ## 运行结果
 
-每次正式执行会创建独立批次目录，按分层目录名分层，`batchId` 为批次启动时间戳（`YYYYMMDDHHmmss`，同秒冲突时自动追加序号）。分层目录名默认为 `server.opencodeSource.mode`（如 `harmonyBot`）；`softwareEngineering` 模式下会检查来源 `resources/opencode/skills` 目录是否有内容，有内容时分层为 `softwareEngineering`，为空时分层为 `baseModel`：
+每次正式执行会创建独立的时间戳批次目录，`batchId` 为批次启动时间戳（`YYYYMMDDHHmmss`，同秒冲突时自动追加序号）。一个或多个 Agent 都使用同一个批次目录；每个 Agent 的产物按配置中的稳定 `id` 隔离。根级 `overview.html` 是统一入口，每个 Agent 目录保留可下钻的完整报告，多 Agent 时额外生成 `comparison.json`：
 
 ```text
-output/<分层目录名>/<batchId>/
-├── batch.json                 # 当前批次和所有用例状态
-├── summary.json               # 批次最终汇总
-├── report.json                # Agent 与 ohosTest 指标明细
-├── overview.html              # HTML 总览报告
-├── subpage/                   # 各用例 HTML 详情页
-└── <caseName>/
-    ├── base/ 或 task/         # Agent 修改后的工程，也是 ohosTest 的 base_project
-    ├── state.json             # 单用例状态
-    ├── session.json           # OpenCode session 信息
-    ├── metadata.json          # Agent 完成后从源 case 原样复制
-    ├── test_patch.patch       # Agent 完成后从源 case复制
-    ├── result.json            # 单用例最终结果
-    ├── whitebox/              # 白盒评价输入、结果、日志和单文件 HTML
-    │   ├── inputs/
-    │   │   ├── input.json
-    │   │   ├── original-prompt.md
-    │   │   └── effective-prompt.md
-    │   ├── outputs/
-    │   │   ├── result.json
-    │   │   └── agent-trace.json
-    │   ├── report.html
-    │   └── logs/
-    ├── .ohostest-runs/        # harmonyos-ohostest-runner 自动生成
-    │   └── <runId>/
-    │       ├── machine.json   # 从 autorun.config.json 生成的本次设备配置
-    │       ├── result.json
-    │       ├── summary.md
-    │       └── commands.jsonl
-    ├── diff/
-    │   └── changes.patch      # 相对于原始工程初始 Git 基线的 Agent 变更
-    └── generate/
-        ├── input.txt          # 实际发送的提示词
-        ├── output.txt         # Agent 最终文本输出
-        ├── final-message.json # OpenCode 最终消息
-        ├── agent-console.log  # 执行期间可实时跟踪的关键进度
-        ├── agent-output.log   # 主/子 Session 的完整可读输出与工具记录
-        ├── all-messages.json  # 主/子 Session 的完整原始消息
-        ├── opencode-sse.jsonl # 仅 Agent 失败、超时或中断时保留
-        ├── opencode-polling.jsonl # 仅 Agent 失败、超时或中断时保留
-        └── compile-attempts.json # Agent build attempt details; excludes ohosTest
+output/<batchId>/
+├── overview.html              # 整次运行的统一入口
+├── comparison.json            # 仅两个及以上 Agent 时生成
+├── input-snapshot.json         # 多 Agent 共用输入快照的文件数与 SHA-256
+└── <agentId>/
+    ├── environment.json       # 来源、模型、runtime 和实际 Skill 清单
+    ├── batch.json             # 当前 Agent 批次和所有用例状态
+    ├── summary.json           # 当前 Agent 最终汇总
+    ├── report.json            # Agent 与 ohosTest 指标明细
+    ├── overview.html          # 当前 Agent 的完整报告（供根级总览下钻）
+    ├── subpage/               # 各用例 HTML 详情页
+    └── <caseName>/
+        ├── base/ 或 task/         # Agent 修改后的工程，也是 ohosTest 的 base_project
+        ├── state.json             # 单用例状态
+        ├── session.json           # OpenCode session 信息
+        ├── metadata.json          # Agent 完成后从源 case 原样复制
+        ├── test_patch.patch       # Agent 完成后从源 case复制
+        ├── result.json            # 单用例最终结果
+        ├── whitebox/              # 白盒评价输入、结果、日志和单文件 HTML
+        ├── .ohostest-runs/        # harmonyos-ohostest-runner 自动生成
+        ├── diff/
+        │   └── changes.patch      # 相对于原始工程初始 Git 基线的 Agent 变更
+        └── generate/
+            ├── input.txt          # 实际发送的提示词
+            ├── output.txt         # Agent 最终文本输出
+            ├── final-message.json # OpenCode 最终消息
+            ├── agent-console.log  # 执行期间可实时跟踪的关键进度
+            ├── agent-output.log   # 主/子 Session 的完整可读输出与工具记录
+            ├── all-messages.json  # 主/子 Session 的完整原始消息
+            ├── opencode-sse.jsonl # 仅 Agent 失败、超时或中断时保留
+            ├── opencode-polling.jsonl # 仅 Agent 失败、超时或中断时保留
+            ├── compile-attempts.json # Agent build attempt details; excludes ohosTest
+            ├── skill-runtime.json    # 授权 Skill 路径和预装记录（不含 Provider 凭据）
+            └── skill-workflow.json   # 一多 Skill 的账本、状态、报告完整性检查
 ```
 
 白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
 
-Agent 结束后，Autorun 会在 Patch、白盒 Sandbox 和失败用例 ZIP 边界排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`，并从生成工程中清理后三类临时产物。`.onemulti/` 会保留在生成工程中供后续排查，但仍不属于业务交付差异，也不参与 ohosTest 或白盒评分。
+Agent 结束后，Autorun 会在业务 Patch 和白盒 Sandbox 边界排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`，并从生成工程中清理后三类临时产物。`.onemulti/` 的正式内容保留在生成工程中并打包进用例 ZIP，供分发和排查；它仍不属于业务交付差异，ohosTest Runner 复制测试工程时也会独立排除该目录，不依赖工程 `.gitignore`。
 
 生成 Agent 的 Hvigor 编译尝试会以结构化 `agentBuild` 输入交给白盒评价，保留每次真实任务、命令、退出码和顺序。白盒以最后一次有效尝试作为最终编译结果，报告来源显示为“生成 Agent 编译结果”，与 ohosTest 状态独立。
 
@@ -555,13 +596,13 @@ Autorun 会先等待 `/global/health`，再等待 `/config` 完成 Agent、Plugi
 node autorun.mjs --check
 ```
 
-确认当前来源的 `resources/opencode/opencode.json` 中存在对应模型配置，并确认修改后已经重启 OpenCode Server。`harmonyBot` 模式还需确认对应 Agent 和 Plugin 完整；permission 会由 Autorun 的运行时配置统一覆盖为 `allow`。`softwareEngineering` 不要求自定义 Agent 或 Plugin，使用内置 `build` Agent。
+确认当前来源的 `resources/opencode/opencode.json` 中存在对应模型配置，并确认修改后已经重启 OpenCode Server。`harmonyBot` 模式还需确认对应 Agent 和 Plugin 完整；permission 会由 Autorun 的运行时配置统一覆盖为 `allow`。`softwareEngineering` 不要求自定义 Agent 或 Plugin，使用内置 `build` Agent；除来源 Skill 精确白名单外，其余工具权限保持 `allow`。
 
 ### 一多适配任务没有调用 Skill
 
-`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项；如果插件或 Skill 的运行时路径失效，会直接报错而不再静默执行。
+`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 依赖，并在会话前预装 Skill；如果缺少 `devecocli`、Python 版本不够或脚本失效，会直接报错，不再让 Agent 自行降级为手工流程。查看 `generate/input.txt` 中的授权工具路径、`generate/skill-runtime.json` 的预装记录及 `generate/skill-workflow.json` 的产物校验结果。修改代码后需要重启 Autorun；旧会话不会自动更新提示词或预装状态。
 
-自动启动 Server 时，Autorun 会复制来源 `opencode.json` 到运行时配置目录，强制全局及 Agent 权限为 `allow`，并链接来源中的 Skill、Plugin 和 Provider。运行时配置目录按来源路径隔离（`_runtime/opencode/config-autorun-<来源哈希>`），且链接目标与当前来源不一致时会自动重建，切换来源或扩展版本后不会互相污染。已运行的 Server 只有在有效权限同样为全部允许时才会复用，否则 Autorun 会自动选择其他端口启动专用 Server。
+自动启动 Server 时，Autorun 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，强制全局及 Agent 的运行工具权限为 `allow`。`softwareEngineering` 的 Skill 权限例外采用来源精确白名单。运行数据、数据库、配置、状态和缓存均不跨 Agent 复用；配置端口已占用时会自动选择其他端口。
 
 ### 提示 Server 未强制全部权限 allow
 

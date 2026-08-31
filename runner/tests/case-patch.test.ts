@@ -2,11 +2,25 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import os from "node:os";
 import {
   applyPatch,
   buildGitApplyCommand,
   copyBaseProject,
 } from "../src/case/patch.js";
+
+test("copyBaseProject excludes preinstalled Skill without requiring a gitignore modification", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ohostest-skill-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const baseProject = path.join(root, "base");
+  const workProject = path.join(root, "work");
+  await fs.mkdir(path.join(baseProject, ".onemulti"), { recursive: true });
+  await fs.writeFile(path.join(baseProject, ".onemulti/decisions.json"), "{}");
+  await fs.writeFile(path.join(baseProject, "page.ets"), "source");
+  await copyBaseProject({ baseProject, workProject });
+  await assert.rejects(fs.access(path.join(workProject, ".onemulti")));
+  assert.equal(await fs.readFile(path.join(workProject, "page.ets"), "utf8"), "source");
+});
 
 test("copyBaseProject copies symlink targets as real files and directories", async (t) => {
   const root = path.join(process.cwd(), ".tmp-copy-base-project-test");

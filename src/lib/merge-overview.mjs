@@ -76,7 +76,15 @@ export function discoverBatches({ root, summaryName = "summary.json" }) {
   batches.sort((a, b) => a.label.localeCompare(b.label));
   const skipped = fs
     .readdirSync(root, { withFileTypes: true })
-    .filter((x) => x.isDirectory() && exists(path.join(root, x.name, "overview.html")) && !exists(path.join(root, x.name, summaryName)))
+    .filter((x) => {
+      if (!x.isDirectory()) return false;
+      const dir = path.join(root, x.name);
+      if (!exists(path.join(dir, "overview.html")) || exists(path.join(dir, summaryName))) return false;
+      // 新版 <批次>/<agentId> 的根级 overview 是统一入口，子目录已有
+      // summary.json 时不是损坏批次，不应作为“缺 summary”告警。
+      return !fs.readdirSync(dir, { withFileTypes: true })
+        .some((child) => child.isDirectory() && exists(path.join(dir, child.name, summaryName)));
+    })
     .map((x) => x.name);
   return { batches, skipped };
 }

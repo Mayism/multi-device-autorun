@@ -61,6 +61,15 @@ export async function loadOhosTestConfig(config) {
   const raw = hasOhosTestConfig ? config.ohosTest : {};
   const enabled = hasOhosTestConfig && raw.enabled !== false;
   const timeoutSec = Math.max(1, Number(raw.timeoutSec) || 7200);
+  const runnerEnv = { ...process.env };
+  const sdkHome = String(config.server?.sdkHome || "").trim();
+  const javaHome = String(config.server?.javaHome || "").trim();
+  if (sdkHome) {
+    runnerEnv.DEVECO_SDK_HOME = sdkHome;
+    runnerEnv.HOS_SDK_HOME = sdkHome;
+    runnerEnv.OHOS_SDK_HOME = sdkHome;
+  }
+  if (javaHome) runnerEnv.JAVA_HOME = javaHome;
   const machineConfig = { ...raw };
   delete machineConfig.enabled;
   delete machineConfig.timeoutSec;
@@ -80,6 +89,7 @@ export async function loadOhosTestConfig(config) {
     runnerDir: RUNNER_ROOT,
     timeoutSec,
     machineConfig,
+    runnerEnv,
     runMode: "swe",
   };
   if (!enabled) return normalized;
@@ -197,6 +207,7 @@ async function runProcess({
   command,
   args,
   cwd,
+  env,
   timeoutSec,
   signal,
   resultWatchPath,
@@ -275,6 +286,7 @@ async function runProcess({
     try {
       child = spawn(command, args, {
         cwd,
+        env,
         windowsHide: true,
         stdio: "ignore",
       });
@@ -352,6 +364,7 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     }, () => runProcess({
       ...invocation,
       cwd: settings.runnerDir,
+      env: settings.runnerEnv,
       timeoutSec: settings.timeoutSec,
       signal,
       resultWatchPath,

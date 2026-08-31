@@ -51,11 +51,7 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
 
   for (const result of allResults) {
     const caseName = result.case;
-    if (existing[caseName]?.url) {
-      results[caseName] = existing[caseName];
-      log(`${caseName}: 已上传，跳过`);
-      continue;
-    }
+    if (existing[caseName]?.url) results[caseName] = existing[caseName];
     // 打包所有用例（含 completed/skipped）：本地 ZIP 用于归档与结果分发；
     // 上传仍仅限失败/错误用例（caseNeedsUpload），避免把通过的用例灌进云存储
     const shouldUpload = enabled && caseNeedsUpload(result, ohosByCase.get(caseName));
@@ -83,6 +79,8 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
 
       if (!enabled) {
         log(`${caseName}: ✓ 已保存到本地（上传未开启）`);
+      } else if (existing[caseName]?.url) {
+        log(`${caseName}: 本地 ZIP 已更新；已有上传链接，跳过重复上传`);
       } else if (shouldUpload) {
         const objectName = `${prefix}/${zipName}`;
         log(`${caseName}: 上传 ${objectName}`);
@@ -95,7 +93,10 @@ export async function uploadFailedCases({ batchRoot, summary, report, enabled = 
         log(`${caseName}: ✓ 已保存到本地（无失败/错误，不上传）`);
       }
     } catch (error) {
-      results[caseName] = { url: "", error: error.message, uploadedAt: new Date().toISOString() };
+      // 本地重新归档失败不能抹掉已经上传成功的链接。
+      results[caseName] = existing[caseName]?.url
+        ? { ...existing[caseName], error: error.message }
+        : { url: "", error: error.message, uploadedAt: new Date().toISOString() };
       log(`${caseName}: ✗ ${error.message}`);
     }
 
