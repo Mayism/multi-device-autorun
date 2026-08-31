@@ -2,31 +2,45 @@
   "server": {
     "url": "http://127.0.0.1:61419",
     "opencodeSource": {
-      "mode": "harmonyBot",
-      "root": "C:/Users/HW/.vscode/extensions"
+      "strategy": "serial",
+      "continueOnTargetError": true,
+      "targets": [
+        {
+          "id": "harmonybot",
+          "mode": "harmonyBot",
+          "root": "/Users/mayism/.vscode/extensions",
+          "agent": "harmonyos-multi-device"
+        },
+        {
+          "id": "software-engineering",
+          "mode": "softwareEngineering",
+          "root": "/Users/mayism/.vscode/extensions/software-multi-device"
+        }
+      ]
     },
-    "devecoHome": "D:\\deveco\\DevEco Studio",
+    "devecoHome": "/Applications/DevEco-Studio.app/Contents",
     "loadAgents": [],
-    "hvigorw": "hvigorw",
-    "ohpm": "ohpm",
-    "sdkHome": "",
-    "javaHome": ""
+    "hvigorw": "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw",
+    "ohpm": "/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin/ohpm",
+    "sdkHome": "/Applications/DevEco-Studio.app/Contents/sdk",
+    "javaHome": "/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home"
   },
   "execution": {
-    "casesRoot": "D:\\cases",
+    "casesRoot": "/Users/mayism/cases",
     "agent": "harmonyos-multi-device",
+    "providerId": "zhipuai-coding-plan",
     "model": "glm-5.2",
     "additionalPrompt": "",
     "concurrency": 3,
     "consoleMode": "dashboard"
   },
   "whiteboxEvaluation": {
-    "enabled": true,
+    "enabled": false,
     "concurrency": 2,
     "timeoutSec": 1800,
     "failurePolicy": "record_only",
     "judge": {
-      "providerId": "zhipuai-token-plan",
+      "providerId": "zhipuai-coding-plan",
       "modelId": "glm-5.2",
       "basePort": 62400
     },
@@ -42,31 +56,31 @@
   },
   "ohosTest": {
     "paths": {
-      "hvigorw": "hvigorw",
-      "ohpm": "ohpm",
-      "hdc": "hdc",
-      "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
-      "emulatorDeployedDir": "D:/deveco/Images",
+      "hvigorw": "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw",
+      "ohpm": "/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin/ohpm",
+      "hdc": "/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc",
+      "emulatorBin": "/Applications/DevEco-Studio.app/Contents/tools/emulator/Emulator",
+      "emulatorDeployedDir": "/Users/mayism/.Huawei/Emulator/deployed",
       "foldServerScript": "../runner/src/fold/assets/fold-server.py"
     },
     "devices": [
       {
         "id": "phone",
-        "profile": "Pura 90 Pro",
+        "profile": "Pura 90",
         "target": "127.0.0.1:15001",
         "hdcPort": 15001,
         "startEmulator": true
       },
       {
         "id": "foldable",
-        "profile": "Mate X7_API24",
+        "profile": "Mate X7",
         "target": "127.0.0.1:15005",
         "hdcPort": 15005,
         "startEmulator": true
       },
       {
         "id": "tablet",
-        "profile": "MatePad Pro 13_API24",
+        "profile": "MatePad Pro 13",
         "target": "127.0.0.1:15008",
         "hdcPort": 15008,
         "startEmulator": true
@@ -74,7 +88,7 @@
     ]
   },
   "cloudTest": {
-    "enabled": true,
+    "enabled": false,
     "signingConfigs": [
       {
         "name": "default",
