@@ -55,7 +55,7 @@ function readVersion({ env, platform, timeoutMs = 5000 }) {
       if (settled) return;
       child.kill();
       settled = true;
-      resolve({ ok: false, version: "", error: `版本检测超过 ${timeoutMs}ms` });
+      resolve({ ok: false, version: "", failureKind: "timeout", error: `版本检测超过 ${timeoutMs}ms` });
     }, timeoutMs);
     timer.unref?.();
     child.stdout?.on("data", (chunk) => { stdoutChunks.push(chunk); });
@@ -64,7 +64,8 @@ function readVersion({ env, platform, timeoutMs = 5000 }) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve({ ok: false, version: "", error: error.message });
+      resolve({ ok: false, version: "", error: error.message,
+        failureKind: error.code === "ENOENT" && !invocation.shell ? "not-found" : "spawn-error" });
     });
     child.once("close", (code) => {
       if (settled) return;
@@ -94,11 +95,35 @@ export async function detectDevEcoCli({
   const result = await versionReader({ env, platform });
   const version = String(result?.version || "").trim();
   const error = String(result?.error || "").trim();
+  const installed = result?.ok === true && Boolean(version);
+  const failureKind = installed ? "" : (result?.failureKind || classifyDevEcoCliFailure(error));
   return {
-    installed: result?.ok === true && Boolean(version),
+    installed,
     command: DEVECO_CLI_COMMAND,
     version,
     error,
+    failureKind,
     installCommand: DEVECO_CLI_INSTALL_COMMAND,
   };
+}
+
+function classifyDevEcoCliFailure(error) {
+  if (/Invalid regular expression flags|EBADENGINE|Unsupported engine/i.test(error)) return "runtime-incompatible";
+  // cmd.exe 用错误文本报告命令不存在；不要把 CLI 内部缺少其他命令误报成未安装。
+  if (/["']?devecocli["']?\s+(?:is not recognized|不是内部或外部命令)/i.test(error)) return "not-found";
+  return "command-failed";
+}
+
+export function formatDevEcoCliFailure(cli, runtime) {
+  const details = cli.error ? `：${cli.error}` : "";
+  const node = runtime?.nodePath ? `；固定的 Node：${runtime.nodePath}` : "";
+  const required = runtime?.requiredNode ? `（CLI 要求 ${runtime.requiredNode}）` : "";
+  if (cli.failureKind === "not-found") {
+    return `命令未找到${details}；确认 CLI 已安装并位于 Agent PATH。安装命令：${cli.installCommand}`;
+  }
+  if (cli.failureKind === "runtime-incompatible") {
+    return `Node 运行时不兼容${details}${node}${required}；请使用满足 CLI 要求的 Node 启动 Autorun，并检查启动日志中的 devecocli Node。`;
+  }
+  if (cli.failureKind === "timeout") return `版本检测超时${details}${node}；请检查 CLI 启动是否卡住。`;
+  return `CLI 启动或执行失败${details}${node}${required}；请检查真实错误和 Agent 工具环境。`;
 }

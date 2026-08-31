@@ -61,7 +61,7 @@ autorun/
     └── <batchId>/              # 正式批量运行结果
 ```
 
-工程仅提供 `.mjs` 入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行。当前自动化主链不会依赖平台专用的 `.bat`、`.ps1` 或 `.sh` 脚本。
+工程提供 `.mjs` 启动入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行，不需要手工维护平台启动脚本。Autorun 会按需在私有 runtime 中生成 CLI 的 shell/`.cmd` 包装脚本。
 首次检出后需要安装内置 Runner 和白盒评价子系统的依赖并完成构建：
 
 ```bash
@@ -79,7 +79,9 @@ devecocli --version
 
 安装成功后，从能执行 `devecocli --version` 的同一个终端重启 Autorun。使用 nvm 时，全局包属于安装时选中的 Node 版本；切换版本或从 IDE 启动可能导致 Agent 的 PATH 找不到已安装命令。
 
-启动 Autorun 的 Node 也必须满足所安装 CLI 的版本要求（例如 `devecocli 1.3.1` 要求 Node >=22）。在 macOS/Linux 上，Autorun 为 PATH 中已安装的 Node 版 `devecocli` 创建私有启动脚本，固定使用启动 Autorun 的 Node；预检和 Agent 共用该脚本，避免 DevEco 自带的 Node 18 抢占解释器。此设置不改变 Hvigor/ohpm 原有的 PATH；启动日志会显示 `devecocli Node` 的路径和版本。
+启动 Autorun 的 Node 也必须满足所安装 CLI 的版本要求（例如 `devecocli 1.3.1` 要求 Node >=22）。Autorun 在 Windows、macOS/Linux 上均为 PATH 中已安装的标准 npm Node 版 `devecocli` 创建私有启动脚本，固定使用启动 Autorun 的 Node；预检和 Agent 共用该入口，避免 DevEco 自带的 Node 18 抢占解释器。Windows 会解析 npm 的 `.cmd` 并核对包声明的 JS 入口，再生成供 cmd/PowerShell 调用的 `.cmd` 和供 Git Bash 调用的 shell 包装脚本，不会将 `.cmd` 本身当作 JavaScript 执行。自定义脚本和原生可执行文件保持原有行为。
+
+此设置不改变 Hvigor/ohpm 原有的 PATH，也不修改系统 Node 或 npm 的全局启动脚本；启动日志会显示 `devecocli Node` 的路径和版本。如果启动 Autorun 的 Node 本身太旧，仍需先切换到满足 CLI 要求的 Node。预检会区分命令未找到、Node 不兼容、超时和其他执行错误，只有命令未找到时才提示安装命令。修改后须重启 Autorun 以生成新的私有入口。
 
 ## 用例格式
 

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { detectDevEcoCli } from "./deveco-cli.mjs";
+import { detectDevEcoCli, formatDevEcoCliFailure } from "./deveco-cli.mjs";
 
 const execute = promisify(execFile);
 const ONE_MULTI_NAME = "harmonyos-ui-multi";
@@ -106,7 +106,7 @@ export async function prepareAgentSkillRuntime({ resources, registeredSkills, ag
   // 与 Agent 使用相同 PATH；先验证 CLI，避免付出模型调用成本后才降级工作流。
   const cli = await detectDevEcoCli({ env: runtime.env });
   signal?.throwIfAborted();
-  if (!cli.installed) throw new Error(`${ONE_MULTI_NAME} 必需的 devecocli 不可用: ${cli.error}；${cli.installCommand}`);
+  if (!cli.installed) throw new Error(`${ONE_MULTI_NAME} 必需的 devecocli 不可用: ${formatDevEcoCliFailure(cli, resources.devecoCliRuntime)}`);
   for (const relative of ["scripts/install-to-project.py", "scripts/task-ledger.py", "scripts/static-check.py", "scripts/validate-state.py", "scripts/render-report.py"]) {
     await runPython(python, [path.join(skill.root, relative), "--help"], { env: runtime.env, cwd: skill.root, signal });
   }

@@ -19,7 +19,7 @@ import { writeBatchReport } from "./src/lib/batch-report.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
 import { mergeOverview } from "./src/lib/merge-overview.mjs";
 import { serverAllowsEverything, serverAllowsExecution } from "./src/lib/permission-policy.mjs";
-import { detectDevEcoCli } from "./src/lib/deveco-cli.mjs";
+import { detectDevEcoCli, formatDevEcoCliFailure } from "./src/lib/deveco-cli.mjs";
 import {
   prepareAgentSkillRuntime,
   summarizeAgentSkillRuntime,
@@ -2631,8 +2631,7 @@ try {
   if (devecoCli.installed) {
     console.log(`[check] DevEco CLI 可用: ${devecoCli.command} ${devecoCli.version}`);
   } else {
-    const detail = devecoCli.error ? `；检测失败: ${devecoCli.error.replace(/\s+/g, " ").trim()}` : "";
-    console.warn(`[warn] DevEco CLI 不可用${detail}；安装或修复请执行: ${devecoCli.installCommand}`);
+    console.warn(`[warn] DevEco CLI 不可用: ${formatDevEcoCliFailure(devecoCli)}`);
   }
   const recovered = await recoverInterruptedRuns(config.execution.outputRoot);
   for (const item of recovered) {
