@@ -492,9 +492,9 @@ Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会�
 
 Agent 的实际提示词会追加无人值守确认和“业务工程 + 授权工具资源”边界：所有 permission 自动允许，question 自动采用允许、继续、推荐或默认方案；禁止读取其他用例、隐藏测试、标准答案和评测结果，但允许读取当前来源实际注册的 Skill 快照，并从工程 cwd 调用其中的脚本，以及读取明确列出的 SDK/工具目录。授权不扩大到整个 runtime、父目录或 Provider 配置。这是提示词约束，不是操作系统级文件沙箱。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。
 
-`harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version`、必需脚本和关键脚本的 `--help`。Python、Skill 注册或必需脚本损坏仍会在模型会话前报错；`devecocli` 不可用仅告警并继续评测。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约，确因 CLI 缺失无法完成时必须标为未验证。
+`harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version` 和 `install-to-project.py` 安装入口；其他脚本属于 Skill 内部实现，不校验固定名称或数量。Python、Skill 注册或安装入口损坏仍会在模型会话前报错；`devecocli` 不可用仅告警并继续评测。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和实际脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约，确因 CLI 缺失无法完成时必须标为未验证。
 
-Agent 正常结束后，Autorun 运行 Skill 的账本与状态校验并检查汇总 HTML，结果写入 `generate/skill-workflow.json` 和用例 `result.json.skillWorkflow`。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
+Agent 正常结束后，Autorun 检查 `.onemulti/decisions.json` 能否解析以及汇总 HTML 是否存在，结果写入 `generate/skill-workflow.json` 和用例 `result.json.skillWorkflow`。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
 
 当前版本只扫描启动时已经存在的用例。运行过程中新增到 `casesRoot` 的用例需要在下一次启动时执行。
 

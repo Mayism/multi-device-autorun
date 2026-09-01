@@ -6,18 +6,7 @@ import { detectDevEcoCli, formatDevEcoCliFailure } from "./deveco-cli.mjs";
 
 const execute = promisify(execFile);
 const ONE_MULTI_NAME = "harmonyos-ui-multi";
-const ONE_MULTI_SCRIPTS = [
-  "scripts/install-to-project.py",
-  "scripts/task-ledger.py",
-  "scripts/static-check.py",
-  "scripts/render-report.py",
-  "scripts/check-device-types.py",
-  "scripts/validate-state.py",
-  "scripts/verification/preflight.py",
-  "scripts/verification/evidence-session.py",
-  "scripts/verification/prepare-device.py",
-  "scripts/verification/run-foundation.py",
-];
+const ONE_MULTI_INSTALLER = "scripts/install-to-project.py";
 
 function isInside(root, target) {
   const relative = path.relative(root, target);
@@ -98,17 +87,19 @@ export async function prepareAgentSkillRuntime({ resources, registeredSkills, ag
   if (sourceMode !== "harmonyBot" || agent !== "harmonyos-multi-device") return runtime;
   const skill = skills.find((item) => item.name === ONE_MULTI_NAME);
   if (!skill) throw new Error(`${ONE_MULTI_NAME} 未在当前来源快照中注册，拒绝借用其他 Agent 的 Skill`);
-  for (const relative of ONE_MULTI_SCRIPTS) {
-    const target = await regularPathInside(skill.root, path.join(skill.root, relative));
-    if (!(await fs.stat(target)).isFile()) throw new Error(`Skill 脚本不是文件: ${target}`);
+  // Autorun 只依赖稳定的安装入口；其余脚本属于 Skill 内部实现，不按名称或数量耦合。
+  let installer;
+  try {
+    installer = await regularPathInside(skill.root, path.join(skill.root, ONE_MULTI_INSTALLER));
+  } catch (error) {
+    if (error.code === "ENOENT") throw new Error(`${ONE_MULTI_NAME} 缺少安装入口: ${ONE_MULTI_INSTALLER}`);
+    throw error;
   }
+  if (!(await fs.stat(installer)).isFile()) throw new Error(`Skill 安装入口不是文件: ${installer}`);
   const python = await findSkillPython(runtime.env, signal);
   // 与 Agent 使用相同 PATH；先验证 CLI，避免付出模型调用成本后才降级工作流。
   const cli = await detectDevEcoCli({ env: runtime.env });
   signal?.throwIfAborted();
-  for (const relative of ["scripts/install-to-project.py", "scripts/task-ledger.py", "scripts/static-check.py", "scripts/validate-state.py", "scripts/render-report.py"]) {
-    await runPython(python, [path.join(skill.root, relative), "--help"], { env: runtime.env, cwd: skill.root, signal });
-  }
   const reportedCli = { ...cli, error: String(cli.error || "").slice(-2000) };
   const devecoCli = cli.installed
     ? { status: "available", command: cli.command, version: cli.version }
@@ -140,16 +131,16 @@ export async function installProjectSkill({ runtime, projectDir, signal }) {
   if (!runtime.oneMulti) return null;
   const projectRoot = await fs.realpath(projectDir);
   const omRoot = path.join(projectRoot, ".onemulti");
+  async function rejectLinks(directory) {
+    for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) throw new Error(`.onemulti 不允许共享符号链接: ${path.join(directory, entry.name)}`);
+      if (entry.isDirectory()) await rejectLinks(path.join(directory, entry.name));
+    }
+  }
   try {
     const stat = await fs.lstat(omRoot);
     if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(".onemulti 必须是当前工程内的独立目录");
     // 安装器会写账本并替换子目录，拒绝已有链接以防写入其他用例。
-    async function rejectLinks(directory) {
-      for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-        if (entry.isSymbolicLink()) throw new Error(`.onemulti 不允许共享符号链接: ${path.join(directory, entry.name)}`);
-        if (entry.isDirectory()) await rejectLinks(path.join(directory, entry.name));
-      }
-    }
     await rejectLinks(omRoot);
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
@@ -160,17 +151,19 @@ export async function installProjectSkill({ runtime, projectDir, signal }) {
   const originalIgnore = ignoreStat ? await fs.readFile(ignorePath) : null;
   let installed;
   try {
-    installed = await runPython(runtime.oneMulti.python, [path.join(runtime.oneMulti.root, "scripts/install-to-project.py"), projectRoot], {
+    installed = await runPython(runtime.oneMulti.python, [path.join(runtime.oneMulti.root, ONE_MULTI_INSTALLER), projectRoot], {
       env: runtime.env, cwd: projectRoot, signal, timeout: 60_000,
     });
   } finally {
     if (originalIgnore === null) await fs.rm(ignorePath, { force: true });
     else await fs.writeFile(ignorePath, originalIgnore);
   }
-  // 安装器会主动移除自己的工程内副本；运行脚本必须完整保留。
-  for (const relative of ONE_MULTI_SCRIPTS.filter((item) => item !== "scripts/install-to-project.py")) {
-    await regularPathInside(projectRoot, path.join(omRoot, relative));
-  }
+  const installedStat = await fs.lstat(omRoot).catch((error) => {
+    if (error.code === "ENOENT") throw new Error(`Skill 安装完成但未生成 ${omRoot}`);
+    throw error;
+  });
+  if (installedStat.isSymbolicLink() || !installedStat.isDirectory()) throw new Error("Skill 安装结果 .onemulti 不是独立目录");
+  await rejectLinks(omRoot);
   return { name: ONE_MULTI_NAME, root: omRoot, sourceRoot: runtime.oneMulti.root, output: installed.stdout };
 }
 
@@ -195,10 +188,9 @@ ${toolLines.join("\n") || "  - 无额外工具资源目录。"}
 
 # Skill 调用约定（强制）
 
-${runtime.oneMulti ? `- Autorun 已将 ${ONE_MULTI_NAME} 安装到当前工程的 .onemulti/，并已检查 Python、Skill 脚本和 devecocli 状态；不要再次安装，不要注入 AGENTS.md 或修改 .gitignore。初始化、验证和报告仍必须由你按 Skill 完成。
+${runtime.oneMulti ? `- Autorun 已将 ${ONE_MULTI_NAME} 安装到当前工程的 .onemulti/，并已检查 Python、Skill 安装入口和 devecocli 状态；不要再次安装，不要注入 AGENTS.md 或修改 .gitignore。初始化、验证和报告仍必须由你按 Skill 完成。
 ${devecoCliLine}
-- Python 解释器：${JSON.stringify(runtime.oneMulti.python.command)}。每次工具调用都使用明确的 .onemulti/scripts/... 路径，或在同一次命令中设置 OM；不要依赖上一轮 shell 的 export 持续存在。
-- 示例（cwd 为当前工程）：${JSON.stringify(runtime.oneMulti.python.command)} -B .onemulti/scripts/task-ledger.py validate .onemulti/decisions.json。
+- Python 解释器：${JSON.stringify(runtime.oneMulti.python.command)}。按照当前 Skill 文档调用实际安装到 .onemulti/scripts/ 的脚本；不要假设固定脚本清单，也不要依赖上一轮 shell 的 export 持续存在。
 - 预装的 .onemulti 由 Autorun 排除出业务 Patch 和评分输入，但会随用例 ZIP 归档。` : "- 相对引用基于所属 Skill 根目录解析；优先使用已提供的本地快照，保留同来源 Skill 间的引用关系。需要新增 Skill 时不能自行突破来源白名单。"}
 - 每次 shell 调用显式设置 cwd。检查真实退出码；使用管道截取输出时必须保留前序命令失败状态，不能把 tail 的成功当作脚本成功。
 
@@ -213,17 +205,15 @@ ${devecoCliLine}
 export async function inspectSkillWorkflow({ runtime, projectDir, signal }) {
   if (!runtime.oneMulti) return undefined;
   const checks = [];
-  for (const [script, args] of [
-    ["task-ledger.py", ["validate", path.join(projectDir, ".onemulti/decisions.json")]],
-    ["validate-state.py", [projectDir]],
-  ]) {
-    try {
-      await runPython(runtime.oneMulti.python, [path.join(runtime.oneMulti.root, "scripts", script), ...args], { env: runtime.env, cwd: projectDir, signal });
-      checks.push({ check: script, status: "passed" });
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      checks.push({ check: script, status: "failed", error: String(error.stderr || error.message).slice(-4000) });
-    }
+  signal?.throwIfAborted();
+  const ledgerPath = path.join(projectDir, ".onemulti/decisions.json");
+  try {
+    const stat = await fs.stat(ledgerPath);
+    if (!stat.isFile() || stat.size === 0) throw new Error("文件为空或不是普通文件");
+    JSON.parse(await fs.readFile(ledgerPath, "utf8"));
+    checks.push({ check: "decisions.json", status: "passed" });
+  } catch (error) {
+    checks.push({ check: "decisions.json", status: "missing-or-invalid", error: String(error.message).slice(-4000) });
   }
   const reportPath = path.join(projectDir, ".onemulti/adaptation-summary.html");
   const reportExists = await fs.stat(reportPath).then((stat) => stat.isFile() && stat.size > 0, () => false);

@@ -54,10 +54,8 @@ test("only registered skills from this source snapshot enter the prompt", async 
 async function oneMultiFixture(t) {
   const state = await fixture(t);
   const skillRoot = await addSkill(state.skillsRoot, "harmonyos-ui-multi");
-  const scripts = [
-    "task-ledger.py", "static-check.py", "render-report.py", "check-device-types.py", "validate-state.py",
-    "verification/preflight.py", "verification/evidence-session.py", "verification/prepare-device.py", "verification/run-foundation.py",
-  ];
+  // 辅助脚本名称可以随 Skill 版本变化，Autorun 只依赖安装入口。
+  const scripts = ["renamed-workflow-helper.py"];
   for (const script of scripts) {
     await fs.mkdir(path.dirname(path.join(skillRoot, "scripts", script)), { recursive: true });
     await fs.writeFile(path.join(skillRoot, "scripts", script), "print('ok')\n");
@@ -111,20 +109,36 @@ test("failed installer restores business ignore file and does not create a sessi
   assert.equal(await fs.readFile(path.join(projectDir, ".gitignore"), "utf8"), "original\n");
 });
 
-test("workflow audit reports validator failures even when an HTML report exists", async (t) => {
-  const { root, runtime, skillRoot } = await oneMultiFixture(t);
+test("workflow audit checks products without depending on helper script names", async (t) => {
+  const { root, runtime } = await oneMultiFixture(t);
   const projectDir = path.join(root, "task");
   await fs.mkdir(projectDir);
   await installProjectSkill({ runtime, projectDir });
   await fs.writeFile(path.join(projectDir, ".onemulti/adaptation-summary.html"), "<html>report</html>");
-  await fs.writeFile(path.join(skillRoot, "scripts/validate-state.py"), "import sys\nsys.stderr.write('missing evidence')\nsys.exit(2)\n");
+  assert.equal((await inspectSkillWorkflow({ runtime, projectDir })).status, "validated");
+  await fs.writeFile(path.join(projectDir, ".onemulti/decisions.json"), "not json");
   const audit = await inspectSkillWorkflow({ runtime, projectDir });
   assert.equal(audit.status, "incomplete");
-  assert.equal(audit.checks[1].status, "failed");
-  assert.match(audit.checks[1].error, /missing evidence/);
-  assert.equal(audit.checks[2].status, "passed");
-  await fs.writeFile(path.join(skillRoot, "scripts/validate-state.py"), "print('ok')\n");
-  assert.equal((await inspectSkillWorkflow({ runtime, projectDir })).status, "validated");
+  assert.equal(audit.checks[0].check, "decisions.json");
+  assert.equal(audit.checks[0].status, "missing-or-invalid");
+});
+
+test("required Skill preparation fails clearly when the installer is missing", async (t) => {
+  const { skillsRoot, skillRoot } = await oneMultiFixture(t);
+  await fs.rm(path.join(skillRoot, "scripts/install-to-project.py"));
+  await assert.rejects(prepareAgentSkillRuntime({
+    resources: { skillsRoot, env: process.env }, registeredSkills: [{ name: "harmonyos-ui-multi" }],
+    agent: "harmonyos-multi-device", sourceMode: "harmonyBot",
+  }), /缺少安装入口: scripts\/install-to-project\.py/);
+});
+
+test("required Skill preparation accepts any auxiliary script layout", async (t) => {
+  const { skillsRoot } = await oneMultiFixture(t);
+  const prepared = await prepareAgentSkillRuntime({
+    resources: { skillsRoot, env: process.env }, registeredSkills: [{ name: "harmonyos-ui-multi" }],
+    agent: "harmonyos-multi-device", sourceMode: "harmonyBot",
+  });
+  assert.equal(prepared.oneMulti.root, await fs.realpath(path.join(skillsRoot, "harmonyos-ui-multi")));
 });
 
 test("preinstall rejects a linked ledger without writing into another case", { skip: process.platform === "win32" }, async (t) => {
