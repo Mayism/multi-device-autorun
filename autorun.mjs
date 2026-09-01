@@ -7,38 +7,38 @@ import { createHash, randomUUID } from "node:crypto";
 import { createConnection, createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { OpenCodeClient } from "./src/lib/opencode-client.mjs";
-import { runMonitoredSession, isQuotaExceededMessage } from "./src/lib/session-monitor.mjs";
-import { copyProject } from "./src/lib/sandbox-copy.mjs";
-import { ConsoleReporter } from "./src/lib/console-reporter.mjs";
-import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/lib/token-usage.mjs";
-import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/lib/compile-usage.mjs";
-import { loadOhosTestConfig, runOhosTest } from "./src/lib/ohostest-orchestrator.mjs";
-import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling } from "./src/lib/cloudtest-orchestrator.mjs";
-import { writeBatchReport } from "./src/lib/batch-report.mjs";
-import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/lib/opencode-installation.mjs";
-import { mergeOverview } from "./src/lib/merge-overview.mjs";
-import { serverAllowsEverything, serverAllowsExecution } from "./src/lib/permission-policy.mjs";
-import { detectDevEcoCli, formatDevEcoCliFailure } from "./src/lib/deveco-cli.mjs";
+import { OpenCodeClient } from "./src/opencode/opencode-client.mjs";
+import { runMonitoredSession, isQuotaExceededMessage } from "./src/agent/session-monitor.mjs";
+import { copyProject } from "./src/runtime/sandbox-copy.mjs";
+import { ConsoleReporter } from "./src/runtime/console-reporter.mjs";
+import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/agent/token-usage.mjs";
+import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/agent/compile-usage.mjs";
+import { loadOhosTestConfig, runOhosTest } from "./src/ohostest/autorun/orchestrator.mjs";
+import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling } from "./src/cloudtest/cloudtest-orchestrator.mjs";
+import { writeBatchReport } from "./src/report/batch-report.mjs";
+import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/opencode/opencode-installation.mjs";
+import { mergeOverview } from "./src/report/merge-overview.mjs";
+import { serverAllowsEverything, serverAllowsExecution } from "./src/agent/permission-policy.mjs";
+import { detectDevEcoCli, formatDevEcoCliFailure } from "./src/platform/deveco-cli.mjs";
 import {
   prepareAgentSkillRuntime,
   summarizeAgentSkillRuntime,
   installProjectSkill,
   buildAgentSandboxPolicy,
   inspectSkillWorkflow,
-} from "./src/lib/agent-skill-runtime.mjs";
-import { normalizeAgentTargets, normalizeGenerationModel } from "./src/lib/agent-targets.mjs";
-import { writeAgentComparisonReport } from "./src/lib/agent-comparison-report.mjs";
+} from "./src/agent/agent-skill-runtime.mjs";
+import { normalizeAgentTargets, normalizeGenerationModel } from "./src/agent/agent-targets.mjs";
+import { writeAgentComparisonReport } from "./src/report/agent-comparison-report.mjs";
 import {
   filterGeneratedArtifactPatch,
   GENERATED_ARTIFACT_GIT_EXCLUDES,
   pruneGeneratedArtifacts,
-} from "./src/lib/generated-artifact-filter.mjs";
+} from "./src/artifacts/generated-artifact-filter.mjs";
 import {
   createWhiteboxOrchestrator,
   normalizeWhiteboxConfig,
   prepareWhiteboxInput,
-} from "./src/lib/whitebox-orchestrator.mjs";
+} from "./src/whitebox/autorun/orchestrator.mjs";
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_ROOT = path.join(AUTORUN_ROOT, "output");
@@ -55,7 +55,7 @@ const AGENT_AUTO_APPROVAL_POLICY = `# 无人值守确认策略（强制）
 - 如存在多个合理实现且没有额外业务信息，采用推荐方案或最稳妥的默认方案继续完成任务。`;
 
 function agentDeviceLeasePolicy(caseName, deviceLeasePath) {
-  const helperPath = path.join(AUTORUN_ROOT, "src", "lib", "device-lease.mjs");
+  const helperPath = path.join(AUTORUN_ROOT, "src", "ohostest", "autorun", "device-lease.mjs");
   return `# 设备租约调用方式（强制）
 
 - 本用例的设备租约路径：\`${deviceLeasePath}\`。
@@ -177,10 +177,7 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
   normalized.__baseDir = baseDir;
   normalized.server ||= {};
   normalized.execution ||= {};
-  const targetConfig = normalizeAgentTargets(normalized.server.opencodeSource, {
-    baseDir,
-    defaultAgent: normalized.execution.agent,
-  });
+  const targetConfig = normalizeAgentTargets(normalized.server.opencodeSource, { baseDir });
   normalized.server.opencodeTargets = targetConfig;
   // 下游单 Agent 逻辑继续读取 opencodeSource；串行编排时会为每个 target
   // 克隆配置并覆盖为当前来源。
@@ -437,7 +434,7 @@ async function ensureOpenCodeServer(config, {
     client = new OpenCodeClient(serverUrl);
   }
 
-  const serveScript = fileURLToPath(new URL("./src/run-opencode-serve.mjs", import.meta.url));
+  const serveScript = fileURLToPath(new URL("./src/opencode/run-opencode-serve.mjs", import.meta.url));
   if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
   const runtimeRoot = config.server.runtimeRoot;
   const port = new URL(serverUrl).port || "61417";
@@ -2498,7 +2495,7 @@ if (args.merge !== undefined) {
 // TODO(用户要求保留调试)：云测试已接入主批次流程（cloudTest.enabled 默认 true），
 // 此独立指令仅作调试用途，待确认稳定后删除（连同 --poll-task 一并评估）。
 if (args.cloudTest) {
-  const { runCloudTest } = await import("./src/lib/cloudtest-orchestrator.mjs");
+  const { runCloudTest } = await import("./src/cloudtest/cloudtest-orchestrator.mjs");
   let projectDir = args.cloudProjectDir ? path.resolve(args.cloudProjectDir) : "";
   if (args.retryCaseName) {
     const caseRoot = path.join(config.execution.casesRoot, args.retryCaseName);
@@ -2546,7 +2543,7 @@ if (args.cloudTest) {
 
 // --poll-task 模式：不构建、不提交，仅续查已提交云测试任务的状态，短路退出。
 if (args.pollTask) {
-  const { pollExistingTask } = await import("./src/lib/cloudtest-orchestrator.mjs");
+  const { pollExistingTask } = await import("./src/cloudtest/cloudtest-orchestrator.mjs");
   const pollShutdown = new AbortController();
   const onPollInterrupt = (signame) => {
     if (pollShutdown.signal.aborted) return;
@@ -2799,7 +2796,7 @@ try {
         });
       }
       exitCode = 1;
-      if (shutdownController.signal.aborted || !targetPlan.continueOnTargetError) break;
+      if (shutdownController.signal.aborted) break;
     } finally {
       await beginOwnedServerStop();
       server = null;

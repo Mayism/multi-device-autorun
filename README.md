@@ -49,12 +49,17 @@ autorun/
 ├── autorun.mjs                 # 批量任务一键入口
 ├── config/
 │   └── autorun.config.json     # 核心配置
-├── src/                        # 内部入口和实现
-│   ├── ask-opencode.mjs        # 人工执行单个 Agent 任务
-│   ├── run-opencode-serve.mjs  # 独立启动 OpenCode Server
-│   └── lib/                    # Autorun 内部模块
-├── runner/                     # 内置 HarmonyOS ohosTest Runner
-├── whitebox-evaluation/         # 独立白盒评价子系统
+├── src/                        # 按业务能力划分的实现
+│   ├── agent/                  # Agent 会话、权限、Skill 和用量
+│   ├── opencode/               # OpenCode 客户端、Server 和调试入口
+│   ├── ohostest/               # HarmonyOS ohosTest Runner 与编排
+│   ├── whitebox/               # 白盒评价子系统与编排
+│   ├── cloudtest/              # AGC 云测试客户端、编排和报告
+│   ├── report/                 # 批次、合并及 HTML 报告
+│   ├── artifacts/              # 产物过滤、ZIP 和上传
+│   ├── platform/               # DevEco 等平台工具适配
+│   ├── runtime/                # 工程沙箱复制和控制台运行时
+│   └── shared/                 # 无业务归属的轻量公共能力
 └── output/
     ├── _runtime/opencode/      # 生成 Agent 的 OpenCode 运行数据
     ├── _runtime/whitebox/      # 白盒裁判的独立 OpenCode 运行数据
@@ -62,13 +67,13 @@ autorun/
 ```
 
 工程提供 `.mjs` 启动入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行，不需要手工维护平台启动脚本。Autorun 会按需在私有 runtime 中生成 CLI 的 shell/`.cmd` 包装脚本。
-首次检出后需要安装内置 Runner 和白盒评价子系统的依赖并完成构建：
+ohosTest 和白盒评价共用根目录依赖。首次检出后只需在工程根目录安装一次；`postinstall` 会自动构建两个 TypeScript 模块，其中白盒评价必须生成 `src/whitebox/dist/localCli.js` 后才能运行：
 
 ```bash
-npm --prefix runner install
-npm --prefix whitebox-evaluation install
-npm --prefix whitebox-evaluation run build
+npm install
 ```
+
+源码修改后需要手动重新构建时执行 `npm run build`，只构建白盒可执行 `npm run build:whitebox`。
 
 Autorun 启动时会执行 `devecocli --version`，检查 DevEco CLI 并显示版本。`harmonyBot` 的 `harmonyos-multi-device` 还会在 Agent 的实际 PATH 下检查一次；两处检查均为非阻断告警。CLI 缺失、Node 不兼容或命令失败时仍继续创建 Agent 会话和执行评测，依赖该 CLI 的构建/运行验证会记录为不可用或未验证。可按需安装或修复：
 
@@ -108,32 +113,30 @@ devecocli --version
   "server": {
     "url": "http://127.0.0.1:61419",
     "opencodeSource": {
-      "mode": "softwareEngineering",
-      "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
+      "targets": [
+        {
+          "id": "harmonybot",
+          "mode": "harmonyBot",
+          "root": "C:\\Users\\HW\\.vscode\\extensions",
+          "agent": "harmonyos-multi-device"
+        },
+        {
+          "id": "software-engineering",
+          "mode": "softwareEngineering",
+          "root": "C:\\Users\\HW\\.vscode\\extensions\\software-multi-device"
+        }
+      ]
     },
     "devecoHome": "D:\\deveco\\DevEco Studio"
   },
   "execution": {
     "casesRoot": "D:\\cases",
-    "agent": "harmonyos-multi-device",
     "providerId": "deepseek",
     "model": "deepseek-v4-flash",
-    "additionalPrompt": "",
     "concurrency": 3
   },
   "whiteboxEvaluation": {
-    "enabled": true,
-    "concurrency": 2,
-    "timeoutSec": 1800,
-    "failurePolicy": "record_only",
-    "judge": {
-      "providerId": "deepseek",
-      "modelId": "deepseek-v4-flash",
-      "basePort": 62400
-    },
-    "prompt": {
-      "includeAdditionalPrompt": true
-    }
+    "enabled": false
   },
   "ohosTest": {
     "paths": {
@@ -141,8 +144,7 @@ devecocli --version
       "ohpm": "ohpm",
       "hdc": "hdc",
       "emulatorBin": "D:/deveco/DevEco Studio/tools/emulator/Emulator.exe",
-      "emulatorDeployedDir": "D:/deveco/Images",
-      "foldServerScript": "../runner/src/fold/assets/fold-server.py"
+      "emulatorDeployedDir": "D:/deveco/Images"
     },
     "devices": [
       {
@@ -155,15 +157,7 @@ devecocli --version
     ]
   },
   "cloudTest": {
-    "enabled": true,
-    "teamId": "260086000249430501",
-    "projectId": "388421841221975192",
-    "testCategories": [
-      { "category": 24, "timeSpan": 40 }
-    ],
-    "pollIntervalSec": 60,
-    "taskTimeoutSec": 3600
-  }
+    "enabled": false
   }
 }
 ```
@@ -175,15 +169,13 @@ devecocli --version
 | `server.url` | OpenCode Server 地址。地址不可用时会自动启动 Server。 |
 | `server.opencodeSource.mode` | 单 Agent 兼容配置的来源模式，只支持 `harmonyBot` 或 `softwareEngineering`。 |
 | `server.opencodeSource.root` | 单 Agent 来源根目录。`harmonyBot` 模式填写 VS Code 的 `extensions` 目录；`softwareEngineering` 模式填写包含 `resources/opencode` 的资源包根目录。 |
-| `server.opencodeSource.targets` | 多 Agent 串行目标数组。每项必须提供唯一 `id`、`mode`、`root`，`harmonyBot` 目标还可单独指定 `agent`。目标严格按数组顺序串行执行。 |
-| `server.opencodeSource.continueOnTargetError` | 某个 Agent 启动或执行失败后是否继续下一个 Agent，默认 `true`。 |
+| `server.opencodeSource.targets` | 多 Agent 串行目标数组。每项必须提供唯一 `id`、`mode`、`root`；`harmonyBot` 目标还必须提供 `agent`。目标严格按数组顺序串行执行，单个目标失败后继续下一个目标。 |
 | `server.devecoHome` | DevEco Studio 安装目录。也可以用 `DEVECO_HOME` 环境变量覆盖。 |
 | `server.hvigorw` / `server.ohpm` | 机器级工具路径（与 `devecoHome` 同级，云测试构建使用）：`hvigorw` 填 hvigorw.js 路径（自动以当前 node 运行）或可执行命令，`ohpm` 填 ohpm 命令；**含空格的路径会自动加引号**（如 Windows `D:\deveco\DevEco Studio\…`）；未配置则复用 `ohosTest.paths` 已有键，再退到 PATH 裸命令。 |
 | `server.sdkHome` / `server.javaHome` | 可选：设置后注入 `DEVECO_SDK_HOME`/`JAVA_HOME`（云测试构建），未设置继承当前环境。 |
 | `server.stopWhenFinished` | 单来源兼容字段。隔离执行始终在每个 Agent 结束后关闭其专属 Server，避免状态进入下一个 Agent。 |
 | `execution.casesRoot` | 用例根目录。 |
 | `execution.outputRoot` | 批次、工程副本、报告及 OpenCode 运行数据的输出根目录，默认是项目根目录下的 `output`。Windows 下使用 Hvigor 时建议配置成 `D:/out`、`D:/ar` 等尽可能短的绝对路径，降低 259 字符路径上限导致的构建失败风险。 |
-| `execution.agent` | `harmonyBot` 模式使用的 OpenCode Agent 名称。`softwareEngineering` 只有 Skills，固定使用 OpenCode 内置 `build` Agent，该字段在该模式下会被忽略。 |
 | `execution.providerId` | 生成模型 Provider ID。多 Agent 对比时必填；Autorun 从一个包含该模型的来源冻结 Provider 配置并注入全部目标。 |
 | `execution.providerSourceTargetId` | 可选：指定从哪个 Agent 目标读取统一 Provider 配置；未指定时按 `targets` 顺序选择第一个包含指定模型的来源。 |
 | `execution.model` | 全局生成模型 ID。所有 Agent 共用，目标配置不能覆盖；单 Agent 未配置 `providerId` 时会从 Server 唯一匹配。 |
@@ -210,7 +202,7 @@ devecocli --version
 | `cloudTest.proxy` | **OBS 直传专用代理**（`http://user:pass@host:port`，也支持 `host:port`；用户名密码含特殊字符时需 URL 编码），云测试 API 与 refresh 始终直连；也可用环境变量 `AGC_PROXY`。HTTPS 上传经 HTTP CONNECT 隧道传输；配置代理时默认跳过证书校验（兼容企业 MITM 自签证书）。 |
 | `cloudTest.taskTimeoutSec` | 单个云测试任务的轮询总时长（秒），默认 7200（2 小时）；超时退出但任务仍在云端继续执行。 |
 | `cloudTest.bundleName` | 补充签名：打包前替换工程 `AppScope/app.json5` 的 `bundleName`（需与签名 profile 匹配；不配置则保留工程原值）。 |
-| `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库在 `config/test.cer|p12|p7b` 提供了一套参考证书，该配置与各环境相关，默认不入库、自行填写。 |
+| `cloudTest.signingConfigs` | 补充签名：整体替换工程 `build-profile.json5` 的 `app.signingConfigs`（结构与 DevEco 一致，含 material 证书路径等）。待测工程通常不带签名信息，通过该配置注入；工程自带签名时可不配置。注入仅作用于构建沙箱副本，不修改源工程。证书路径支持绝对路径或相对 config 目录的相对路径；仓库的参考签名资产统一放在 `config/signing/`，配置时使用 `signing/test.p12`、`signing/test.p7b`、`signing/test.cer`。 |
 
 云测试另有构建/提交类的可选调参（`product`、`buildMode`、`buildTimeoutSec`、`analyzeTimeoutSec`、`appClass`、`taskType`、`testItem`），由代码内置默认值提供、未写入配置文件，一般无需配置。
 
@@ -223,7 +215,8 @@ devecocli --version
   "server": {
     "opencodeSource": {
       "mode": "harmonyBot",
-      "root": "C:\\Users\\HW\\.vscode\\extensions"
+      "root": "C:\\Users\\HW\\.vscode\\extensions",
+      "agent": "harmonyos-multi-device"
     }
   }
 }
@@ -237,8 +230,6 @@ devecocli --version
 {
   "server": {
     "opencodeSource": {
-      "strategy": "serial",
-      "continueOnTargetError": true,
       "targets": [
         {
           "id": "harmonybot",
@@ -354,13 +345,13 @@ node autorun.mjs --retry harmonyBot/20260821114859 --case CaseAtomic
 确保 OpenCode Server 已运行，然后执行：
 
 ```powershell
-node src/ask-opencode.mjs "帮我把当前工程下的文件名列出来" --agent harmonyos-multi-device --model deepseek-v4-flash -C "D:\cases\CaseHomeStay"
+node src/opencode/ask-opencode.mjs "帮我把当前工程下的文件名列出来" --agent harmonyos-multi-device --model deepseek-v4-flash -C "D:\cases\CaseHomeStay"
 ```
 
 查看单任务参数：
 
 ```bash
-node src/ask-opencode.mjs --help
+node src/opencode/ask-opencode.mjs --help
 ```
 
 ### 5. 单独启动 OpenCode Server
@@ -368,7 +359,7 @@ node src/ask-opencode.mjs --help
 通常不需要手工启动 Server。如果需要排查 Server 启动问题，可以执行：
 
 ```bash
-node src/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\software-multi-device\resources\opencode" --runtime-root ./output/_runtime/opencode --workspace .
+node src/opencode/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\software-multi-device\resources\opencode" --runtime-root ./output/_runtime/opencode --workspace .
 ```
 
 `--source` 直接指向最终选中的 `resources/opencode` 目录。也可以用 `--root` 传入资源包根目录，脚本会读取其 `resources/opencode`；`--runtime-root`、`--port` 和 `--deveco-home` 分别设置运行目录、端口和 DevEco Studio 路径。Autorun 正常启动时会根据 `server.opencodeSource` 解析来源并自动传入 `--source`。
@@ -378,7 +369,7 @@ node src/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\softwar
 查看完整参数：
 
 ```bash
-node src/run-opencode-serve.mjs --help
+node src/opencode/run-opencode-serve.mjs --help
 ```
 
 ### 6. 打包与上传用例产物
@@ -388,7 +379,7 @@ node src/run-opencode-serve.mjs --help
 **手动补打包/上传**（对已有批次）：
 
 ```bash
-node src/upload-results.mjs output/<batchId>/<agentId>
+node src/artifacts/upload-results.mjs output/<batchId>/<agentId>
 ```
 
 上传行为：
@@ -403,14 +394,14 @@ node src/upload-results.mjs output/<batchId>/<agentId>
 
 ```bash
 # 先上传
-node src/upload-results.mjs output/<batchId>/<agentId>
+node src/artifacts/upload-results.mjs output/<batchId>/<agentId>
 # 再刷新 HTML（自动读取 upload-results.json）
-node src/generate-html-report.mjs output/<batchId>/<agentId>
+node src/report/generate-html-report.mjs output/<batchId>/<agentId>
 ```
 
 ### 7. 合并批次报告
 
-多轮回归后，可把多个批次的执行结果合并成一份跨批次总览页。合并脚本按五步主流程组织（`src/lib/merge-overview.mjs`，每步独立成模块方法）：
+多轮回归后，可把多个批次的执行结果合并成一份跨批次总览页。合并脚本按五步主流程组织（`src/report/merge-overview.mjs`，每步独立成模块方法）：
 
 1. **发现批次报告** `discoverBatches`：扫描批次目录，兼容旧版 `<来源>/<批次>` 和新版 `<批次>/<agentId>` 两层布局，按名称排序；只依据 `summary.json` 识别 Agent 批次，缺 `summary.json` 的目录跳过并告警。
 2. **清理旧产物** `cleanOldArtifacts`：删除旧 overview.html 与 subpage/ 并重建目录，保证每次合并从干净状态开始。
@@ -420,7 +411,7 @@ node src/generate-html-report.mjs output/<batchId>/<agentId>
 
 - **用例表**：行按批次顺序拼接，不添加批次列，也不含「云测试」「白盒评价」列；两者的结果分别在紧随其后的「白盒评价」「云测试」独立章节展示（含各自报告的直链入口）。
 - **用例详情直链**：不再拷贝 subpage 副本，用例名/查看详情直接链接各批次目录内的 `subpage/<用例>.html`（合并页位于批次目录上一级，链接带「批次相对路径/」前缀）；批次无子页面（如仅有 summary.json 的历史批次）时用例名以纯文本展示。
-- **skill 报告章节（可选）**：若存在 `src/lib/merge-skill.mjs`，第 4 步自动调用其导出的两个章节方法，返回的 HTML 作为 skill 模块片段——`mergeSkillEvalSection`（skill 质量评估，调用带 `await`）与 `mergeSkillAuditSection`（skill 安全审计）。两个方法入参均为 `{ batchDataList, batchNames, outputRoot }`：`batchDataList` 为各批次源数据数组（含 batch 标识与 summary/report/results），`batchNames` 为批次名数组，`outputRoot` 为输出根目录。文件不存在则整体跳过；单个方法缺失时仅跳过对应章节。
+- **skill 报告章节（可选）**：若存在 `src/report/merge-skill.mjs`，第 4 步自动调用其导出的两个章节方法，返回的 HTML 作为 skill 模块片段——`mergeSkillEvalSection`（skill 质量评估，调用带 `await`）与 `mergeSkillAuditSection`（skill 安全审计）。两个方法入参均为 `{ batchDataList, batchNames, outputRoot }`：`batchDataList` 为各批次源数据数组（含 batch 标识与 summary/report/results），`batchNames` 为批次名数组，`outputRoot` 为输出根目录。文件不存在则整体跳过；单个方法缺失时仅跳过对应章节。
 
 ```bash
 # 合并默认 outputRoot（见配置）下所有含 summary.json 的批次目录
@@ -623,7 +614,7 @@ PROMPT.md
 
 部分 HarmonyOS 工程会在 `oh_modules` 中使用 Windows Junction。Autorun 会在复制用例时自动把这类目录联接重映射到当前运行沙箱，不需要管理员权限，也不会让链接指回源用例工程。
 
-如果仍出现该错误，请确认使用的是包含 `src/lib/sandbox-copy.mjs` 的当前版本，并重新启动 `node autorun.mjs`。已经启动的 Node 进程不会加载后续代码修改；失败批次可以保留用于排查，重新运行会创建新的批次目录。
+如果仍出现该错误，请确认使用的是包含 `src/runtime/sandbox-copy.mjs` 的当前版本，并重新启动 `node autorun.mjs`。已经启动的 Node 进程不会加载后续代码修改；失败批次可以保留用于排查，重新运行会创建新的批次目录。
 
 ### Agent 长时间没有结束
 

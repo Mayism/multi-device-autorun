@@ -1,0 +1,7 @@
+{
+  "name": "harmonyos-ohostest-runner",
+  "version": "0.1.10",
+  "private": true,
+  "type": "module",
+  "description": "HarmonyOS ohosTest module metadata; dependencies and scripts are managed by the repository root."
+}

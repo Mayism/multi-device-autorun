@@ -1,0 +1,7 @@
+{
+  "name": "multi-device-whitebox-evaluation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Whitebox evaluation module metadata; dependencies and scripts are managed by the repository root."
+}

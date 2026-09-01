@@ -1,0 +1,57 @@
+{
+  "name": "multi-device-autorun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "postinstall": "npm run build",
+    "build": "npm run build:ohostest && npm run build:whitebox",
+    "build:ohostest": "tsc -p src/ohostest/tsconfig.json",
+    "build:whitebox": "tsc -p src/whitebox/tsconfig.json",
+    "autorun": "node autorun.mjs",
+    "ohostest:case": "node --import tsx src/ohostest/scripts/runOhosTestCase.ts",
+    "ohostest:matrix": "node --import tsx src/ohostest/scripts/runOhosTestMatrix.ts",
+    "deploy:fold": "node --import tsx src/ohostest/scripts/deployFoldTrigger.ts",
+    "whitebox:start": "node src/whitebox/dist/localCli.js",
+    "whitebox:evaluate": "node src/whitebox/dist/localCli.js",
+    "whitebox:dev": "tsx src/whitebox/src/localCli.ts",
+    "test": "npm run test:autorun && npm run test:ohostest && npm run test:python",
+    "test:autorun": "node --test src/agent/*.test.mjs src/artifacts/*.test.mjs src/opencode/*.test.mjs src/platform/*.test.mjs src/report/*.test.mjs",
+    "test:ohostest": "node --import tsx --test src/ohostest/tests/*.test.ts",
+    "test:python": "node --import tsx src/ohostest/scripts/runPythonTests.ts",
+    "lint": "npm run lint:ohostest && npm run lint:whitebox",
+    "lint:ohostest": "eslint -c src/ohostest/eslint.config.js src/ohostest/src src/ohostest/scripts",
+    "lint:whitebox": "eslint -c src/whitebox/eslint.config.js src/whitebox/src",
+    "format:ohostest": "prettier --write \"src/ohostest/src/**/*.ts\" \"src/ohostest/scripts/**/*.ts\" \"src/ohostest/tests/**/*.ts\"",
+    "format:whitebox": "prettier --write \"src/whitebox/src/**/*.ts\" \"src/whitebox/*.json\" \"src/whitebox/*.mjs\""
+  },
+  "dependencies": {
+    "@langchain/core": "^1.1.40",
+    "@langchain/langgraph": "^1.2.8",
+    "ajv": "^8.18.0",
+    "arkanalyzer": "^1.0.90",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "ignore": "^7.0.6",
+    "js-yaml": "^4.1.1",
+    "pino": "^10.0.0",
+    "yauzl": "^3.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.6.0",
+    "@types/yauzl": "^2.10.3",
+    "eslint": "^10.6.0",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.62.1"
+  }
+}
