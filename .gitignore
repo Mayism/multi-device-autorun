@@ -1,8 +1,9 @@
 output/
-node_modules/
-packages/runner/dist/
-packages/whitebox-evaluation/dist/
-packages/whitebox-evaluation/.opencode/runtime/
+runner/node_modules/
+runner/dist/
+whitebox-evaluation/node_modules/
+whitebox-evaluation/dist/
+whitebox-evaluation/.opencode/runtime/
 .hvigor/
 __pycache__/
 *.py[cod]

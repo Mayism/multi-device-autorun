@@ -1,0 +1,108 @@
+// upload-orchestrator.mjs
+// 可复用的打包上传编排：对批次中的所有用例打包本地 ZIP；upload.enabled 时仅上传失败/错误用例到 AGC 云存储。
+// 被 src/upload-results.mjs（CLI）和 batch-report.mjs（自动集成）共用。
+
+import fs from "node:fs/promises";
+import path from "node:path";
+import { createZip } from "./zip.mjs";
+import { uploadBytes, UPLOAD_CONFIG } from "./uploader.mjs";
+
+async function exists(target) {
+  try { await fs.access(target); return true; } catch { return false; }
+}
+
+function caseNeedsUpload(summaryResult, caseOhosResult) {
+  // 整体状态不是 completed → 需要上传（Agent 失败、超时、中断等）
+  const status = String(summaryResult?.status || "").toLowerCase();
+  if (status && !["completed", "skipped", "cancelled"].includes(status)) return true;
+  // 测试结果中有失败/错误 → 需要上传
+  if (caseOhosResult) {
+    const devices = caseOhosResult.run?.devices || [];
+    if (devices.some((d) => (Number(d.failures) || 0) > 0 || (Number(d.errors) || 0) > 0)) return true;
+  }
+  return false;
+}
+
+/**
+ * 对批次中的所有用例打包本地 ZIP，失败/错误用例在启用时上传。
+ * @param {object} options
+ * @param {string} options.batchRoot — 批次目录
+ * @param {object} options.summary — summary.json 内容
+ * @param {object} options.report — report.json 内容（用于判断哪些用例有失败）
+ * @param {object} options.uploadConfig — upload 配置
+ * @param {function} [options.onLog] — 日志回调
+ * @returns {Promise<object>} upload-results 映射 { caseName: { url, error, uploadedAt } }
+ */
+export async function uploadFailedCases({ batchRoot, summary, report, enabled = false, onLog }) {
+  const log = onLog || (() => {});
+  const uploadConfig = UPLOAD_CONFIG;
+  const results = {};
+  const batchId = summary?.batchId || path.basename(batchRoot);
+  const prefix = uploadConfig.prefix || "ohostest";
+
+  const ohosByCase = new Map((report?.ohosTest?.caseResults || []).map((c) => [c.case, c]));
+
+  // 读已有 upload-results.json（增量上传，跳过已成功的）
+  const resultsPath = path.join(batchRoot, "upload-results.json");
+  let existing = {};
+  try { existing = JSON.parse(await fs.readFile(resultsPath, "utf8")) || {}; } catch { existing = {}; }
+
+  const allResults = Array.isArray(summary?.results) ? summary.results : [];
+
+  for (const result of allResults) {
+    const caseName = result.case;
+    if (existing[caseName]?.url) results[caseName] = existing[caseName];
+    // 打包所有用例（含 completed/skipped）：本地 ZIP 用于归档与结果分发；
+    // 上传仍仅限失败/错误用例（caseNeedsUpload），避免把通过的用例灌进云存储
+    const shouldUpload = enabled && caseNeedsUpload(result, ohosByCase.get(caseName));
+
+    const caseDir = path.join(batchRoot, caseName);
+    if (!await exists(caseDir)) {
+      log(`${caseName}: 用例目录不存在，跳过`);
+      continue;
+    }
+
+    // 打包整个用例目录：base/task、generate/、diff/、.ohostest-runs/、ohostest-workdir/、
+    // whitebox/、cloudtest/ 等全部产物均入包；build/oh_modules 等可再生成目录仍由 zip.mjs 过滤；
+    // zip 输出文件自身排除，防止重复打包时 zip 套 zip
+    const zipName = `${caseName}_${batchId}.zip`;
+    const localZipPath = path.join(caseDir, zipName);
+    const sources = [{ dirPath: caseDir, prefix: "" }];
+
+    try {
+      log(`${caseName}: 打包整个用例目录...`);
+      const zipData = await createZip(sources, { excludeAbsPaths: new Set([path.resolve(localZipPath)]) });
+      // 始终保存 zip 到用例目录
+      await fs.writeFile(localZipPath, zipData);
+      const sizeMB = (zipData.length / 1024 / 1024).toFixed(1);
+      log(`${caseName}: ${sizeMB} MB → ${localZipPath}`);
+
+      if (!enabled) {
+        log(`${caseName}: ✓ 已保存到本地（上传未开启）`);
+      } else if (existing[caseName]?.url) {
+        log(`${caseName}: 本地 ZIP 已更新；已有上传链接，跳过重复上传`);
+      } else if (shouldUpload) {
+        const objectName = `${prefix}/${zipName}`;
+        log(`${caseName}: 上传 ${objectName}`);
+        const uploadResult = await uploadBytes(uploadConfig, zipData, objectName, log);
+        results[caseName] = { url: uploadResult.url, error: "", uploadedAt: new Date().toISOString() };
+        log(`${caseName}: ✓ ${uploadResult.url}`);
+        // 仅上传模式下写 upload-results.json
+        await fs.writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
+      } else {
+        log(`${caseName}: ✓ 已保存到本地（无失败/错误，不上传）`);
+      }
+    } catch (error) {
+      // 本地重新归档失败不能抹掉已经上传成功的链接。
+      results[caseName] = existing[caseName]?.url
+        ? { ...existing[caseName], error: error.message }
+        : { url: "", error: error.message, uploadedAt: new Date().toISOString() };
+      log(`${caseName}: ✗ ${error.message}`);
+    }
+
+    // 每个用例后立即写文件（防中断丢失）
+    await fs.writeFile(resultsPath, `${JSON.stringify(results, null, 2)}\n`, "utf8");
+  }
+
+  return results;
+}

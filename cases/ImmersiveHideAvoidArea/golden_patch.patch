@@ -1,0 +1,63 @@
+diff --git a/commons/commons/src/main/ets/utils/WindowUtil.ets b/commons/commons/src/main/ets/utils/WindowUtil.ets
+index 0d87d8a..ba0a5ce 100644
+--- a/commons/commons/src/main/ets/utils/WindowUtil.ets
++++ b/commons/commons/src/main/ets/utils/WindowUtil.ets
+@@ -67,6 +67,29 @@ export class WindowUtil {
+     }
+   }
+ 
++  /**
++   * 进入/退出「避让区隐藏」沉浸态。
++   * hidden = true：窗口置为全屏布局，状态栏与导航条（手势条）隐藏，避让区归零，内容铺满整屏。
++   * hidden = false：恢复状态栏与导航条及默认布局，避免影响其他页面。
++   */
++  setAvoidAreaHidden(hidden: boolean): void {
++    this.mainWindow.setWindowLayoutFullScreen(hidden)
++      .then(() => {
++        this.mainWindow.setSpecificSystemBarEnabled('status', !hidden)
++          .catch((error: BusinessError) => {
++            hilog.error(0x0000, 'TestLog', `Failed to set status bar. Code: ${error.code}, message: ${error.message}`);
++          });
++        this.mainWindow.setSpecificSystemBarEnabled('navigationIndicator', !hidden)
++          .catch((error: BusinessError) => {
++            hilog.error(0x0000, 'TestLog',
++              `Failed to set navigation indicator. Code: ${error.code}, message: ${error.message}`);
++          });
++      })
++      .catch((error: BusinessError) => {
++        hilog.error(0x0000, 'TestLog', `Failed to set full screen. Code: ${error.code}, message: ${error.message}`);
++      });
++  }
++
+ }
+ 
+ @Observed
+diff --git a/products/default/src/main/ets/pages/fullScreenImmersive/FullScreenPage.ets b/products/default/src/main/ets/pages/fullScreenImmersive/FullScreenPage.ets
+index 007178a..eb66c7d 100644
+--- a/products/default/src/main/ets/pages/fullScreenImmersive/FullScreenPage.ets
++++ b/products/default/src/main/ets/pages/fullScreenImmersive/FullScreenPage.ets
+@@ -13,12 +13,23 @@
+  * limitations under the License.
+  */
+ 
+-import { CommonConstants } from 'commons';
++import { CommonConstants, WindowUtil } from 'commons';
+ 
+ const PAGE_BG: ResourceColor = '#1A1A1A';
+ 
+ @Component
+ export struct FullScreenPage {
++  private windowUtil: WindowUtil = AppStorage.get('windowUtil') as WindowUtil;
++
++  aboutToAppear(): void {
++    // 进入页面：隐藏状态栏与导航条，窗口全屏，避让区归零，内容铺满整屏。
++    this.windowUtil.setAvoidAreaHidden(true);
++  }
++
++  aboutToDisappear(): void {
++    // 离开页面：恢复状态栏与导航条及默认布局，不影响其他页面。
++    this.windowUtil.setAvoidAreaHidden(false);
++  }
+ 
+   build() {
+     NavDestination() {

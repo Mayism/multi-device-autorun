@@ -1,0 +1,29 @@
+{
+  "case_id": "cover-immersiver-from-base-hide-avoid-area",
+  "mode": "from_base",
+  "source_base_commit": "2b6926cd3b7f0547e314d5e40c8592f62e5fae54",
+  "source_answer_commit": null,
+  "removal_commits": [],
+  "golden_commits": [
+    "2fcc6a8a8bc4cfc09a55a9d5a267dd090e3740a5"
+  ],
+  "test_commits": [
+    "ec42d0bf2fc5fb78e57a1b2567082c27dfd63d99",
+    "060216679575126baced8a674af0518437ada6b5",
+    "2878c2f4fcfd25715d78b40b91a22b4d10582d6d"
+  ],
+  "generated_base_commit": "2b6926cd3b7f0547e314d5e40c8592f62e5fae54",
+  "generated_answer_commit": "5c8c7393129f499e9d46e97cb6c95cd4c1bdb17d",
+  "generated_test_commit": "20a925f30f1a25919b4b3a8de1362797b488297b",
+  "golden_patch": "golden_patch.patch",
+  "test_patch": "test_patch.patch",
+  "base_project": "base",
+  "fail_to_pass": [
+    "should_hide_status_bar",
+    "should_hide_nav_bar",
+    "should_content_fill_full_screen"
+  ],
+  "pass_to_pass": [
+    "should_content_avoid_area_is_exist"
+  ]
+}

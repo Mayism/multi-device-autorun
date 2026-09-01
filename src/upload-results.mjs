@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // upload-results.mjs
-// 对一个已完成批次的失败用例打包并上传到 AGC 云存储。
+// 对一个已完成批次的所有用例打包本地 ZIP；upload 开启时上传失败/错误用例到 AGC 云存储。
 // 凭证已硬编码在 uploader.mjs，无需配置。
 //
 // 用法：
@@ -8,7 +8,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import { uploadFailedCases } from "./upload/upload-orchestrator.mjs";
+import { uploadFailedCases } from "./lib/upload-orchestrator.mjs";
 
 async function readJson(filePath) {
   try { return JSON.parse(await fs.readFile(filePath, "utf8")); } catch { return null; }

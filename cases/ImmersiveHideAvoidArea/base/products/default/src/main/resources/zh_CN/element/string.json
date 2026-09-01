@@ -1,0 +1,56 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "模块描述"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "沉浸式页面开发"
+    },
+    {
+      "name": "title",
+      "value": "沉浸式页面开发"
+    },
+    {
+      "name": "router_title_expand",
+      "value": "背景沉浸"
+    },
+    {
+      "name": "router_title_background",
+      "value": "组件设置背景沉浸"
+    },
+    {
+      "name": "router_title_page",
+      "value": "组件设置页面沉浸"
+    },
+    {
+      "name": "sample_shopping",
+      "value": "商城示例"
+    },
+    {
+      "name": "full_screen_title",
+      "value": "避让区隐藏"
+    },
+    {
+      "name": "full_screen_desc",
+      "value": "状态栏与导航条已隐藏，内容铺满整屏"
+    },
+    {
+      "name": "cutout_title",
+      "value": "挖孔区避让"
+    },
+    {
+      "name": "cutout_desc",
+      "value": "内容自动避开屏幕挖孔区域"
+    },
+    {
+      "name": "swiper_list_title",
+      "value": "列表页沉浸"
+    }
+  ]
+}

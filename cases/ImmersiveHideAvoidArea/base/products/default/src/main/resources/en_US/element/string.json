@@ -1,0 +1,56 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "module description"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "description"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Immersive"
+    },
+    {
+      "name": "title",
+      "value": "Developing an Immersive Page"
+    },
+    {
+      "name": "router_title_expand",
+      "value": "Extend component security area"
+    },
+    {
+      "name": "router_title_background",
+      "value": "Set the component's background to immersive"
+    },
+    {
+      "name": "router_title_page",
+      "value": "Set the component's page to immersive mode"
+    },
+    {
+      "name": "sample_shopping",
+      "value": "Shopping sample"
+    },
+    {
+      "name": "full_screen_title",
+      "value": "Hide Avoid Area"
+    },
+    {
+      "name": "full_screen_desc",
+      "value": "Status bar and navigation bar are hidden, content fills the screen"
+    },
+    {
+      "name": "cutout_title",
+      "value": "Cutout Avoidance"
+    },
+    {
+      "name": "cutout_desc",
+      "value": "Content automatically avoids the screen cutout area"
+    },
+    {
+      "name": "swiper_list_title",
+      "value": "List Immersive"
+    }
+  ]
+}

@@ -19,17 +19,23 @@
 //
 // 运行时路径对齐 src/shared/harmonybotOpencodeRuntimeEnv.ts（host=vscode，无
 // worker）与 src/shared/harmonybotRunLog.ts。
-// OPENCODE_CONFIG_DIR 直接指向选中来源的 resources/opencode，不复制配置和资源。
-// harmonyBot 可包含 agent/plugin/skills/provider；softwareEngineering 允许只配置
-// skills（以及启动所需的 bin/opencode.json）。auth / DB、状态和缓存仍落运行时目录。
+// OPENCODE_CONFIG_DIR 指向 Autorun 生成的运行时配置副本（按来源路径隔离为
+// config-autorun-<来源哈希>）；默认通过目录链接复用来源中的
+// plugin/skills/provider，--isolate-config 则复制私有快照；权限由最后加载的
+// Autorun Plugin 强制覆盖为 allow。--strict-source-skills 会进一步把 Skill
+// 限制为来源 resources/opencode/skills 中的精确白名单。
+// auth / DB、状态和缓存仍落运行时目录。
 //
 // 可调参数（CLI 优先于环境变量）：
-//   --port, -p N           监听端口 (env: PORT, 默认 61419)
+//   --port, -p N           监听端口 (env: PORT, 默认 61417)
 //   --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)
 //   --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)
 //   --root, -r PATH        资源包根目录，读取其 resources/opencode
 //   --config, -c PATH      --root 的别名
 //   --workspace, -w PATH   工作目录 (env: WORKSPACE, 默认 $PWD)
+//   --isolate-config       复制 plugin/skills/provider 到独立运行时，不创建来源链接
+//   --strict-source-skills 仅暴露来源 skills 目录中的 Skill
+//   --provider-overlay P   将冻结的统一 Provider 配置注入当前隔离 Server
 //   --deveco-home, -d PATH DevEco Studio 安装根
 //                           Windows: C:\Program Files\Huawei\DevEco Studio
 //                           macOS:   /Applications/DevEco-Studio.app
@@ -38,25 +44,33 @@
 
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, unlinkSync, writeFileSync, symlinkSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_OPENCODE_PORT } from './runtime/opencode-defaults.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { forceAllowEverything } from './lib/permission-policy.mjs';
+import { createPinnedDevEcoCli } from './lib/deveco-cli-runtime.mjs';
 
 const HELP = [
   '用法: node src/run-opencode-serve.mjs [--port N] [--source PATH]',
   '                                  [--runtime-root PATH] [--root PATH]',
   '                                  [--workspace PATH] [--deveco-home PATH]',
+  '                                  [--isolate-config]',
+  '                                  [--strict-source-skills]',
+  '                                  [--provider-overlay PATH]',
   '                                  [--help]',
   '',
   '启动 opencode serve。CLI 优先于环境变量。',
-  `  --port, -p N           监听端口 (默认 ${DEFAULT_OPENCODE_PORT}, env: PORT)`,
+  '  --port, -p N           监听端口 (默认 61417, env: PORT)',
   '  --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)',
   '  --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)',
   '  --root, -r PATH        资源包根目录，读取其 resources/opencode (env: ROOT)',
   '  --config, -c PATH      --root 的别名',
   '  --workspace, -w PATH   工作目录 (默认 $PWD, env: WORKSPACE)',
+  '  --isolate-config       复制配置资产，保证不同 Agent 运行环境互不共享',
+  '  --strict-source-skills 仅允许来源 resources/opencode/skills 下的 Skill',
+  '  --provider-overlay P   注入统一生成模型的 Provider 配置快照',
   '  --deveco-home, -d PATH DevEco Studio 安装根',
   '                          (Windows 默认 "C:\\Program Files\\Huawei\\DevEco Studio",',
   '                           macOS 默认 /Applications/DevEco-Studio.app, env: DEVECO_HOME)',
@@ -125,7 +139,9 @@ function parseArgs(argv) {
     runtimeRoot: process.env.OPENCODE_RUNTIME_ROOT || '',
     workspace: process.env.WORKSPACE || '',
     devecoHome: process.env.DEVECO_HOME || '',
-    loadAgents: process.env.LOAD_AGENTS || '',
+    isolateConfig: false,
+    strictSourceSkills: false,
+    providerOverlay: '',
   };
 
   const needValue = (flag) => {
@@ -171,8 +187,14 @@ function parseArgs(argv) {
       case '-d':
         opts.devecoHome = takeTwo(i, v); i++;
         break;
-      case '--load-agents':
-        opts.loadAgents = takeTwo(i, v); i++;
+      case '--isolate-config':
+        opts.isolateConfig = true;
+        break;
+      case '--strict-source-skills':
+        opts.strictSourceSkills = true;
+        break;
+      case '--provider-overlay':
+        opts.providerOverlay = takeTwo(i, v); i++;
         break;
       default:
         if (v.startsWith('-')) {
@@ -201,6 +223,29 @@ function timestamp() {
   );
 }
 
+function discoverSourceSkillNames(skillsRoot) {
+  if (!existsSync(skillsRoot)) return [];
+  const names = [];
+  const pending = [skillsRoot];
+  while (pending.length) {
+    const current = pending.pop();
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        pending.push(fullPath);
+        continue;
+      }
+      if (!entry.isFile() || entry.name !== 'SKILL.md') continue;
+      const content = readFileSync(fullPath, 'utf8');
+      const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] || '';
+      const name = frontmatter.match(/^name:\s*["']?([^"'\s]+)["']?\s*$/m)?.[1] || '';
+      if (!name) throw new Error(`Skill 缺少有效 name: ${fullPath}`);
+      names.push(name);
+    }
+  }
+  return [...new Set(names)].sort();
+}
+
 // ─── 主流程 ────────────────────────────────────────────────────
 const opts = parseArgs(process.argv);
 const defaults = platformDefaults();
@@ -209,7 +254,7 @@ const cwd = process.cwd();
 const workspace = opts.workspace || cwd;
 const configDir = process.env.CONFIG_DIR || path.join(cwd, 'config');
 const root = opts.root || configDir;
-const port = opts.port || DEFAULT_OPENCODE_PORT;
+const port = opts.port || '61417';
 
 const bundledConfigDir = path.resolve(opts.source || path.join(root, 'resources', 'opencode'));
 const opencodeBin = path.join(bundledConfigDir, 'bin', defaults.binDir, 'opencode' + defaults.binaryExt);
@@ -266,12 +311,6 @@ const devecoPath = [
   path.join(devecoSdkHome, 'default', 'openharmony', 'toolchains'),
 ].join(PATH_SEP);
 
-// 插件 CLI（pluginFetch linkBin:true 写入的 wrapper），与扩展 prependPluginBinToPath 一致。
-const pluginBinDir = path.join(bundledConfigDir, 'plugin', '.bin');
-const agentPath = existsSync(pluginBinDir)
-  ? [pluginBinDir, devecoPath, process.env.PATH || ''].join(PATH_SEP)
-  : [devecoPath, process.env.PATH || ''].join(PATH_SEP);
-
 // ─── 创建运行期目录（mkdir -p，错误即吞，与 .bat 的 2>nul 一致）──
 // 与 vscode 扩展 ensureRuntimeDirs + createRunContext 对齐：运行数据与来源配置分离。
 for (const d of [
@@ -284,56 +323,118 @@ for (const d of [
   mkdirSync(d, { recursive: true });
 }
 
-// ─── 按需过滤 agent（loadAgents 非空时生效） ───────────────────
-// 默认 OPENCODE_CONFIG_DIR 直接指向源 resources/opencode（加载全部 agent）。
-// 配置了 loadAgents 时，创建一个过滤后的运行时配置目录：只保留指定 agent 的
-// opencode.json，并把 skills / plugin / provider 软链过去，保证相对路径可用。
-let effectiveConfigDir = bundledConfigDir;
-const loadAgents = opts.loadAgents
-  ? opts.loadAgents.split(',').map((s) => s.trim()).filter(Boolean)
-  : [];
-if (loadAgents.length) {
-  const filteredDir = path.join(opencodeHostRoot, 'config-filtered');
-  mkdirSync(filteredDir, { recursive: true });
-  let raw;
+// ─── 生成 Autorun 专用配置 ─────────────────────────────────────
+// 不修改来源包；始终生成运行时副本并强制所有全局及 Agent 权限为 allow。
+// 默认兼容旧行为，skills/plugin/provider 链接来源目录；--isolate-config
+// 会把三类资产复制为本次 runtime 私有快照，来源不存在时也创建空目录，
+// 避免未配置 skills 时回退或继承前一个 Agent 的运行资产。
+// 运行时配置目录按来源路径隔离（config-autorun-<来源哈希>）：切换
+// harmonyBot / softwareEngineering 来源或扩展升级后各自使用独立目录，互不污染。
+const sourceKey = createHash('sha256')
+  .update(process.platform === 'win32' ? bundledConfigDir.toLowerCase() : bundledConfigDir)
+  .digest('hex')
+  .slice(0, 10);
+const effectiveConfigDir = path.join(opencodeHostRoot, `config-autorun-${sourceKey}`);
+mkdirSync(effectiveConfigDir, { recursive: true });
+let rawConfig;
+try {
+  rawConfig = JSON.parse(readFileSync(path.join(bundledConfigDir, 'opencode.json'), 'utf8'));
+} catch (e) {
+  err(`[error] 无法解析 opencode.json: ${e.message}`);
+  process.exit(1);
+}
+if (opts.providerOverlay) {
   try {
-    raw = JSON.parse(readFileSync(path.join(bundledConfigDir, 'opencode.json'), 'utf8'));
+    const overlay = JSON.parse(readFileSync(path.resolve(opts.providerOverlay), 'utf8'));
+    if (!overlay?.providerId || !overlay?.provider || typeof overlay.provider !== 'object') {
+      throw new Error('缺少 providerId/provider');
+    }
+    rawConfig.provider = { ...(rawConfig.provider || {}), [overlay.providerId]: overlay.provider };
   } catch (e) {
-    err(`[error] 无法解析 opencode.json 以过滤 agent: ${e.message}`);
+    err(`[error] 无法加载 Provider 配置快照: ${e.message}`);
     process.exit(1);
   }
-  if (raw && typeof raw.agent === 'object' && raw.agent) {
-    const kept = {};
-    const missing = [];
-    for (const name of loadAgents) {
-      if (Object.prototype.hasOwnProperty.call(raw.agent, name)) {
-        kept[name] = raw.agent[name];
-      } else {
-        missing.push(name);
-      }
-    }
-    raw.agent = kept;
-    writeFileSync(path.join(filteredDir, 'opencode.json'), JSON.stringify(raw, null, 2) + '\n', 'utf8');
-    if (missing.length) {
-      err(`[warn] loadAgents 中以下 agent 在 opencode.json 不存在，已忽略: ${missing.join(', ')}`);
-    }
-  } else {
-    writeFileSync(path.join(filteredDir, 'opencode.json'), JSON.stringify(raw, null, 2) + '\n', 'utf8');
-  }
-  // 软链 skills / plugin / provider，保证 opencode.json 内的相对路径可用
-  for (const name of ['skills', 'plugin', 'provider']) {
-    const src = path.join(bundledConfigDir, name);
-    const dst = path.join(filteredDir, name);
-    if (existsSync(src) && !existsSync(dst)) {
-      try {
-        symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
-      } catch {
-        // 链接失败不阻断；opencode 会按缺省策略处理。
-      }
-    }
-  }
-  effectiveConfigDir = filteredDir;
 }
+let sourceSkillNames;
+if (opts.strictSourceSkills) {
+  try {
+    sourceSkillNames = discoverSourceSkillNames(path.join(bundledConfigDir, 'skills'));
+  } catch (e) {
+    err(`[error] 无法生成来源 Skill 白名单: ${e.message}`);
+    process.exit(1);
+  }
+  // 严格模式不继承来源配置中可能声明的额外路径或远程 Skill，只扫描随
+  // Agent 来源分发的私有 skills 快照。
+  rawConfig.skills = { paths: ['./skills'] };
+}
+const config = forceAllowEverything(rawConfig, {
+  allowedSkills: opts.strictSourceSkills ? sourceSkillNames : undefined,
+});
+const finalPermissionPlugin = pathToFileURL(path.join(path.dirname(fileURLToPath(import.meta.url)), 'opencode-auto-approve-plugin.mjs')).href;
+config.plugin = [
+  ...(Array.isArray(config.plugin) ? config.plugin : []),
+  finalPermissionPlugin,
+];
+writeFileSync(path.join(effectiveConfigDir, 'opencode.json'), JSON.stringify(config, null, 2) + '\n', 'utf8');
+for (const name of ['skills', 'plugin', 'provider']) {
+  const src = path.join(bundledConfigDir, name);
+  const dst = path.join(effectiveConfigDir, name);
+  if (opts.isolateConfig) {
+    rmSync(dst, { recursive: true, force: true });
+    if (existsSync(src)) {
+      cpSync(src, dst, { recursive: true, dereference: true });
+    } else {
+      mkdirSync(dst, { recursive: true });
+    }
+    continue;
+  }
+  if (!existsSync(src)) continue;
+  if (existsSync(dst)) {
+    // 链接目标与当前来源不一致时重建，防止切换来源后沿用旧链接
+    //（如 skills 仍指向另一来源，导致 Skill 列表与插件/Agent 不匹配）。
+    let linked = '';
+    try {
+      linked = path.resolve(path.dirname(dst), readlinkSync(dst));
+    } catch {
+      // dst 不是链接（真实目录）时保持原行为不动。
+    }
+    const sameTarget = process.platform === 'win32'
+      ? linked.toLowerCase() === src.toLowerCase()
+      : linked === src;
+    if (!linked || sameTarget) continue;
+    out(`[run] 链接 ${name} 指向 ${linked} 与当前来源不一致，重建为 ${src}`);
+    try {
+      unlinkSync(dst);
+    } catch {
+      // 删除失败不阻断；保留现状由 OpenCode 按缺省策略处理。
+      continue;
+    }
+  }
+  try {
+    symlinkSync(src, dst, process.platform === 'win32' ? 'junction' : 'dir');
+  } catch {
+    // 链接失败不阻断；OpenCode 会按缺省策略处理。
+  }
+}
+
+// 插件 CLI（pluginFetch linkBin:true 写入的 wrapper）。隔离模式下优先使用
+// 私有快照，确保 PATH 不再指向来源包中的可写 plugin 目录。
+const pluginBinDir = path.join(opts.isolateConfig ? effectiveConfigDir : bundledConfigDir, 'plugin', '.bin');
+const toolPath = existsSync(pluginBinDir)
+  ? [pluginBinDir, devecoPath, process.env.PATH || ''].join(PATH_SEP)
+  : [devecoPath, process.env.PATH || ''].join(PATH_SEP);
+let pinnedDevEcoCli = null;
+try {
+  pinnedDevEcoCli = createPinnedDevEcoCli({
+    pathValue: toolPath,
+    nodePath: process.execPath,
+    binDir: path.join(opencodeHostRoot, 'cli-bin'),
+  });
+} catch (error) {
+  // devecocli 是可选验证能力；入口损坏或无法解析只告警，不阻断 Server/评测。
+  err('[warn] 无法为 devecocli 固定 Node，将使用原始 PATH 并继续: ' + error.message);
+}
+const agentPath = pinnedDevEcoCli ? [pinnedDevEcoCli.binDir, toolPath].join(PATH_SEP) : toolPath;
 
 // ─── 打印启动摘要 ──────────────────────────────────────────────
 out('[run] source:           ' + bundledConfigDir);
@@ -341,9 +442,14 @@ out('[run] opencode binary:  ' + opencodeBin);
 out('[run] workspace:        ' + workspace);
 out('[run] config source:    ' + bundledConfigDir);
 out('[run] opencode host:    ' + opencodeHostRoot);
-out('[run] config dir:       ' + effectiveConfigDir + (effectiveConfigDir === bundledConfigDir ? '  (OPENCODE_CONFIG_DIR, direct)' : '  (OPENCODE_CONFIG_DIR, filtered agents)'));
-if (loadAgents.length) out('[run] load agents:      ' + loadAgents.join(', ') + ' (仅加载这些 Agent)');
+out('[run] config dir:       ' + effectiveConfigDir + '  (Autorun runtime config, permissions=allow)');
+out('[run] config isolation: ' + (opts.isolateConfig ? 'copied snapshot' : 'source links'));
+if (opts.strictSourceSkills) {
+  out('[run] skill isolation:  strict source allowlist (' + sourceSkillNames.length + ')');
+}
+if (opts.providerOverlay) out('[run] provider overlay: ' + path.resolve(opts.providerOverlay));
 out('[run] deveco home:      ' + devecoContents);
+if (pinnedDevEcoCli) out('[run] devecocli Node:   ' + pinnedDevEcoCli.nodePath + ' (' + process.version + ')');
 out('[run] port:             ' + port);
 out('[run] log root:         ' + logRoot);
 out('[run] log dir:          ' + logDir);
@@ -387,6 +493,37 @@ Object.assign(env, {
   OPENCODE_LOG_DIR: logDir,
   HM_PLUGIN_LOG_DIR: logDir,
 });
+if (opts.strictSourceSkills) {
+  // OpenCode 默认扫描真实 HOME 下的 ~/.agents/skills 和 ~/.claude/skills；
+  // XDG 隔离不会关闭这两个入口，因此必须显式禁用。
+  env.OPENCODE_DISABLE_EXTERNAL_SKILLS = '1';
+  env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS = '1';
+  env.AUTORUN_SKILL_ALLOWLIST_JSON = JSON.stringify(sourceSkillNames);
+}
+
+// 仅向 Autorun 宿主回传工具环境，不传 Provider、凭据或整个进程环境。
+// 预装/预检与 Agent 必须使用同一套 PATH 和 SDK，不能从父进程环境猜测。
+if (process.send) {
+  process.send({
+    type: 'autorun:tool-runtime',
+    resources: {
+      skillsRoot: path.join(effectiveConfigDir, 'skills'),
+      ...(pinnedDevEcoCli ? { devecoCliRuntime: pinnedDevEcoCli } : {}),
+      env: Object.fromEntries([
+        'PATH', 'JAVA_HOME', 'TOOL_HOME', 'DEVECO_HOME', 'DEVECO_SDK_HOME',
+        'HOS_SDK_HOME', 'OHOS_SDK_HOME',
+      ].map((key) => [key, env[key]])),
+      toolReadRoots: [...new Set([
+        ...(pinnedDevEcoCli ? [pinnedDevEcoCli.binDir, path.dirname(pinnedDevEcoCli.nodePath)] : []),
+        javaHome, devecoSdkHome, hosSdkHome, ohosSdkHome,
+        path.join(devecoContents, 'tools', 'node'),
+        path.join(devecoContents, 'tools', 'ohpm'),
+        path.join(devecoContents, 'tools', 'hvigor'),
+        path.join(devecoContents, 'tools', 'emulator'),
+      ])],
+    },
+  });
+}
 
 // ─── 启动 opencode serve（stdio 透传；Ctrl-C 由父进程原样转发）──
 const child = spawn(opencodeBin, ['serve', '--port', port], {
