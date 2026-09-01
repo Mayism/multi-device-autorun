@@ -106,12 +106,22 @@ export async function prepareAgentSkillRuntime({ resources, registeredSkills, ag
   // 与 Agent 使用相同 PATH；先验证 CLI，避免付出模型调用成本后才降级工作流。
   const cli = await detectDevEcoCli({ env: runtime.env });
   signal?.throwIfAborted();
-  if (!cli.installed) throw new Error(`${ONE_MULTI_NAME} 必需的 devecocli 不可用: ${formatDevEcoCliFailure(cli, resources.devecoCliRuntime)}`);
   for (const relative of ["scripts/install-to-project.py", "scripts/task-ledger.py", "scripts/static-check.py", "scripts/validate-state.py", "scripts/render-report.py"]) {
     await runPython(python, [path.join(skill.root, relative), "--help"], { env: runtime.env, cwd: skill.root, signal });
   }
+  const reportedCli = { ...cli, error: String(cli.error || "").slice(-2000) };
+  const devecoCli = cli.installed
+    ? { status: "available", command: cli.command, version: cli.version }
+    : {
+      status: "unavailable",
+      command: cli.command,
+      failureKind: cli.failureKind,
+      error: reportedCli.error,
+      warning: formatDevEcoCliFailure(reportedCli, resources.devecoCliRuntime),
+    };
   runtime.oneMulti = {
-    root: skill.root, python, devecoCliVersion: cli.version,
+    root: skill.root, python, devecoCli,
+    ...(cli.installed ? { devecoCliVersion: cli.version } : {}),
     ...(resources.devecoCliRuntime ? { devecoCliRuntime: resources.devecoCliRuntime } : {}),
   };
   return runtime;
@@ -167,6 +177,9 @@ export async function installProjectSkill({ runtime, projectDir, signal }) {
 export function buildAgentSandboxPolicy({ runtime, projectDir }) {
   const skillLines = runtime.skills.map((skill) => `  - ${skill.name}: ${JSON.stringify(skill.root)}`);
   const toolLines = runtime.toolReadRoots.map((root) => `  - ${JSON.stringify(root)}`);
+  const devecoCliLine = runtime.oneMulti?.devecoCli?.status === "available"
+    ? `- devecocli 已通过预检，版本：${runtime.oneMulti.devecoCli.version}。按 Skill 要求用于构建和运行验证。`
+    : `- devecocli 当前不可用（${runtime.oneMulti?.devecoCli?.warning || "未通过预检"}）。这不是评测启动的阻断条件；继续完成 Skill 账本、静态检查、代码修改及其他可执行步骤。依赖该 CLI 的构建或运行验证必须如实标为未验证，不得伪造通过结果。`;
   return `# 工作目录与工具资源隔离要求（强制）
 
 - 当前唯一业务工程：${JSON.stringify(projectDir)}。业务源码、任务账本、证据、报告和临时文件只能写入该工程及其子目录。
@@ -182,7 +195,8 @@ ${toolLines.join("\n") || "  - 无额外工具资源目录。"}
 
 # Skill 调用约定（强制）
 
-${runtime.oneMulti ? `- Autorun 已将 ${ONE_MULTI_NAME} 安装到当前工程的 .onemulti/，已检查 Python 和 devecocli；不要再次安装，不要注入 AGENTS.md 或修改 .gitignore。初始化、验证和报告仍必须由你按 Skill 完成。
+${runtime.oneMulti ? `- Autorun 已将 ${ONE_MULTI_NAME} 安装到当前工程的 .onemulti/，并已检查 Python、Skill 脚本和 devecocli 状态；不要再次安装，不要注入 AGENTS.md 或修改 .gitignore。初始化、验证和报告仍必须由你按 Skill 完成。
+${devecoCliLine}
 - Python 解释器：${JSON.stringify(runtime.oneMulti.python.command)}。每次工具调用都使用明确的 .onemulti/scripts/... 路径，或在同一次命令中设置 OM；不要依赖上一轮 shell 的 export 持续存在。
 - 示例（cwd 为当前工程）：${JSON.stringify(runtime.oneMulti.python.command)} -B .onemulti/scripts/task-ledger.py validate .onemulti/decisions.json。
 - 预装的 .onemulti 由 Autorun 排除出业务 Patch 和评分输入，但会随用例 ZIP 归档。` : "- 相对引用基于所属 Skill 根目录解析；优先使用已提供的本地快照，保留同来源 Skill 间的引用关系。需要新增 Skill 时不能自行突破来源白名单。"}

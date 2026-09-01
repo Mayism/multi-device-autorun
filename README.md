@@ -70,7 +70,7 @@ npm --prefix whitebox-evaluation install
 npm --prefix whitebox-evaluation run build
 ```
 
-Autorun 启动时会执行 `devecocli --version`，检查 DevEco CLI 并显示版本。通用启动检查中，命令不可用只会告警；但 `harmonyBot` 的 `harmonyos-multi-device` 需要按一多 Skill 使用该 CLI，因此还会在 Agent 的实际 PATH 下做必需依赖预检，缺失时阻断模型会话。可安装或修复：
+Autorun 启动时会执行 `devecocli --version`，检查 DevEco CLI 并显示版本。`harmonyBot` 的 `harmonyos-multi-device` 还会在 Agent 的实际 PATH 下检查一次；两处检查均为非阻断告警。CLI 缺失、Node 不兼容或命令失败时仍继续创建 Agent 会话和执行评测，依赖该 CLI 的构建/运行验证会记录为不可用或未验证。可按需安装或修复：
 
 ```bash
 npm install -g @deveco/deveco-cli@latest
@@ -492,7 +492,7 @@ Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会�
 
 Agent 的实际提示词会追加无人值守确认和“业务工程 + 授权工具资源”边界：所有 permission 自动允许，question 自动采用允许、继续、推荐或默认方案；禁止读取其他用例、隐藏测试、标准答案和评测结果，但允许读取当前来源实际注册的 Skill 快照，并从工程 cwd 调用其中的脚本，以及读取明确列出的 SDK/工具目录。授权不扩大到整个 runtime、父目录或 Provider 配置。这是提示词约束，不是操作系统级文件沙箱。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。
 
-`harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version`、必需脚本和关键脚本的 `--help`；缺少必需依赖即在模型会话前报错。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约。
+`harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version`、必需脚本和关键脚本的 `--help`。Python、Skill 注册或必需脚本损坏仍会在模型会话前报错；`devecocli` 不可用仅告警并继续评测。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约，确因 CLI 缺失无法完成时必须标为未验证。
 
 Agent 正常结束后，Autorun 运行 Skill 的账本与状态校验并检查汇总 HTML，结果写入 `generate/skill-workflow.json` 和用例 `result.json.skillWorkflow`。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
 
@@ -602,7 +602,7 @@ node autorun.mjs --check
 
 ### 一多适配任务没有调用 Skill
 
-`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 依赖，并在会话前预装 Skill；如果缺少 `devecocli`、Python 版本不够或脚本失效，会直接报错，不再让 Agent 自行降级为手工流程。查看 `generate/input.txt` 中的授权工具路径、`generate/skill-runtime.json` 的预装记录及 `generate/skill-workflow.json` 的产物校验结果。修改代码后需要重启 Autorun；旧会话不会自动更新提示词或预装状态。
+`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 状态，并在会话前预装 Skill；Python 版本不够、Skill 未注册或必需脚本失效会直接报错，`devecocli` 不可用只输出告警并继续。查看 `generate/input.txt` 中的授权工具路径、`generate/skill-runtime.json` 的预装和 CLI 状态记录及 `generate/skill-workflow.json` 的产物校验结果。修改代码后需要重启 Autorun；旧会话不会自动更新提示词或预装状态。
 
 自动启动 Server 时，Autorun 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，强制全局及 Agent 的运行工具权限为 `allow`。`softwareEngineering` 的 Skill 权限例外采用来源精确白名单。运行数据、数据库、配置、状态和缓存均不跨 Agent 复用；配置端口已占用时会自动选择其他端口。
 

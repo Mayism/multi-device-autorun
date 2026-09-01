@@ -138,7 +138,7 @@ test("preinstall rejects a linked ledger without writing into another case", { s
   assert.equal(await fs.readFile(foreignLedger, "utf8"), "untouched");
 });
 
-test("required workflow rejects missing CLI in the Agent environment before installation", async (t) => {
+test("missing CLI is recorded as a warning and does not block required Skill preparation", async (t) => {
   const { root, skillsRoot, runtime } = await oneMultiFixture(t);
   const bin = path.join(root, "bin");
   await fs.mkdir(bin);
@@ -151,10 +151,35 @@ test("required workflow rejects missing CLI in the Agent environment before inst
     await fs.symlink(runtime.oneMulti.python.command, path.join(bin, command));
     runtime.env = { ...process.env, PATH: bin };
   }
-  await assert.rejects(prepareAgentSkillRuntime({
+  const prepared = await prepareAgentSkillRuntime({
     resources: { skillsRoot, env: runtime.env }, registeredSkills: [{ name: "harmonyos-ui-multi" }],
     agent: "harmonyos-multi-device", sourceMode: "harmonyBot",
-  }), /必需的 devecocli 不可用/);
+  });
+  assert.equal(prepared.oneMulti.devecoCli.status, "unavailable");
+  assert.ok(prepared.oneMulti.devecoCli.warning);
+  assert.equal(prepared.oneMulti.devecoCliVersion, undefined);
+  const prompt = buildAgentSandboxPolicy({ runtime: prepared, projectDir: path.join(root, "project") });
+  assert.match(prompt, /devecocli 当前不可用/);
+  assert.match(prompt, /不是评测启动的阻断条件/);
+  assert.match(prompt, /标为未验证/);
+  if (process.platform !== "win32") {
+    const executable = path.join(bin, "devecocli");
+    await fs.writeFile(executable, "#!/bin/sh\nprintf 'SyntaxError: Invalid regular expression flags\\n' >&2\nexit 1\n", { mode: 0o755 });
+    const incompatible = await prepareAgentSkillRuntime({
+      resources: { skillsRoot, env: runtime.env }, registeredSkills: [{ name: "harmonyos-ui-multi" }],
+      agent: "harmonyos-multi-device", sourceMode: "harmonyBot",
+    });
+    assert.equal(incompatible.oneMulti.devecoCli.status, "unavailable");
+    assert.equal(incompatible.oneMulti.devecoCli.failureKind, "runtime-incompatible");
+    await fs.writeFile(executable, "#!/bin/sh\nprintf '1.3.1\\n'\n", { mode: 0o755 });
+    const available = await prepareAgentSkillRuntime({
+      resources: { skillsRoot, env: runtime.env }, registeredSkills: [{ name: "harmonyos-ui-multi" }],
+      agent: "harmonyos-multi-device", sourceMode: "harmonyBot",
+    });
+    assert.equal(available.oneMulti.devecoCli.status, "available");
+    assert.equal(available.oneMulti.devecoCliVersion, "1.3.1");
+    assert.doesNotMatch(buildAgentSandboxPolicy({ runtime: available, projectDir: path.join(root, "project") }), /不是评测启动的阻断条件/);
+  }
 });
 
 test("server launcher sends its actual private Skill and tool paths over IPC without credentials", { skip: process.platform === "win32" }, async (t) => {

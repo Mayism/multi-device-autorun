@@ -699,6 +699,9 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     sourceMode: target.mode,
     signal,
   });
+  if (server.skillRuntime.oneMulti?.devecoCli?.status === "unavailable") {
+    console.warn(`[warn] Agent ${target.id}: devecocli 预检未通过，将继续评测；${server.skillRuntime.oneMulti.devecoCli.warning}`);
+  }
   const registeredSkills = (Array.isArray(skills) ? skills : [])
     .map((item) => String(item?.name || item?.id || "").trim())
     .filter(Boolean)

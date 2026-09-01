@@ -423,11 +423,17 @@ const pluginBinDir = path.join(opts.isolateConfig ? effectiveConfigDir : bundled
 const toolPath = existsSync(pluginBinDir)
   ? [pluginBinDir, devecoPath, process.env.PATH || ''].join(PATH_SEP)
   : [devecoPath, process.env.PATH || ''].join(PATH_SEP);
-const pinnedDevEcoCli = createPinnedDevEcoCli({
-  pathValue: toolPath,
-  nodePath: process.execPath,
-  binDir: path.join(opencodeHostRoot, 'cli-bin'),
-});
+let pinnedDevEcoCli = null;
+try {
+  pinnedDevEcoCli = createPinnedDevEcoCli({
+    pathValue: toolPath,
+    nodePath: process.execPath,
+    binDir: path.join(opencodeHostRoot, 'cli-bin'),
+  });
+} catch (error) {
+  // devecocli 是可选验证能力；入口损坏或无法解析只告警，不阻断 Server/评测。
+  err('[warn] 无法为 devecocli 固定 Node，将使用原始 PATH 并继续: ' + error.message);
+}
 const agentPath = pinnedDevEcoCli ? [pinnedDevEcoCli.binDir, toolPath].join(PATH_SEP) : toolPath;
 
 // ─── 打印启动摘要 ──────────────────────────────────────────────
