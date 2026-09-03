@@ -446,6 +446,8 @@ async function ensureOpenCodeServer(config, {
   const args = [
     serveScript,
     "--source", source.resourcesDir,
+    "--assets-source", source.assetsDir,
+    "--opencode-bin", source.opencodeBinPath,
     "--runtime-root", runtimeRoot,
     "--workspace", workspace,
     "--port", port,
@@ -461,6 +463,9 @@ async function ensureOpenCodeServer(config, {
 
   if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
     log(`[server] 使用 HarmonyBot 扩展 ${source.installation.version}: ${source.installation.extensionDir}`);
+    if (source.installation.bundleHash) {
+      log(`[server] 使用 HarmonyBot Bundle ${source.installation.bundleHash} (${source.installation.bundleStatus}): ${source.assetsDir}`);
+    }
   } else {
     log(`[server] 使用 Software Engineering 资源: ${source.root}`);
   }
@@ -550,7 +555,7 @@ function safeName(value) {
 async function resolveBatchModeDirectoryName(source) {
   if (source?.mode !== OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) return source?.mode || "default";
   const resolved = await resolveOpenCodeSource(source);
-  const entries = await fs.readdir(path.join(resolved.resourcesDir, "skills")).catch(() => []);
+  const entries = await fs.readdir(path.join(resolved.assetsDir, "skills")).catch(() => []);
   return entries.length ? OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING : "baseModel";
 }
 
@@ -703,7 +708,7 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     .map((item) => String(item?.name || item?.id || "").trim())
     .filter(Boolean)
     .sort();
-  const sourceSkillEntries = await fs.readdir(path.join(source.resourcesDir, "skills"), { withFileTypes: true }).catch(() => []);
+  const sourceSkillEntries = await fs.readdir(path.join(source.assetsDir, "skills"), { withFileTypes: true }).catch(() => []);
   const sourceSkills = sourceSkillEntries
     .map((item) => item.name)
     .filter((name) => name && !name.startsWith("."))
@@ -750,6 +755,9 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     source: {
       root: source.root,
       resourcesDir: source.resourcesDir,
+      assetsDir: source.assetsDir,
+      opencodeBinPath: source.opencodeBinPath,
+      bundleHash: source.installation?.bundleHash || "",
       version: source.installation?.version || "",
       configFingerprint: sanitizedConfigFingerprint({
         opencode: server.serverConfig,
@@ -2032,7 +2040,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
       config: whiteboxConfig,
       serverConfig,
       generationModel: model,
-      resourcesDir: whiteboxSource.resourcesDir,
+      opencodeBinPath: whiteboxSource.opencodeBinPath,
       repoRoot: AUTORUN_ROOT,
       signal,
     });
