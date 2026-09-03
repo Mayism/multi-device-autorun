@@ -8,12 +8,16 @@
 //
 // 用法：
 //   node src/run-opencode-serve.mjs --source D:\bundle\resources\opencode
+//       --assets-source %USERPROFILE%\.harmonybot\opencode-bundle\vscode\<hash>
+//       --opencode-bin D:\extension\resources\opencode\bin\win32\x64\opencode.exe
 //   node src/run-opencode-serve.mjs --source D:\bundle\resources\opencode --port 62000
 //   node src/run-opencode-serve.mjs --root D:\bundle --workspace D:\proj
 //
 // --source 直接指向 resources/opencode；--root 保留为资源包根目录入口：
 //   bundled:   $ROOT/resources/opencode/{bin/<platform>/<arch>/opencode[.exe],
 //                                        opencode.json, plugin/, skills/}
+//   cache:     --source 指向包含 opencode.json 的扩展资源，--assets-source 指向
+//              解压后的 Bundle，--opencode-bin 指向扩展内二进制
 //   运行时:    ~/.harmonybot/opencode/vscode/{data,xdg-config,state,cache,config}
 //              ~/.harmonybot/logs/vscode/runs/<runId>
 //
@@ -29,6 +33,8 @@
 // 可调参数（CLI 优先于环境变量）：
 //   --port, -p N           监听端口 (env: PORT, 默认 61417)
 //   --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)
+//   --assets-source PATH   Plugin/Skills/Provider 资产目录；默认与 --source 相同
+//   --opencode-bin PATH    OpenCode 可执行文件；省略时从 --source/bin 推导
 //   --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)
 //   --root, -r PATH        资源包根目录，读取其 resources/opencode
 //   --config, -c PATH      --root 的别名
@@ -54,6 +60,7 @@ import { createPinnedDevEcoCli } from './lib/deveco-cli-runtime.mjs';
 
 const HELP = [
   '用法: node src/run-opencode-serve.mjs [--port N] [--source PATH]',
+  '                                  [--assets-source PATH] [--opencode-bin PATH]',
   '                                  [--runtime-root PATH] [--root PATH]',
   '                                  [--workspace PATH] [--deveco-home PATH]',
   '                                  [--isolate-config]',
@@ -64,6 +71,8 @@ const HELP = [
   '启动 opencode serve。CLI 优先于环境变量。',
   '  --port, -p N           监听端口 (默认 61417, env: PORT)',
   '  --source PATH          resources/opencode 目录 (env: OPENCODE_SOURCE)',
+  '  --assets-source PATH   Plugin/Skills/Provider 目录 (env: OPENCODE_ASSETS_SOURCE)',
+  '  --opencode-bin PATH    OpenCode 可执行文件 (env: OPENCODE_BIN)',
   '  --runtime-root PATH    OpenCode 运行数据目录 (env: OPENCODE_RUNTIME_ROOT)',
   '  --root, -r PATH        资源包根目录，读取其 resources/opencode (env: ROOT)',
   '  --config, -c PATH      --root 的别名',
@@ -136,6 +145,8 @@ function parseArgs(argv) {
     port: process.env.PORT || '',
     root: process.env.ROOT || '',
     source: process.env.OPENCODE_SOURCE || '',
+    assetsSource: process.env.OPENCODE_ASSETS_SOURCE || '',
+    opencodeBin: process.env.OPENCODE_BIN || '',
     runtimeRoot: process.env.OPENCODE_RUNTIME_ROOT || '',
     workspace: process.env.WORKSPACE || '',
     devecoHome: process.env.DEVECO_HOME || '',
@@ -175,6 +186,12 @@ function parseArgs(argv) {
         break;
       case '--source':
         opts.source = takeTwo(i, v); i++;
+        break;
+      case '--assets-source':
+        opts.assetsSource = takeTwo(i, v); i++;
+        break;
+      case '--opencode-bin':
+        opts.opencodeBin = takeTwo(i, v); i++;
         break;
       case '--runtime-root':
         opts.runtimeRoot = takeTwo(i, v); i++;
@@ -257,7 +274,10 @@ const root = opts.root || configDir;
 const port = opts.port || '61417';
 
 const bundledConfigDir = path.resolve(opts.source || path.join(root, 'resources', 'opencode'));
-const opencodeBin = path.join(bundledConfigDir, 'bin', defaults.binDir, 'opencode' + defaults.binaryExt);
+const bundledAssetsDir = path.resolve(opts.assetsSource || bundledConfigDir);
+const opencodeBin = path.resolve(
+  opts.opencodeBin || path.join(bundledConfigDir, 'bin', defaults.binDir, 'opencode' + defaults.binaryExt),
+);
 const devecoHome = opts.devecoHome || defaults.devecoHome;
 
 // 运行时路径与 vscode 扩展一致，落在 ~/.harmonybot 下（host=vscode，无 worker）：
@@ -275,8 +295,8 @@ const logDir = opts.runtimeRoot
 // ─── 前置检查 ──────────────────────────────────────────────────
 if (!existsSync(opencodeBin)) {
   err(`[error] 找不到 opencode 二进制: ${opencodeBin}`);
-  err(`        期望路径: <source>/bin/${defaults.binDir}/opencode${defaults.binaryExt}`);
-  err('        可通过 --source 或 --root 覆盖');
+  err(`        默认路径: <source>/bin/${defaults.binDir}/opencode${defaults.binaryExt}`);
+  err('        可通过 --opencode-bin、--source 或 --root 覆盖');
   process.exit(1);
 }
 if (!existsSync(workspace)) {
@@ -332,6 +352,8 @@ for (const d of [
 // harmonyBot / softwareEngineering 来源或扩展升级后各自使用独立目录，互不污染。
 const sourceKey = createHash('sha256')
   .update(process.platform === 'win32' ? bundledConfigDir.toLowerCase() : bundledConfigDir)
+  .update('\0')
+  .update(process.platform === 'win32' ? bundledAssetsDir.toLowerCase() : bundledAssetsDir)
   .digest('hex')
   .slice(0, 10);
 const effectiveConfigDir = path.join(opencodeHostRoot, `config-autorun-${sourceKey}`);
@@ -358,7 +380,7 @@ if (opts.providerOverlay) {
 let sourceSkillNames;
 if (opts.strictSourceSkills) {
   try {
-    sourceSkillNames = discoverSourceSkillNames(path.join(bundledConfigDir, 'skills'));
+    sourceSkillNames = discoverSourceSkillNames(path.join(bundledAssetsDir, 'skills'));
   } catch (e) {
     err(`[error] 无法生成来源 Skill 白名单: ${e.message}`);
     process.exit(1);
@@ -377,7 +399,7 @@ config.plugin = [
 ];
 writeFileSync(path.join(effectiveConfigDir, 'opencode.json'), JSON.stringify(config, null, 2) + '\n', 'utf8');
 for (const name of ['skills', 'plugin', 'provider']) {
-  const src = path.join(bundledConfigDir, name);
+  const src = path.join(bundledAssetsDir, name);
   const dst = path.join(effectiveConfigDir, name);
   if (opts.isolateConfig) {
     rmSync(dst, { recursive: true, force: true });
@@ -419,7 +441,7 @@ for (const name of ['skills', 'plugin', 'provider']) {
 
 // 插件 CLI（pluginFetch linkBin:true 写入的 wrapper）。隔离模式下优先使用
 // 私有快照，确保 PATH 不再指向来源包中的可写 plugin 目录。
-const pluginBinDir = path.join(opts.isolateConfig ? effectiveConfigDir : bundledConfigDir, 'plugin', '.bin');
+const pluginBinDir = path.join(opts.isolateConfig ? effectiveConfigDir : bundledAssetsDir, 'plugin', '.bin');
 const toolPath = existsSync(pluginBinDir)
   ? [pluginBinDir, devecoPath, process.env.PATH || ''].join(PATH_SEP)
   : [devecoPath, process.env.PATH || ''].join(PATH_SEP);
@@ -441,6 +463,7 @@ out('[run] source:           ' + bundledConfigDir);
 out('[run] opencode binary:  ' + opencodeBin);
 out('[run] workspace:        ' + workspace);
 out('[run] config source:    ' + bundledConfigDir);
+out('[run] assets source:    ' + bundledAssetsDir);
 out('[run] opencode host:    ' + opencodeHostRoot);
 out('[run] config dir:       ' + effectiveConfigDir + '  (Autorun runtime config, permissions=allow)');
 out('[run] config isolation: ' + (opts.isolateConfig ? 'copied snapshot' : 'source links'));

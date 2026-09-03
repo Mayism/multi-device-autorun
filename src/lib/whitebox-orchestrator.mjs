@@ -85,7 +85,7 @@ function providerByName(serverConfig, requestedProviderId) {
   return provider;
 }
 
-function buildJudgeEnvironment({ config, serverConfig, generationModel, resourcesDir }) {
+function buildJudgeEnvironment({ config, serverConfig, generationModel, opencodeBinPath }) {
   const providerId = config.judge.providerId || generationModel.providerId;
   const modelId = config.judge.modelId || generationModel.modelId;
   const provider = providerByName(serverConfig, providerId);
@@ -97,8 +97,7 @@ function buildJudgeEnvironment({ config, serverConfig, generationModel, resource
       + (available.length ? `；可用模型: ${available.join(", ")}` : ""),
     );
   }
-  const platformDir = process.platform === "win32" ? "win32" : process.platform === "darwin" ? "darwin" : "linux";
-  const executableDir = path.join(resourcesDir, "bin", platformDir, process.arch);
+  const executableDir = path.dirname(opencodeBinPath);
   return {
     ...process.env,
     PATH: `${executableDir}${path.delimiter}${process.env.PATH || ""}`,
@@ -275,7 +274,7 @@ export async function createWhiteboxOrchestrator({
   config,
   serverConfig,
   generationModel,
-  resourcesDir,
+  opencodeBinPath,
   repoRoot,
   signal,
 }) {
@@ -283,7 +282,7 @@ export async function createWhiteboxOrchestrator({
   if (!await exists(cliPath)) {
     throw new Error(`白盒评价尚未构建: ${cliPath}；请执行 npm --prefix whitebox-evaluation install && npm --prefix whitebox-evaluation run build`);
   }
-  const env = buildJudgeEnvironment({ config, serverConfig, generationModel, resourcesDir });
+  const env = buildJudgeEnvironment({ config, serverConfig, generationModel, opencodeBinPath });
   const pending = [];
   const allJobs = [];
   const freeSlots = Array.from({ length: config.concurrency }, (_, index) => index);

@@ -1,0 +1,16 @@
+{
+  "name": "multi-device-autorun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "autorun": "node autorun.mjs",
+    "test:autorun": "node --test src/lib/*.test.mjs src/*.test.mjs"
+  },
+  "dependencies": {
+    "yauzl": "^3.3.0"
+  }
+}
