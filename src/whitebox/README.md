@@ -1,6 +1,6 @@
 # Whitebox Evaluation
 
-Autorun 的独立 HarmonyOS 白盒评价子系统。它读取本地 Prompt、修改前工程、修改后工程和 Patch，执行任务理解、静态规则、规则裁判、Rubric 裁判与分数融合，并输出结构化 JSON 和单文件 HTML。
+Autorun 的独立 HarmonyOS 白盒评价子系统。它读取本地 Prompt、修改前的 `original`、修改后的最终 `base` 和 Patch。Patch 只用于确定本次变更的文件与行范围，实际代码证据始终读取 `base`；随后执行任务理解、静态规则、规则裁判、Rubric 裁判与分数融合，并输出结构化 JSON 和单文件 HTML。
 
 ## 安装与构建
 
@@ -37,4 +37,4 @@ Autorun 本地评价使用 `agentBuild` 传入生成 Agent 的真实 Hvigor 尝�
 └── logs/
 ```
 
-评分模型只能访问白盒 Sandbox 内经过过滤的工程、Patch 和元数据。Autorun 不向裁判模型提供隐藏测试 Patch、golden patch、ohosTest 测试名称或生成 Agent 的完整消息记录。
+评分模型只能访问白盒 Sandbox 内经过过滤的 `base` 工程副本、`original`、用于定位范围的 Patch 和元数据。Patch 缺失或为空时，系统会直接比较明确传入的 `originalProjectPath` 与 `generatedProjectPath` 生成差异，不再假定生成工程目录名为 `workspace`。Autorun 不向裁判模型提供隐藏测试 Patch、golden patch、ohosTest 测试名称或生成 Agent 的完整消息记录。

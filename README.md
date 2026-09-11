@@ -179,7 +179,7 @@ devecocli --version
 | `execution.providerId` | 生成模型 Provider ID。多 Agent 对比时必填；Autorun 从一个包含该模型的来源冻结 Provider 配置并注入全部目标。 |
 | `execution.providerSourceTargetId` | 可选：指定从哪个 Agent 目标读取统一 Provider 配置；未指定时按 `targets` 顺序选择第一个包含指定模型的来源。 |
 | `execution.model` | 全局生成模型 ID。所有 Agent 共用，目标配置不能覆盖；单 Agent 未配置 `providerId` 时会从 Server 唯一匹配。 |
-| `execution.additionalPrompt` | 统一追加到每个用例 `PROMPT.md` 内容后的提示词。未配置、空字符串或仅包含空白时不追加；不会修改源用例文件，实际发送内容可在用例输出的 `generate/input.txt` 中核对。 |
+| `execution.additionalPrompt` | 仅供白盒裁判按 `whiteboxEvaluation.prompt.includeAdditionalPrompt` 选择是否追加；不会发送给生成 Agent。生成 Agent 的用户消息始终是 `PROMPT.md` 原文。 |
 | `execution.concurrency` | 同时运行的 Agent 数量。任意任务结束后立即补充下一个任务。 |
 | `execution.consoleMode` | 控制台模式：`dashboard`（默认动态看板）、`summary`（仅开始/结束）或 `verbose`（逐条进度）。非交互输出会自动退化为 `summary`。 |
 | `execution.idleTimeoutSec` | Agent 连续无活动的超时时间，默认 `600` 秒。 |
@@ -189,6 +189,7 @@ devecocli --version
 | `whiteboxEvaluation.concurrency` | 白盒评价并发数，默认 `2`。每个并发使用独立裁判 OpenCode 端口。 |
 | `whiteboxEvaluation.timeoutSec` | 单个白盒任务超时，默认 `1800` 秒。 |
 | `whiteboxEvaluation.failurePolicy` | 当前支持 `record_only`：白盒失败只记录，不改变原用例状态。 |
+| `whiteboxEvaluation.runtime` | 白盒固定使用 HarmonyBot 附带的 OpenCode，不随当前生成 Agent 切换。`source` 仅支持 `harmonyBot`；`root` 可省略，此时复用 `server.opencodeSource.targets` 中第一个 HarmonyBot 来源的 root。单独运行 Software Engineering 且启用白盒时必须显式配置该 root。 |
 | `whiteboxEvaluation.judge` | 选择裁判 Provider、模型和端口。`providerId` 必须与当前 OpenCode `opencode.json` 中的 Provider 名称完全一致；协议适配器、baseURL、API Key 和模型定义均从该 Provider 配置原样继承。 |
 | `whiteboxEvaluation.prompt.includeAdditionalPrompt` | 是否将 `execution.additionalPrompt` 作为有效业务要求交给裁判，默认 `true`。 |
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
@@ -519,7 +520,7 @@ output/<batchId>/
         ├── diff/
         │   └── changes.patch      # 相对于原始工程初始 Git 基线的 Agent 变更
         └── generate/
-            ├── input.txt          # 实际发送的提示词
+            ├── input.txt          # 实际发送的用户消息，与源用例 PROMPT.md 逐字一致
             ├── output.txt         # Agent 最终文本输出
             ├── final-message.json # OpenCode 最终消息
             ├── agent-console.log  # 执行期间可实时跟踪的关键进度
@@ -532,7 +533,7 @@ output/<batchId>/
             └── skill-workflow.json   # 一多 Skill 的账本、状态、报告完整性检查
 ```
 
-白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
+白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。白盒固定使用 HarmonyBot 附带的 OpenCode，因此 HarmonyBot 与 Software Engineering 的生成结果共享同一套裁判运行时。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
 
 Agent 结束后，Autorun 会在业务 Patch 和白盒 Sandbox 边界排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`，并从生成工程中清理后三类临时产物。`.onemulti/` 的正式内容保留在生成工程中并打包进用例 ZIP，供分发和排查；它仍不属于业务交付差异，ohosTest Runner 复制测试工程时也会独立排除该目录，不依赖工程 `.gitignore`。
 
@@ -595,9 +596,9 @@ node autorun.mjs --check
 
 ### 一多适配任务没有调用 Skill
 
-`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 状态，并在会话前预装 Skill；Python 版本不够、Skill 未注册或必需脚本失效会直接报错，`devecocli` 不可用只输出告警并继续。查看 `generate/input.txt` 中的授权工具路径、`generate/skill-runtime.json` 的预装和 CLI 状态记录及 `generate/skill-workflow.json` 的产物校验结果。修改代码后需要重启 Autorun；旧会话不会自动更新提示词或预装状态。
+`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 状态，并在会话前预装 Skill；Python 版本不够、Skill 未注册或必需脚本失效会直接报错，`devecocli` 不可用只输出告警并继续。无人值守策略写入 Autorun 专用 OpenCode 的 Agent 会话配置，不拼接到用户消息；`generate/input.txt` 只保存源用例 `PROMPT.md` 原文。Skill 预装和 CLI 状态见 `generate/skill-runtime.json`，流程产物检查见 `generate/skill-workflow.json`。修改代码后需要重启 Autorun；旧会话不会自动更新会话策略或预装状态。
 
-自动启动 Server 时，Autorun 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，强制全局及 Agent 的运行工具权限为 `allow`。`softwareEngineering` 的 Skill 权限例外采用来源精确白名单。运行数据、数据库、配置、状态和缓存均不跨 Agent 复用；配置端口已占用时会自动选择其他端口。
+自动启动 Server 时，Autorun 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，将无人值守策略写入当前 Agent 会话 prompt，并强制全局及 Agent 的运行工具权限为 `allow`。`softwareEngineering` 的 Skill 权限例外采用来源精确白名单。运行数据、数据库、配置、状态和缓存均不跨 Agent 复用；配置端口已占用时会自动选择其他端口。
 
 ### 提示 Server 未强制全部权限 allow
 

@@ -27,7 +27,10 @@
     "concurrency": 3
   },
   "whiteboxEvaluation": {
-    "enabled": false
+    "enabled": false,
+    "runtime": {
+      "source": "harmonyBot"
+    }
   },
   "ohosTest": {
     "paths": {

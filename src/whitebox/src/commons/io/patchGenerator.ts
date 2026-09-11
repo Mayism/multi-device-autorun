@@ -22,10 +22,13 @@ async function copyFilteredTree(sourceDir: string, targetDir: string): Promise<v
   );
 }
 
-export async function generateCasePatch(caseDir: string, outputPath: string): Promise<string> {
-  const resolvedCaseDir = path.resolve(caseDir);
-  const originalDir = path.join(resolvedCaseDir, "original");
-  const workspaceDir = path.join(resolvedCaseDir, "workspace");
+export async function generateProjectPatch(
+  originalProjectPath: string,
+  generatedProjectPath: string,
+  outputPath: string,
+): Promise<string> {
+  const originalDir = path.resolve(originalProjectPath);
+  const workspaceDir = path.resolve(generatedProjectPath);
 
   await Promise.all([fs.access(originalDir), fs.access(workspaceDir)]);
 
@@ -60,7 +63,9 @@ export async function generateCasePatch(caseDir: string, outputPath: string): Pr
       patchText = execError.stdout;
     } else {
       const reason = execError.stderr ?? execError.message;
-      throw new Error(`Failed to generate patch for ${resolvedCaseDir}: ${reason}`);
+      throw new Error(
+        `Failed to generate patch between ${originalDir} and ${workspaceDir}: ${reason}`,
+      );
     }
   }
 
@@ -72,4 +77,13 @@ export async function generateCasePatch(caseDir: string, outputPath: string): Pr
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
+}
+
+export async function generateCasePatch(caseDir: string, outputPath: string): Promise<string> {
+  const resolvedCaseDir = path.resolve(caseDir);
+  return generateProjectPatch(
+    path.join(resolvedCaseDir, "original"),
+    path.join(resolvedCaseDir, "workspace"),
+    outputPath,
+  );
 }

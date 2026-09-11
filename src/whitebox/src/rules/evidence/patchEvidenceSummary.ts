@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { generateCasePatch } from "../../commons/io/patchGenerator.js";
+import { generateProjectPatch } from "../../commons/io/patchGenerator.js";
 import { filterPatchTextForIgnoredFiles } from "../../commons/utils/ignoredFiles.js";
 import type { CaseInput, EvidenceSummary } from "../../types.js";
 import { collectEvidence } from "./collectEvidence.js";
@@ -22,11 +22,11 @@ export async function preparePatchEvidenceSummary(input: {
   effectivePatchPath?: string;
   evidenceSummary: EvidenceSummary;
 }> {
-  let effectivePatchPath = input.caseInput.patchPath;
+  let effectivePatchPath: string | undefined;
 
-  if (effectivePatchPath) {
+  if (input.caseInput.patchPath) {
     const patchText = filterPatchTextForIgnoredFiles(
-      await fs.readFile(effectivePatchPath, "utf-8").catch(() => ""),
+      await fs.readFile(input.caseInput.patchPath, "utf-8").catch(() => ""),
     );
     if (patchText.trim().length > 0) {
       const outputPath = path.join(input.caseDir, "intermediate", "effective.patch");
@@ -42,8 +42,11 @@ export async function preparePatchEvidenceSummary(input: {
     }
     const outputPath = path.join(input.caseDir, "intermediate", "generated.patch");
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
-    const caseRoot = path.dirname(input.caseInput.originalProjectPath);
-    effectivePatchPath = await generateCasePatch(caseRoot, outputPath);
+    effectivePatchPath = await generateProjectPatch(
+      input.caseInput.originalProjectPath,
+      input.caseInput.generatedProjectPath,
+      outputPath,
+    );
   }
 
   const caseInput = {

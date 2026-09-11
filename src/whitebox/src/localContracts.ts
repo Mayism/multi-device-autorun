@@ -7,7 +7,7 @@ export interface LocalWhiteboxInput {
   promptPath: string;
   originalProjectPath: string;
   generatedProjectPath: string;
-  patchPath: string;
+  patchPath?: string;
   outputDir: string;
   agentBuild?: AgentBuildResult;
   /** @deprecated 旧版 Autorun 输入兼容；新版使用 agentBuild。 */

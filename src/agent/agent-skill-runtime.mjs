@@ -167,41 +167,6 @@ export async function installProjectSkill({ runtime, projectDir, signal }) {
   return { name: ONE_MULTI_NAME, root: omRoot, sourceRoot: runtime.oneMulti.root, output: installed.stdout };
 }
 
-export function buildAgentSandboxPolicy({ runtime, projectDir }) {
-  const skillLines = runtime.skills.map((skill) => `  - ${skill.name}: ${JSON.stringify(skill.root)}`);
-  const toolLines = runtime.toolReadRoots.map((root) => `  - ${JSON.stringify(root)}`);
-  const devecoCliLine = runtime.oneMulti?.devecoCli?.status === "available"
-    ? `- devecocli 已通过预检，版本：${runtime.oneMulti.devecoCli.version}。按 Skill 要求用于构建和运行验证。`
-    : `- devecocli 当前不可用（${runtime.oneMulti?.devecoCli?.warning || "未通过预检"}）。这不是评测启动的阻断条件；继续完成 Skill 账本、静态检查、代码修改及其他可执行步骤。依赖该 CLI 的构建或运行验证必须如实标为未验证，不得伪造通过结果。`;
-  return `# 工作目录与工具资源隔离要求（强制）
-
-- 当前唯一业务工程：${JSON.stringify(projectDir)}。业务源码、任务账本、证据、报告和临时文件只能写入该工程及其子目录。
-- 不得枚举、读取或尝试访问其他用例、隐藏测试、标准答案、工程外运行报告和评测数据；工具资源授权不扩大到其父目录、其他 runtime、Provider 配置或凭据。
-- 业务事实以本提示词和当前工程内容为准；执行方法与平台知识可读取下列已注册 Skill 的 SKILL.md、references、domains、assets 和 scripts。Skill 自带的参考示例属于工具资料，不是其他评测用例；evals 不在授权范围。
-${skillLines.join("\n") || "  - 当前来源无已注册 Skill，不得借用其他来源。"}
-- 允许在当前工程 cwd 下执行上述 Skill 的安装、检查、验证和报告脚本。脚本位于工程外不构成跳过 Skill 的理由；不得改写工具源目录或把账本、缓存、证据写回共享 Skill。Python 使用 -B 避免写入工具目录的 __pycache__。
-- Skill 不得因目录隔离被替换为内联模拟、手工伪造账本或省略验证。若脚本失败，应按真实错误修复调用；无法解决时明确记录未完成/未验证，不得宣称已严格执行。
-- 下列目录只用于读取 SDK/API/工具资源和调用构建工具，不允许读取无关文件：
-${toolLines.join("\n") || "  - 无额外工具资源目录。"}
-- 允许调用 PATH 中的 Python、Node、Java、git、ohpm、hvigorw、devecocli 等已配置工具及它们的必要运行库；工具内部必要的依赖缓存不构成读取其他用例的授权。不得搜索用户主目录、扩展根目录或整个 output 来寻找工具/答案。需要额外凭据或缺失工具时报告具体依赖，不得自行遍历查找。
-- 工程外设备租约工具和锁文件仅允许按下文明确路径获取/释放租约。
-
-# Skill 调用约定（强制）
-
-${runtime.oneMulti ? `- Autorun 已将 ${ONE_MULTI_NAME} 安装到当前工程的 .onemulti/，并已检查 Python、Skill 安装入口和 devecocli 状态；不要再次安装，不要注入 AGENTS.md 或修改 .gitignore。初始化、验证和报告仍必须由你按 Skill 完成。
-${devecoCliLine}
-- Python 解释器：${JSON.stringify(runtime.oneMulti.python.command)}。按照当前 Skill 文档调用实际安装到 .onemulti/scripts/ 的脚本；不要假设固定脚本清单，也不要依赖上一轮 shell 的 export 持续存在。
-- 预装的 .onemulti 由 Autorun 排除出业务 Patch 和评分输入，但会随用例 ZIP 归档。` : "- 相对引用基于所属 Skill 根目录解析；优先使用已提供的本地快照，保留同来源 Skill 间的引用关系。需要新增 Skill 时不能自行突破来源白名单。"}
-- 每次 shell 调用显式设置 cwd。检查真实退出码；使用管道截取输出时必须保留前序命令失败状态，不能把 tail 的成功当作脚本成功。
-
-# 设备验证与测试阶段边界（强制）
-
-- 可执行静态检查、依赖安装、编译验证；当业务验收或 Skill 要求目标形态运行证据时，允许并应执行必要设备验证，不能用静态推断代替运行验证。无法完成的项记录为未验证。
-- 所有模拟器、hdc、HAP 安装或 UI 自动化命令都必须在同一次设备租约命令内完成，与其他 Agent 及 ohosTest 串行访问设备。
-- 若启动模拟器，必须在租约命令结束前停止本次启动的同名实例，清理本次安装/测试进程。
-- 不得执行正式 ohosTest；由 Autorun 在 Agent 会话结束后统一编排。Skill 自身的必要运行验证不属于正式 ohosTest。`;
-}
-
 export async function inspectSkillWorkflow({ runtime, projectDir, signal }) {
   if (!runtime.oneMulti) return undefined;
   const checks = [];
