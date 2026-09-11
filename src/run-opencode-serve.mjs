@@ -57,6 +57,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { forceAllowEverything } from './lib/permission-policy.mjs';
 import { createPinnedDevEcoCli } from './lib/deveco-cli-runtime.mjs';
+import { applyAgentSessionPolicy } from './lib/session-policy.mjs';
 
 const HELP = [
   '用法: node src/run-opencode-serve.mjs [--port N] [--source PATH]',
@@ -66,6 +67,7 @@ const HELP = [
   '                                  [--isolate-config]',
   '                                  [--strict-source-skills]',
   '                                  [--provider-overlay PATH]',
+  '                                  [--session-agent NAME --session-policy-file PATH]',
   '                                  [--help]',
   '',
   '启动 opencode serve。CLI 优先于环境变量。',
@@ -80,6 +82,8 @@ const HELP = [
   '  --isolate-config       复制配置资产，保证不同 Agent 运行环境互不共享',
   '  --strict-source-skills 仅允许来源 resources/opencode/skills 下的 Skill',
   '  --provider-overlay P   注入统一生成模型的 Provider 配置快照',
+  '  --session-agent NAME   接收 Autorun 会话策略的 Agent 名称',
+  '  --session-policy-file P 将文件内容注入指定 Agent 的会话 prompt',
   '  --deveco-home, -d PATH DevEco Studio 安装根',
   '                          (Windows 默认 "C:\\Program Files\\Huawei\\DevEco Studio",',
   '                           macOS 默认 /Applications/DevEco-Studio.app, env: DEVECO_HOME)',
@@ -153,6 +157,8 @@ function parseArgs(argv) {
     isolateConfig: false,
     strictSourceSkills: false,
     providerOverlay: '',
+    sessionAgent: '',
+    sessionPolicyFile: '',
   };
 
   const needValue = (flag) => {
@@ -212,6 +218,12 @@ function parseArgs(argv) {
         break;
       case '--provider-overlay':
         opts.providerOverlay = takeTwo(i, v); i++;
+        break;
+      case '--session-agent':
+        opts.sessionAgent = takeTwo(i, v); i++;
+        break;
+      case '--session-policy-file':
+        opts.sessionPolicyFile = takeTwo(i, v); i++;
         break;
       default:
         if (v.startsWith('-')) {
@@ -377,6 +389,22 @@ if (opts.providerOverlay) {
     process.exit(1);
   }
 }
+if (Boolean(opts.sessionAgent) !== Boolean(opts.sessionPolicyFile)) {
+  err('[error] --session-agent 与 --session-policy-file 必须同时提供');
+  process.exit(1);
+}
+if (opts.sessionAgent) {
+  try {
+    const sessionPolicy = readFileSync(path.resolve(opts.sessionPolicyFile), 'utf8');
+    rawConfig = applyAgentSessionPolicy(rawConfig, {
+      agentName: opts.sessionAgent,
+      policy: sessionPolicy,
+    });
+  } catch (e) {
+    err(`[error] 无法注入 Agent 会话策略: ${e.message}`);
+    process.exit(1);
+  }
+}
 let sourceSkillNames;
 if (opts.strictSourceSkills) {
   try {
@@ -471,6 +499,7 @@ if (opts.strictSourceSkills) {
   out('[run] skill isolation:  strict source allowlist (' + sourceSkillNames.length + ')');
 }
 if (opts.providerOverlay) out('[run] provider overlay: ' + path.resolve(opts.providerOverlay));
+if (opts.sessionAgent) out('[run] session policy:   ' + opts.sessionAgent + ' <- ' + path.resolve(opts.sessionPolicyFile));
 out('[run] deveco home:      ' + devecoContents);
 if (pinnedDevEcoCli) out('[run] devecocli Node:   ' + pinnedDevEcoCli.nodePath + ' (' + process.version + ')');
 out('[run] port:             ' + port);

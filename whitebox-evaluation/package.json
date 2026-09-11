@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/commons/io/patchGenerator.test.js dist/agents/runners/protocolRetry.test.js",
     "start": "node dist/localCli.js",
     "evaluate": "node dist/localCli.js",
     "dev:evaluate": "tsx src/localCli.ts",

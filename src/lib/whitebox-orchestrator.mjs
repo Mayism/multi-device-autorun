@@ -39,11 +39,16 @@ function positiveInteger(value, fallback) {
 export function normalizeWhiteboxConfig(raw, outputRoot) {
   const config = raw && typeof raw === "object" ? raw : {};
   const judge = config.judge && typeof config.judge === "object" ? config.judge : {};
+  const runtime = config.runtime && typeof config.runtime === "object" ? config.runtime : {};
   const concurrency = positiveInteger(config.concurrency, 2);
   const failurePolicy = String(config.failurePolicy || "record_only");
   const basePort = positiveInteger(judge.basePort, 62400);
+  const runtimeSource = String(runtime.source || "harmonyBot").trim();
   if (failurePolicy !== "record_only") {
     throw new Error(`whiteboxEvaluation.failurePolicy 仅支持 record_only，当前为 ${failurePolicy}`);
+  }
+  if (runtimeSource !== "harmonyBot") {
+    throw new Error(`whiteboxEvaluation.runtime.source 仅支持 harmonyBot，当前为 ${runtimeSource || "<empty>"}`);
   }
   if (basePort + concurrency - 1 > 65535) {
     throw new Error("whiteboxEvaluation.judge.basePort 与 concurrency 组合超出可用端口范围");
@@ -61,9 +66,37 @@ export function normalizeWhiteboxConfig(raw, outputRoot) {
       modelId: String(judge.modelId || "").trim(),
       basePort,
     },
+    runtime: {
+      source: "harmonyBot",
+      root: String(runtime.root || "").trim(),
+    },
     officialLinter: { enabled: config.officialLinter?.enabled === true },
     hvigorBuildCheck: { enabled: config.hvigorBuildCheck?.enabled === true },
     runtimeRoot: path.join(outputRoot, "_runtime", "whitebox"),
+  };
+}
+
+export function bindHarmonyBotWhiteboxRuntime(config, targets, baseDir = process.cwd()) {
+  const configuredRoot = String(config.runtime?.root || "").trim();
+  const harmonyBotTarget = Array.isArray(targets)
+    ? targets.find((target) => target?.mode === "harmonyBot")
+    : undefined;
+  const root = configuredRoot
+    ? path.resolve(baseDir, configuredRoot)
+    : String(harmonyBotTarget?.root || "").trim();
+  if (config.enabled && !root) {
+    throw new Error(
+      "白盒评价统一使用 HarmonyBot OpenCode，但未配置 HarmonyBot 来源；"
+      + "请在 server.opencodeSource.targets 中加入 mode=harmonyBot，"
+      + "或配置 whiteboxEvaluation.runtime.root",
+    );
+  }
+  return {
+    ...config,
+    runtime: {
+      source: "harmonyBot",
+      root,
+    },
   };
 }
 
@@ -127,7 +160,9 @@ export async function prepareWhiteboxInput({
   const originalProjectPath = path.join(caseDir, "original");
   if (!await exists(originalProjectPath)) throw new Error(`白盒原始工程不存在: ${originalProjectPath}`);
   if (!await exists(agentResult.projectDir)) throw new Error(`白盒生成工程不存在: ${agentResult.projectDir}`);
-  if (!agentResult.patchPath || !await exists(agentResult.patchPath)) throw new Error(`白盒 Patch 不存在: ${agentResult.patchPath || "<empty>"}`);
+  const patchPath = agentResult.patchPath && await exists(agentResult.patchPath)
+    ? agentResult.patchPath
+    : undefined;
   const originalPrompt = await fs.readFile(caseInfo.promptPath, "utf8");
   const additionalPrompt = config.prompt.includeAdditionalPrompt
     ? String(execution.additionalPrompt || "").trim()
@@ -138,7 +173,7 @@ export async function prepareWhiteboxInput({
   const effectivePromptPath = path.join(inputsDir, "effective-prompt.md");
   await fs.writeFile(originalPromptPath, originalPrompt, "utf8");
   await fs.writeFile(effectivePromptPath, effectivePrompt, "utf8");
-  const patchBytes = await fs.readFile(agentResult.patchPath);
+  const patchBytes = patchPath ? await fs.readFile(patchPath) : undefined;
   const compile = agentResult.agentCompile || {};
   const persistedCompile = await readJson(agentResult.logs?.compileAttemptsPath);
   const rawAttempts = Array.isArray(agentResult.agentCompileAttempts)
@@ -183,7 +218,7 @@ export async function prepareWhiteboxInput({
     promptPath: effectivePromptPath,
     originalProjectPath,
     generatedProjectPath: agentResult.projectDir,
-    patchPath: agentResult.patchPath,
+    ...(patchPath ? { patchPath } : {}),
     outputDir,
     agentBuild,
     metadata: {
@@ -191,7 +226,7 @@ export async function prepareWhiteboxInput({
       providerId: agentResult.providerId || "",
       modelId: agentResult.modelId || "",
       promptSha256: sha256(effectivePrompt),
-      patchSha256: sha256(patchBytes),
+      ...(patchBytes ? { patchSha256: sha256(patchBytes) } : {}),
       originalPromptPath,
       includesAdditionalPrompt: Boolean(additionalPrompt),
     },

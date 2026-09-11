@@ -55,7 +55,6 @@ async function assertInput(input: LocalWhiteboxInput): Promise<void> {
     promptPath: input.promptPath,
     originalProjectPath: input.originalProjectPath,
     generatedProjectPath: input.generatedProjectPath,
-    patchPath: input.patchPath,
     outputDir: input.outputDir,
   })) {
     if (typeof value !== "string" || !value.trim())
@@ -65,7 +64,7 @@ async function assertInput(input: LocalWhiteboxInput): Promise<void> {
     fs.access(input.promptPath),
     fs.access(input.originalProjectPath),
     fs.access(input.generatedProjectPath),
-    fs.access(input.patchPath),
+    ...(input.patchPath ? [fs.access(input.patchPath)] : []),
   ]);
 }
 
@@ -84,7 +83,7 @@ export async function runLocalWhiteboxEvaluation(
     originalProjectPath: path.resolve(input.originalProjectPath),
     generatedProjectPath: path.resolve(input.generatedProjectPath),
     originalProjectProvided: true,
-    patchPath: path.resolve(input.patchPath),
+    patchPath: input.patchPath ? path.resolve(input.patchPath) : undefined,
     expectedConstraintsPath: input.expectedConstraintsPath
       ? path.resolve(input.expectedConstraintsPath)
       : undefined,

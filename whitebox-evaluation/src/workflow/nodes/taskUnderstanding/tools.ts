@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { runOpencodeTaskUnderstanding } from "../../../agents/runners/opencodeTaskUnderstanding.js";
-import { generateCasePatch } from "../../../commons/io/patchGenerator.js";
+import { generateProjectPatch } from "../../../commons/io/patchGenerator.js";
 import {
   filterPatchTextForIgnoredFiles,
   isIgnoredCaseFilePath,
@@ -368,8 +368,11 @@ export async function ensureEffectivePatchPath(
     await deps.artifactStore.writeText(state.caseDir, path.relative(state.caseDir, outputPath), "");
   }
 
-  const caseRoot = path.dirname(state.caseInput.originalProjectPath);
-  return generateCasePatch(caseRoot, outputPath);
+  return generateProjectPatch(
+    state.caseInput.originalProjectPath,
+    state.caseInput.generatedProjectPath,
+    outputPath,
+  );
 }
 
 export async function persistCaseRuleDefinitions(

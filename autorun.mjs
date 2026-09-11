@@ -24,9 +24,12 @@ import {
   prepareAgentSkillRuntime,
   summarizeAgentSkillRuntime,
   installProjectSkill,
-  buildAgentSandboxPolicy,
   inspectSkillWorkflow,
 } from "./src/lib/agent-skill-runtime.mjs";
+import {
+  AGENT_AUTO_APPROVAL_POLICY,
+  hasAgentSessionPolicy,
+} from "./src/lib/session-policy.mjs";
 import { normalizeAgentTargets, normalizeGenerationModel } from "./src/lib/agent-targets.mjs";
 import { writeAgentComparisonReport } from "./src/lib/agent-comparison-report.mjs";
 import {
@@ -35,6 +38,7 @@ import {
   pruneGeneratedArtifacts,
 } from "./src/lib/generated-artifact-filter.mjs";
 import {
+  bindHarmonyBotWhiteboxRuntime,
   createWhiteboxOrchestrator,
   normalizeWhiteboxConfig,
   prepareWhiteboxInput,
@@ -47,22 +51,6 @@ const SKILL_READY_TIMEOUT_SEC = 180;
 const SKILL_RETRY_INTERVAL_MS = 2_000;
 const SESSION_CREATE_TIMEOUT_SEC = 120;
 let activeReporter = null;
-
-const AGENT_AUTO_APPROVAL_POLICY = `# 无人值守确认策略（强制）
-
-- 当前任务执行所需操作均已授权；不得停下来等待用户确认。
-- 如工具仍要求确认，统一选择允许、同意、继续执行或推荐方案。
-- 如存在多个合理实现且没有额外业务信息，采用推荐方案或最稳妥的默认方案继续完成任务。`;
-
-function agentDeviceLeasePolicy(caseName, deviceLeasePath) {
-  const helperPath = path.join(AUTORUN_ROOT, "src", "lib", "device-lease.mjs");
-  return `# 设备租约调用方式（强制）
-
-- 本用例的设备租约路径：\`${deviceLeasePath}\`。
-- 设备验证必须使用以下形式，\`--\` 后放入一条覆盖“启动 → 验证 → 停止”的完整命令；不得拆成多次直接调用：
-  \`node "${helperPath}" run --lock "${deviceLeasePath}" --owner "agent:${caseName}" -- <命令> [参数]\`
-- 租约会在命令退出时自动释放。若设备验证不必要，则不要获取租约。`;
-}
 
 function parseArgs(argv) {
   const result = {
@@ -200,9 +188,13 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
   normalized.execution.model = generationModel.modelId;
   normalized.execution.providerId = generationModel.providerId;
   normalized.execution.generationModel = generationModel;
-  normalized.whiteboxEvaluation = normalizeWhiteboxConfig(
-    normalized.whiteboxEvaluation,
-    normalized.execution.outputRoot,
+  normalized.whiteboxEvaluation = bindHarmonyBotWhiteboxRuntime(
+    normalizeWhiteboxConfig(
+      normalized.whiteboxEvaluation,
+      normalized.execution.outputRoot,
+    ),
+    targetConfig.targets,
+    baseDir,
   );
   normalized.upload = { enabled: normalized.upload?.enabled === true };
   return normalized;
@@ -422,11 +414,11 @@ async function ensureOpenCodeServer(config, {
     const expectedAgent = source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
       ? "build"
       : String(config.execution?.agent || "").trim();
-    if (serverAllowsEverything(serverConfig, expectedAgent)) {
+    if (serverAllowsEverything(serverConfig, expectedAgent) && hasAgentSessionPolicy(serverConfig, expectedAgent)) {
       log(`[server] 复用已运行且已启用全权限允许的 OpenCode Server: ${serverUrl}`);
       return { client, serverConfig, owned: false, child: null, logPath: "" };
     }
-    log(`[server] 已运行的 OpenCode Server 未强制全部允许，改为启动 Autorun 专用 Server`);
+    log(`[server] 已运行的 OpenCode Server 未启用全权限或无人值守会话策略，改为启动 Autorun 专用 Server`);
   } else if (!reuseExisting && await client.health()) {
     log("[server] 隔离执行不复用已有 OpenCode Server，将自动选择独立端口");
   }
@@ -440,6 +432,9 @@ async function ensureOpenCodeServer(config, {
   const serveScript = fileURLToPath(new URL("./src/run-opencode-serve.mjs", import.meta.url));
   if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
   const runtimeRoot = config.server.runtimeRoot;
+  const sessionPolicyPath = path.join(runtimeRoot, "session-policy.md");
+  await fs.mkdir(runtimeRoot, { recursive: true });
+  await fs.writeFile(sessionPolicyPath, `${AGENT_AUTO_APPROVAL_POLICY}\n`, "utf8");
   const port = new URL(serverUrl).port || "61417";
   const runId = `${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}-autorun-serve`;
   const logDir = path.join(runtimeRoot, "logs", "runs", runId);
@@ -454,6 +449,8 @@ async function ensureOpenCodeServer(config, {
     "--runtime-root", runtimeRoot,
     "--workspace", workspace,
     "--port", port,
+    "--session-agent", String(config.execution.agent || "").trim(),
+    "--session-policy-file", sessionPolicyPath,
   ];
   if (isolateConfig) args.push("--isolate-config");
   if (source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
@@ -1391,7 +1388,6 @@ async function runCase({
   signal,
 }) {
   const caseName = caseInfo.name;
-  const deviceLeasePath = path.join(batchRoot, ".device-validation.lock");
   const caseRunDir = path.join(batchRoot, safeName(caseName));
   const originalDir = path.join(caseRunDir, "original");
   // 保留源用例的工程目录名（base 或 task），使输出工程与 metadata.base_project 一致。
@@ -1435,7 +1431,6 @@ async function runCase({
     throwIfInterrupted(signal);
     const sourcePrompt = await fs.readFile(caseInfo.promptPath, "utf8");
     if (!sourcePrompt.trim()) throw new Error(`PROMPT.md 内容为空: ${caseInfo.promptPath}`);
-    const additionalPrompt = String(execution.additionalPrompt || "").trim();
     await copyProject(caseInfo.projectDir, originalDir);
     await copyProject(originalDir, projectDir);
     const installedSkill = await installProjectSkill({ runtime: skillRuntime, projectDir, signal });
@@ -1444,13 +1439,8 @@ async function runCase({
       installedSkill,
     });
     if (installedSkill) await writeAgentConsole("skill_prepared", `${installedSkill.name} 已预装到 ${installedSkill.root}`);
-    const prompt = `${[
-      sourcePrompt.trim(),
-      additionalPrompt,
-      AGENT_AUTO_APPROVAL_POLICY,
-      buildAgentSandboxPolicy({ runtime: skillRuntime, projectDir }),
-      agentDeviceLeasePolicy(caseName, deviceLeasePath),
-    ].filter(Boolean).join("\n\n")}\n`;
+    // 用户消息保持为用例 PROMPT.md 原文；无人值守等运行策略由 Agent 会话配置承载。
+    const prompt = sourcePrompt;
     await fs.writeFile(path.join(generateDir, "input.txt"), prompt, "utf8");
     baseline = await initializeGitBaseline(projectDir);
     throwIfInterrupted(signal);
@@ -1946,6 +1936,9 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode,
   if (!usesBuiltInAgent && !Object.hasOwn(config?.agent || {}, execution.agent)) {
     throw new Error(`Server 未配置 Agent: ${execution.agent}`);
   }
+  if (!hasAgentSessionPolicy(config, execution.agent)) {
+    throw new Error(`OpenCode Server 未为 Agent ${execution.agent} 注入无人值守会话策略`);
+  }
   if (execution.agent === "harmonyos-multi-device") {
     const agentPrompt = String(config.agent[execution.agent]?.prompt || "");
     if (!agentPrompt.includes("harmonyos-ui-multi")) {
@@ -2038,7 +2031,10 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   const whiteboxConfig = config.whiteboxEvaluation;
   let whiteboxOrchestrator;
   if (whiteboxConfig.enabled) {
-    const whiteboxSource = await resolveOpenCodeSource(config.server.opencodeSource);
+    const whiteboxSource = await resolveOpenCodeSource({
+      mode: whiteboxConfig.runtime.source,
+      root: whiteboxConfig.runtime.root,
+    });
     whiteboxOrchestrator = await createWhiteboxOrchestrator({
       config: whiteboxConfig,
       serverConfig,
@@ -2064,7 +2060,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   }
   console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}；cloudTest=${cloudTestLabel}`);
   if (whiteboxOrchestrator) {
-    console.log(`[check] 白盒评价已启用；裁判=${whiteboxOrchestrator.judge.providerId}/${whiteboxOrchestrator.judge.modelId}；并发=${whiteboxConfig.concurrency}`);
+    console.log(`[check] 白盒评价已启用；运行时=HarmonyBot OpenCode；裁判=${whiteboxOrchestrator.judge.providerId}/${whiteboxOrchestrator.judge.modelId}；并发=${whiteboxConfig.concurrency}`);
   }
   if (retryPlan) {
     console.log(`[retry] 来源批次 ${retryPlan.sourceBatchId}；重试用例: ${retryPlan.selectedCaseNames.join(", ")}`);
@@ -2144,7 +2140,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   let stopQueue = false;
 
   function startWhiteboxBranch(caseInfo, agentResult) {
-    if (!whiteboxOrchestrator || !agentResult?.projectDir || !agentResult?.patchPath) {
+    if (!whiteboxOrchestrator || !agentResult?.projectDir) {
       return Promise.resolve(null);
     }
     const job = (async () => {

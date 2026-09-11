@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { detectDevEcoCli } from "./deveco-cli.mjs";
 import {
   discoverRuntimeSkills, prepareAgentSkillRuntime, installProjectSkill,
-  buildAgentSandboxPolicy, inspectSkillWorkflow, findSkillPython,
+  inspectSkillWorkflow, findSkillPython,
 } from "./agent-skill-runtime.mjs";
 
 async function fixture(t) {
@@ -26,7 +26,7 @@ async function addSkill(skillsRoot, name) {
   return root;
 }
 
-test("only registered skills from this source snapshot enter the prompt", async (t) => {
+test("only registered skills from this source snapshot enter the runtime", async (t) => {
   const { root, skillsRoot } = await fixture(t);
   const own = await fs.realpath(await addSkill(skillsRoot, "own"));
   await addSkill(skillsRoot, "not-registered");
@@ -39,14 +39,8 @@ test("only registered skills from this source snapshot enter the prompt", async 
     registeredSkills: [{ name: "own" }], agent: "build", sourceMode: "softwareEngineering",
   });
   assert.equal(runtime.oneMulti, undefined);
-  const prompt = buildAgentSandboxPolicy({ runtime, projectDir: "/case/task" });
-  assert.ok(prompt.includes(own));
-  assert.ok(!prompt.includes(outside));
-  assert.ok(!prompt.includes("只允许访问当前工程工作目录及其子目录"));
-  assert.ok(prompt.includes("不得枚举、读取或尝试访问其他用例"));
-  assert.ok(prompt.includes("允许在当前工程 cwd 下执行"));
-  assert.ok(prompt.includes("不能用静态推断代替运行验证"));
-  assert.ok(prompt.includes("不得执行正式 ohosTest"));
+  assert.deepEqual(runtime.skills, [{ name: "own", root: own }]);
+  assert.ok(!runtime.skills.some((skill) => skill.root === outside));
   assert.equal(await installProjectSkill({ runtime, projectDir: "/does-not-exist" }), null);
   await assert.rejects(discoverRuntimeSkills(skillsRoot, [{ name: "own", location: path.join(outside, "SKILL.md") }]), /不属于当前来源快照/);
 });
@@ -172,10 +166,6 @@ test("missing CLI is recorded as a warning and does not block required Skill pre
   assert.equal(prepared.oneMulti.devecoCli.status, "unavailable");
   assert.ok(prepared.oneMulti.devecoCli.warning);
   assert.equal(prepared.oneMulti.devecoCliVersion, undefined);
-  const prompt = buildAgentSandboxPolicy({ runtime: prepared, projectDir: path.join(root, "project") });
-  assert.match(prompt, /devecocli 当前不可用/);
-  assert.match(prompt, /不是评测启动的阻断条件/);
-  assert.match(prompt, /标为未验证/);
   if (process.platform !== "win32") {
     const executable = path.join(bin, "devecocli");
     await fs.writeFile(executable, "#!/bin/sh\nprintf 'SyntaxError: Invalid regular expression flags\\n' >&2\nexit 1\n", { mode: 0o755 });
@@ -192,7 +182,6 @@ test("missing CLI is recorded as a warning and does not block required Skill pre
     });
     assert.equal(available.oneMulti.devecoCli.status, "available");
     assert.equal(available.oneMulti.devecoCliVersion, "1.3.1");
-    assert.doesNotMatch(buildAgentSandboxPolicy({ runtime: available, projectDir: path.join(root, "project") }), /不是评测启动的阻断条件/);
   }
 });
 

@@ -39,6 +39,9 @@
     "concurrency": 2,
     "timeoutSec": 1800,
     "failurePolicy": "record_only",
+    "runtime": {
+      "source": "harmonyBot"
+    },
     "judge": {
       "providerId": "zhipuai-coding-plan",
       "modelId": "glm-5.2",
