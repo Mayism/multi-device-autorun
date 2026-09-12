@@ -1,7 +1,8 @@
 export function parseJson5ish(text: string): unknown {
   const withoutComments = removeComments(text);
   const withJsonStrings = normalizeSingleQuotedStrings(withoutComments);
-  const withoutTrailingCommas = removeTrailingCommas(withJsonStrings);
+  const withQuotedKeys = quoteUnquotedKeys(withJsonStrings);
+  const withoutTrailingCommas = removeTrailingCommas(withQuotedKeys);
   return JSON.parse(withoutTrailingCommas);
 }
 
@@ -102,6 +103,68 @@ function normalizeSingleQuotedStrings(text: string): string {
         quote = "double";
       }
     }
+  }
+
+  return result;
+}
+
+function quoteUnquotedKeys(text: string): string {
+  let result = "";
+  let inString = false;
+  let previousSignificant = "";
+  const identifierPattern = /[A-Za-z0-9_$]/;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (inString) {
+      result += character;
+      if (character === "\\" && index + 1 < text.length) {
+        result += text[index + 1];
+        index += 1;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      result += character;
+      inString = true;
+      previousSignificant = '"';
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      result += character;
+      continue;
+    }
+
+    if (identifierPattern.test(character)) {
+      let end = index;
+      let identifier = "";
+      while (end < text.length && identifierPattern.test(text[end]!)) {
+        identifier += text[end];
+        end += 1;
+      }
+      let after = end;
+      while (after < text.length && /\s/.test(text[after]!)) {
+        after += 1;
+      }
+      const inKeyPosition =
+        (previousSignificant === "{" || previousSignificant === ",") &&
+        text[after] === ":" &&
+        identifier !== "true" &&
+        identifier !== "false" &&
+        identifier !== "null";
+      result += inKeyPosition ? `"${identifier}"` : identifier;
+      previousSignificant = identifier.at(-1) ?? "";
+      index = end - 1;
+      continue;
+    }
+
+    result += character;
+    previousSignificant = character;
   }
 
   return result;

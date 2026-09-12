@@ -77,6 +77,8 @@ case/
 | 字段 | 说明 |
 |------|------|
 | `case_id` | case 标识 |
+| `platform` | 可选。`native`（缺省，纯鸿蒙工程）、`web`（Web 用例）、`rn`（RNOH 工程，见下文「platform 平台」） |
+| `rn_build` | 可选。仅 `platform: "rn"` 时有效；`bundle_commands` 覆盖默认 bundle 命令（见下文） |
 | `base_project` | 基线工程目录名。运行器按 `<case>/<base_project>`、`<case>/../<base_project>` 顺序解析 |
 | `test_patch` | 测试 patch 文件名 |
 | `golden_patch` | 答案 patch 文件名 |
@@ -143,6 +145,123 @@ case 基线工程的模块发现规则与 matrix 模式一致：runner 通过模
 ["phone", "foldable"]
 ```
 
+## platform 平台
+
+`metadata.platform` 声明基线工程技术栈，缺省为 `native`（纯鸿蒙工程，行为不变）：
+
+| 取值 | 说明 |
+|------|------|
+| `native` | 缺省。`base_project` 即鸿蒙工程根目录 |
+| `web` | Web 用例。`base_project` 为 case 内相对路径，Case 需含 `web/` 目录；执行期间由 runner 拉起 dev 服务 |
+| `rn` | RNOH（React Native for OpenHarmony）工程 |
+| `flutter` | Flutter（flutter_flutter ohos 分支）工程，需配置 `paths.flutter`（见下文） |
+
+### Web 用例
+
+`platform: "web"` 的 Case 保留鸿蒙 `base_project` 和同级 `web/`。鸿蒙应用的
+`Web.src` 统一使用 `http://127.0.0.1:5175`；`web/package.json` 必须提供 `dev` 脚本，
+确保开发服务监听宿主机的 `127.0.0.1:5175` 或 `0.0.0.0:5175`。以 Vite 为例，
+建议设置 `server.port: 5175` 和 `server.strictPort: true`，避免端口占用时自动换端口。
+
+SWE、Answer 每轮应用补丁后分别判断工作副本的 lock 文件：
+
+- 有 `package-lock.json` 或 `npm-shrinkwrap.json`：执行 `npm ci --no-audit --no-fund`。
+- 无上述文件：执行 `npm install --no-audit --no-fund --package-lock=false`。
+
+无 lock 时不生成新的 lock，避免 SWE 的安装产物改变 Answer 的安装策略。
+已有 lock 不匹配或安装失败时会直接报告错误，不自动切换安装命令。安装不设 Runner
+总耗时上限；每轮的实际命令写入 `commands.jsonl`，输出保存在 `web/<阶段>/install.log`。
+
+Web 服务启动并通过宿主机 HTTP 检查后，Runner 等待每台设备 HDC 连接就绪，再执行
+`hdc -t <target> rport tcp:5175 tcp:5175`，然后安装应用并执行该设备的测试套。
+每台设备结束后清理本次创建的转发；即使保留模拟器或使用手动启动的设备也会清理。
+已有相同映射会复用并保留，其他设备或其他端口的映射不会被删除；同一设备端口的
+不同映射、端口占用或建立失败会阻止该设备执行并报告 `web_forward_failed`。
+转发清理失败报告 `web_forward_cleanup_failed`，已收集的测试数据仍保留。
+
+多设备各自使用设备内的 5175 端口，串行访问同一轮宿主机服务；此能力不依赖
+`foldControl`，也不新增 `machine.json` 或 metadata 配置项。仅 Web Case 自动启用。
+Runner 不会自动改写 Case 中原有的 `10.0.2.2` URL；旧用例需同步修改页面地址及相关
+绝对资源地址。通过 IDE 单独运行应用时，需要另行建立 HDC 转发。
+
+ArkWeb 默认让回环地址绕过代理，但显式覆盖该规则的应用仍需验证。宿主机 HTTP
+就绪和 HDC 转发建立成功不等于页面业务加载已验证，页面内容仍由用例测试。
+
+### Flutter 用例
+
+`flutter` 布局约定：`base_project` 根目录为 Flutter 工程（`pubspec.yaml`、`lib/`），
+鸿蒙宿主工程固定位于 `base_project/ohos/` 子目录（`hvigorfile.ts` 在 `ohos/` 下而非工程根）。
+runner 复制基线工程后把 hvigor/ohpm 的执行目录自动指向 `ohos/`，模块发现、产物路径、
+安装和 `aa test` 均与 native 模式一致；flutter 工具链从 `ohos/` 向上即可找到工程根的
+`pubspec.yaml`。补丁仍打在 Flutter 工程根（`test_patch` 中的路径需带 `ohos/` 前缀）。
+
+构建由 `flutter-hvigor-plugin` 完成：hvigor 构建时插件现场执行 `flutter assemble`
+编译 Dart 并注入引擎 HAR 与 `flutter_assets`，因此构建命令序列与 native 完全一致，
+不需要单独执行 `flutter build hap`。runner 复制基线工程后会做三项自愈（均不阻断，
+失败由后续构建错误显式暴露）：
+
+1. 生成 `ohos/local.properties` 的 `flutter.sdk=<paths.flutter>`（case 不携带本机绝对路径；case 自带该文件时保持原值）
+2. `.dart_tool/package_config.json` 缺失时执行 `flutter pub get`（`.dart_tool` 被 .gitignore 排除，复制不带入）
+3. `ohos/node_modules/flutter-hvigor-plugin` 缺失时建立指向 `<paths.flutter>/packages/flutter_tools/hvigor` 的目录链接（node_modules 被复制排除）
+
+注意事项：
+
+- `machine.json` 的 `paths.flutter` 必须指向 flutter_flutter ohos 分支 SDK 根目录
+  （其 `bin/flutter`、`packages/flutter_tools/hvigor` 存在）；未配置时回退 case 自带
+  `ohos/local.properties` 的 `flutter.sdk`。
+- flutter 工程根的 `.gitignore` 排除的文件（`ohos/node_modules`、`.dart_tool`、
+  `**/libs/**/libapp.so` 等）不会随基线工程复制，均由上述自愈和 hvigor 构建期生成补齐。
+- hvigor 对构建路径长度有 259 字符上限，flutter 构建中间产物路径较深；case 路径较长时
+  建议用 `--out` 把输出目录指到短路径（如 `--out E:\w\<case>`），否则构建报
+  `00306001 The length of path exceeds the maximum length`。
+- 产物为 unsigned HAP，直接 `hdc install -r` 安装到模拟器执行。
+
+### RN 用例
+
+`rn` 布局约定：`base_project` 根目录为 RN 侧（`package.json`、`metro.config.js`、RN 源码），
+鸿蒙壳工程固定位于 `base_project/harmony/` 子目录。runner 会把 hvigor/ohpm 的执行目录
+自动指向 `harmony/`，模块发现、产物路径、安装和 `aa test` 均与 native 模式一致。
+
+SWE 和 Answer 每轮构建都会在 RN 根目录完整执行一遍 RN 前置命令（顺序固定）：
+
+1. `npm install --force`（`--force` 规避 RN 依赖树的 ERESOLVE 冲突）
+2. `ohpm install`（在 `harmony/`；部分 HAR 以 `file:` 协议引用 `node_modules` 内产物，必须在 npm 安装之后）
+3. `npx react-native codegen-harmony --cpp-output-path ./harmony/<module>/src/main/cpp/generated --rnoh-module-path ./harmony/<module>/oh_modules/@rnoh/react-native-openharmony`（`--rnoh-module-path` 依赖 oh_modules，必须在 ohpm 安装之后）
+4. `npx react-native bundle-harmony --dev`（产物写入 `harmony/<module>/src/main/resources/rawfile/`，随后打进 HAP）
+
+第 4 步的 bundle 命令可用 `rn_build.bundle_commands` 覆盖，用于多 bundle 或自定义入口的工程
+（codegen 路径由 RNOH 模板固定，无需也无法配置）：
+
+```json
+{
+  "platform": "rn",
+  "rn_build": {
+    "bundle_commands": ["npm run dev:basic", "npm run dev:base"]
+  }
+}
+```
+
+- `bundle_commands` 为非空字符串数组，按顺序在 RN 根目录执行，替代默认的
+  `npx react-native bundle-harmony --dev`；
+- 仅 `platform: "rn"` 时允许配置；标准单 bundle 模板工程无需配置。
+
+应用 HAP 使用 `hvigorw --mode module -p product=<product> assembleHap --no-daemon`（模块模式，默认 debug）。
+RNOH 0.72 在 release 模式（项目级 `assembleApp` 的默认，含混淆与裁剪）下会破坏 NAPI 按名解析，
+导致应用启动即崩（jscrash：`NapiBridge postMessageToCpp undefined is not callable`），
+因此 rn 平台不使用 `assembleApp`。
+
+每轮重建是 SWE-bench 语义的要求：`golden_patch` 可能修改 RN 源码或 `package.json`，
+answer 轮必须重新生成 bundle 才能让 golden 的 RN 改动生效。
+
+注意事项：
+
+- `node`/`npm` 必须可用（PATH 或 `machine.json` 的 `paths.npm`）；`npx` 随 Node 提供。
+- codegen 的 ArkTS 产物与 `oh_modules/@rnoh/react-native-openharmony/ts.ts` 的
+  `export * from './generated/ts'` 注入由工程自身的 hvigor 脚本负责，runner 不做修改。
+- 产物为 unsigned HAP，直接 `hdc install -r` 安装到模拟器执行。
+- `hvigorw clean` 会对各 abi 目录执行 `ninja clean` 并删除 `CMakeCache.txt`，强制下次
+  构建重新 CMake configure，codegen 重新生成的 C++ 不会被 `.cxx` 陈旧缓存卡住；无需手动清理 `.cxx`。
+
 ## 配置来源
 
 case 模式使用设备矩阵文件中的机器相关配置：
@@ -193,6 +312,8 @@ Autorun 会从 `config/autorun.config.json` 的 `ohosTest` 配置生成该文件
 |------|------|
 | `paths.hvigorw` | Hvigor 命令，必填；如果命令目录已加入环境变量，可填写 `hvigorw` |
 | `paths.ohpm` | ohpm 命令，可选；如果不配置，默认使用 `ohpm` |
+| `paths.npm` | npm 命令，可选；`platform: "rn"` 时用于 `npm install --force`，不配置默认用 PATH 上的 `npm` |
+| `paths.flutter` | flutter_flutter ohos 分支 SDK 根目录，可选；`platform: "flutter"` 时必配（用于 pub get、hvigor 插件链接与 `local.properties` 生成），不配置回退 case 自带 `ohos/local.properties` 的 `flutter.sdk` |
 | `paths.hdc` | hdc 命令，必填；如果命令目录已加入环境变量，可填写 `hdc` |
 | `paths.emulatorBin` | DevEco 模拟器命令，必填；如果模拟器目录已加入环境变量，可填写 `Emulator` |
 | `paths.emulatorDeployedDir` | 模拟器实例目录，必填 |
@@ -227,12 +348,40 @@ case 模式按以下优先级决定设备与 suite：
 7. 写入 case 级 `result.json` 和 `summary.md`。未执行的一侧在 summary 中显示为 `not run`。
 8. `--keep-workdir` 为 `false` 时删除 case 目录下的 `work/`。
 
+`platform: "rn"` 时，第 5、6 步每轮构建前会先在 RN 根目录执行 npm 安装、codegen 和
+bundle 构建（见「platform 平台」），再进入原有的 hvigor 构建、安装与测试流程。
+
 配置 `device_hap_modules` 后，每轮先按 HAP 模块分组，再分别构建、安装和执行。
 例如上述映射会将 phone、wide_fold、foldable、tablet 放入默认 HAP 组，将 pc 放入 PC HAP 组。
 
+### deviceTypes 兼容执行与检查
+
+case runner 会根据每个执行组最终选中的设备计算 HAP 所需的 `module.deviceTypes`：
+
+| 设备 ID | module.deviceTypes |
+| --- | --- |
+| `phone`、`wide_fold`、`foldable` | `phone` |
+| `tablet` | `tablet` |
+| `pc`、`2in1` | `2in1` |
+| `tv`、`wearable`、`car` | 同名类型 |
+
+自定义设备 ID 无法可靠推断类型，runner 会在构建前报告 `case_device_type_unmapped`。
+
+SWE 和 Answer 每个 HAP 执行组构建前，runner 都会保存目标 HAP 以及当前 product 下 HSP
+的原始 `src/main/module.json5`，临时补充缺失类型，并在构建、安装和测试结束或异常后逐字恢复。
+该兼容层不会修改 `src/ohosTest/module.json5`。
+
+SWE 缺少设备类型视为基线状态，不额外计为失败。Answer 会根据临时补充前的 HAP 原始声明，
+为每台设备追加 `ModuleDeviceTypeCompatibility` 检查：声明正确时通过；缺失时即使后续 UT
+已经执行，也会产生 `should_declare_<deviceType>_device_type` 失败。临时兼容只保证测试可执行，
+不会掩盖答案漏改 `deviceTypes` 的问题。
+
+`CaseResult.status` 仍表示执行链是否完成。Answer 的声明错误通过设备的 `failed` 状态、测试
+失败计数和 case summary 中的 `runner_check`/`incorrect` 表达。
+
 ## 输出结果
 
-默认输出目录：
+默认输出目录（`<timestamp>` 为 `yyyymmddhhmmss` 本地时间，如 `20260911014420`）：
 
 ```text
 <case>/.ohostest-runs/<timestamp>/
@@ -323,6 +472,9 @@ test case 分类只来自 `metadata.json`：
 - `metadata.fail_to_pass` 中的 test case 归为 `fail_to_pass`。
 - 同时出现在两边时归为 `conflict`，固定判为 `incorrect`。
 - 未出现在任一数组中时归为 `unclassified`，固定判为 `incorrect`。
+
+runner 生成的 `ModuleDeviceTypeCompatibility` 用例归为 `runner_check`，只要求 Answer 通过；
+它不参与 SWE 侧统计，也不要求写入 `pass_to_pass` 或 `fail_to_pass`。
 
 当 suite 没有解析到 test case 明细时，输出 `none parsed` 行，并用 suite 级状态作为 actual，但分类为 `unclassified`。
 

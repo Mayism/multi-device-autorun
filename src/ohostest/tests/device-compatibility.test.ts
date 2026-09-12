@@ -3,7 +3,12 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withSweTabletCompatibility } from "../src/case/deviceCompatibility.js";
+import {
+  applyAnswerDeviceTypeChecks,
+  harmonyDeviceTypeFor,
+  withCaseDeviceTypeCompatibility,
+} from "../src/case/deviceCompatibility.js";
+import type { ExecutionResult } from "../src/execution/types/index.js";
 import { parseJson5ish } from "../src/execution/project/json5ish.js";
 
 async function makeTempProject(
@@ -108,13 +113,44 @@ async function addHspModule(
   return { modulePath, original };
 }
 
-test("withSweTabletCompatibility temporarily adds tablet and restores the original file", async (t) => {
+test("harmonyDeviceTypeFor maps canonical runner device IDs", () => {
+  assert.deepEqual(
+    [
+      "phone",
+      "wide_fold",
+      "foldable",
+      "tablet",
+      "pc",
+      "2in1",
+      "tv",
+      "wearable",
+      "car",
+    ].map((deviceId) => harmonyDeviceTypeFor(deviceId)),
+    [
+      "phone",
+      "phone",
+      "phone",
+      "tablet",
+      "2in1",
+      "2in1",
+      "tv",
+      "wearable",
+      "car",
+    ],
+  );
+  assert.throws(
+    () => harmonyDeviceTypeFor("custom-tablet"),
+    /case_device_type_unmapped: custom-tablet/,
+  );
+});
+
+test("withCaseDeviceTypeCompatibility adds required types and returns the original HAP declaration", async (t) => {
   const { project, modulePath, original } = await makeTempProject(t);
   const hsp = await addHspModule(project);
 
-  const result = await withSweTabletCompatibility({
+  const result = await withCaseDeviceTypeCompatibility({
     project,
-    enabled: true,
+    deviceIds: ["phone", "tablet", "tablet"],
     run: async () => {
       const config = parseJson5ish(await fs.readFile(modulePath, "utf-8")) as {
         module: { deviceTypes: string[] };
@@ -128,20 +164,59 @@ test("withSweTabletCompatibility temporarily adds tablet and restores the origin
     },
   });
 
-  assert.equal(result, "completed");
+  assert.equal(result.value, "completed");
+  assert.deepEqual(result.assessment, {
+    modulePath,
+    declaredDeviceTypes: ["phone"],
+    requiredByDevice: [
+      { deviceId: "phone", deviceType: "phone" },
+      { deviceId: "tablet", deviceType: "tablet" },
+    ],
+    injectedDeviceTypes: ["tablet"],
+  });
   assert.equal(await fs.readFile(modulePath, "utf-8"), original);
   assert.equal(await fs.readFile(hsp.modulePath, "utf-8"), hsp.original);
 });
 
-test("withSweTabletCompatibility restores the original file and rethrows callback errors", async (t) => {
+test("withCaseDeviceTypeCompatibility appends multiple missing types in device order", async (t) => {
+  const { project, modulePath } = await makeTempProject(t);
+
+  const result = await withCaseDeviceTypeCompatibility({
+    project,
+    deviceIds: ["tablet", "pc", "tv", "wearable", "car"],
+    run: async () => {
+      const config = parseJson5ish(
+        await fs.readFile(modulePath, "utf-8"),
+      ) as { module: { deviceTypes: string[] } };
+      assert.deepEqual(config.module.deviceTypes, [
+        "phone",
+        "tablet",
+        "2in1",
+        "tv",
+        "wearable",
+        "car",
+      ]);
+    },
+  });
+
+  assert.deepEqual(result.assessment.injectedDeviceTypes, [
+    "tablet",
+    "2in1",
+    "tv",
+    "wearable",
+    "car",
+  ]);
+});
+
+test("withCaseDeviceTypeCompatibility restores the original file and rethrows callback errors", async (t) => {
   const { project, modulePath, original } = await makeTempProject(t);
   const hsp = await addHspModule(project);
   const expectedError = new Error("run failed");
 
   await assert.rejects(
-    withSweTabletCompatibility({
+    withCaseDeviceTypeCompatibility({
       project,
-      enabled: true,
+      deviceIds: ["tablet"],
       run: async () => {
         throw expectedError;
       },
@@ -152,33 +227,33 @@ test("withSweTabletCompatibility restores the original file and rethrows callbac
   assert.equal(await fs.readFile(hsp.modulePath, "utf-8"), hsp.original);
 });
 
-test("withSweTabletCompatibility ignores HSP modules outside the selected product", async (t) => {
+test("withCaseDeviceTypeCompatibility ignores HSP modules outside the selected product", async (t) => {
   const { project } = await makeTempProject(t);
   const hsp = await addHspModule(project, { applyToProducts: ["tablet"] });
 
-  await withSweTabletCompatibility({
+  await withCaseDeviceTypeCompatibility({
     project,
-    enabled: true,
+    deviceIds: ["tablet"],
     run: async () => {
       assert.equal(await fs.readFile(hsp.modulePath, "utf-8"), hsp.original);
     },
   });
 });
 
-test("withSweTabletCompatibility rejects invalid deviceTypes with a stable error", async (t) => {
+test("withCaseDeviceTypeCompatibility rejects invalid deviceTypes with a stable error", async (t) => {
   const { project } = await makeTempProject(t, ["phone", 1]);
 
   await assert.rejects(
-    withSweTabletCompatibility({
+    withCaseDeviceTypeCompatibility({
       project,
-      enabled: true,
+      deviceIds: ["tablet"],
       run: async () => undefined,
     }),
-    /swe_tablet_compatibility_invalid_module/,
+    /case_device_type_compatibility_invalid_module/,
   );
 });
 
-test("withSweTabletCompatibility selects the requested HAP in a multi-HAP project", async (t) => {
+test("withCaseDeviceTypeCompatibility selects the requested HAP in a multi-HAP project", async (t) => {
   const { project, modulePath, original } = await makeTempProject(t);
   const buildProfilePath = path.join(project, "build-profile.json5");
   const buildProfile = parseJson5ish(
@@ -197,10 +272,10 @@ test("withSweTabletCompatibility selects the requested HAP in a multi-HAP projec
     "utf-8",
   );
 
-  await withSweTabletCompatibility({
+  await withCaseDeviceTypeCompatibility({
     project,
     module: "entry",
-    enabled: true,
+    deviceIds: ["tablet"],
     run: async () => {
       const config = parseJson5ish(await fs.readFile(modulePath, "utf-8")) as {
         module: { deviceTypes: string[] };
@@ -211,3 +286,90 @@ test("withSweTabletCompatibility selects the requested HAP in a multi-HAP projec
 
   assert.equal(await fs.readFile(modulePath, "utf-8"), original);
 });
+
+test("applyAnswerDeviceTypeChecks scores the original declaration without blocking executed tests", () => {
+  const execution = executionResult(["phone", "tablet"]);
+  const checked = applyAnswerDeviceTypeChecks(execution, {
+    modulePath: "/project/entry/src/main/module.json5",
+    declaredDeviceTypes: ["phone"],
+    requiredByDevice: [
+      { deviceId: "phone", deviceType: "phone" },
+      { deviceId: "tablet", deviceType: "tablet" },
+    ],
+    injectedDeviceTypes: ["tablet"],
+  });
+
+  assert.equal(checked.status, "completed");
+  const phone = checked.devices[0]!;
+  const tablet = checked.devices[1]!;
+  assert.equal(phone.status, "passed");
+  assert.equal(phone.testsRun, 2);
+  assert.equal(phone.passes, 2);
+  assert.equal(phone.suiteResults.at(-1)?.testCases[0]?.status, "passed");
+  assert.equal(tablet.status, "failed");
+  assert.equal(tablet.testsRun, 2);
+  assert.equal(tablet.failures, 1);
+  assert.equal(tablet.passes, 1);
+  assert.deepEqual(tablet.suiteResults.at(-1), {
+    suiteClass: "ModuleDeviceTypeCompatibility",
+    status: "failed",
+    testsRun: 1,
+    failures: 1,
+    errors: 0,
+    passes: 0,
+    ignored: 0,
+    reportCode: -1,
+    ok: false,
+    testCases: [
+      {
+        name: "should_declare_tablet_device_type",
+        status: "failed",
+        statusCode: -2,
+        message:
+          '/project/entry/src/main/module.json5 module.deviceTypes does not include "tablet"; the runner temporarily injected it for test execution.',
+      },
+    ],
+  });
+});
+
+function executionResult(deviceIds: string[]): ExecutionResult {
+  return {
+    project: "/project",
+    status: "completed",
+    startedAt: "2026-08-24T00:00:00.000Z",
+    finishedAt: "2026-08-24T00:00:01.000Z",
+    durationMs: 1000,
+    build: {
+      status: "passed",
+      appHap: "/project/app.hap",
+      testHap: "/project/test.hap",
+    },
+    devices: deviceIds.map((id) => ({
+      id,
+      target: `127.0.0.1:${id}`,
+      status: "passed",
+      testsRun: 1,
+      failures: 0,
+      errors: 0,
+      passes: 1,
+      ignored: 0,
+      suiteResults: [
+        {
+          suiteClass: `${id}Suite`,
+          status: "passed",
+          testsRun: 1,
+          failures: 0,
+          errors: 0,
+          passes: 1,
+          ignored: 0,
+          reportCode: 0,
+          ok: true,
+          testCases: [],
+        },
+      ],
+      durationMs: 1,
+      log: "commands.jsonl",
+    })),
+    diagnostics: [],
+  };
+}

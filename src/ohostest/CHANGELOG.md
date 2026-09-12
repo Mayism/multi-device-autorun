@@ -5,6 +5,73 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.2.4] - 2026-09-11
+
+### 新增
+
+- `metadata.rn_build.bundle_commands`：`platform: "rn"` 的 Case 可覆盖默认 bundle 命令，支持多 bundle / 自定义入口的 RNOH 工程（如 `["npm run dev:basic", "npm run dev:base"]`），按顺序在 RN 根目录执行；未配置时保持默认 `npx react-native bundle-harmony --dev`。codegen 命令由 RNOH 模板固定，维持 runner 合成。
+
+## [0.2.3] - 2026-09-11
+
+### 新增
+
+- Web Case 在每台设备连接就绪后自动建立设备 `5175` 到宿主机 `5175` 的 HDC 反向端口转发，鸿蒙应用可统一使用 `http://127.0.0.1:5175` 访问 Web 服务。支持多设备、多测试套及 SWE/Answer 串行流程，不依赖折叠控制开关；每台设备结束时清理本轮创建的映射，保留已有相同映射，转发冲突、建立失败和清理失败会记录明确原因。
+
+### 变更
+
+- Web 依赖安装按每轮工程文件选择：存在 `package-lock.json` 或 `npm-shrinkwrap.json` 时使用 `npm ci`，否则使用 `npm install --package-lock=false`，兼容未提供 lock 的工程，避免 SWE 生成的 lock 影响 Answer。`npm ci` 失败不会自动回退；安装命令、缓存、日志和取消机制保持可追踪，不设安装总耗时上限。
+
+## [0.2.2] - 2026-09-11
+
+### 新增
+
+- Case 支持 `metadata.platform: "flutter"`（flutter_flutter ohos 分支工程）：`base_project` 根目录为 Flutter 工程、鸿蒙壳固定位于 `ohos/` 子目录，执行层把 hvigor/ohpm 构建工程解析到 `ohos/`，模块发现、产物路径、安装与 `aa test` 与 native 一致；补丁仍打在 Flutter 工程根。`machine.json` 新增可选 `paths.flutter`（flutter_flutter SDK 根目录）。
+- Flutter 工程复制后自动自愈：按 `paths.flutter` 生成壳工程 `local.properties` 的 `flutter.sdk`（case 自带时保持原值）；为被复制排除的 `node_modules/flutter-hvigor-plugin` 建立指向 SDK 内插件目录的链接。Dart 依赖刷新（`flutter pub get`）进入每轮构建命令序列（在补丁应用后执行），保证 `golden_patch` 新增的 Dart 依赖在 answer 轮生效；Dart 编译、引擎 HAR 与 flutter_assets 注入由 flutter-hvigor-plugin 在 hvigor 构建内完成。
+- 未声明 `platform` 但结构为 Flutter 工程（工程根无 `hvigorfile.ts`、`ohos/` 有）的旧用例保持兼容：构建工程自动重定向到 `ohos/`。声明 `platform: "flutter"` 但工程形态不符时快速失败（`case_flutter_project_invalid`）。
+
+### 变更
+
+- 默认输出目录 `.ohostest-runs/<时间戳>` 的时间戳从 ISO 风格（`2026-09-11T01-44-20-413Z`，UTC）改为 `yyyymmddhhmmss` 本地时间（如 `20260911014420`），case 与 matrix 两种模式一致，目录名更短且可读。
+
+## [0.2.1] - 2026-09-10
+
+### 新增
+
+- Case 支持 `metadata.platform: "rn"`（RNOH 工程）：`base_project` 根目录为 RN 侧、鸿蒙壳固定位于 `harmony/` 子目录，runner 自动把构建目录指向壳工程。SWE、Answer 每轮构建前在 RN 根目录完整执行 `npm install --force` → `ohpm install` → `react-native codegen-harmony` → `react-native bundle-harmony --dev`，再进入 hvigor 构建、安装与 ohosTest 流程；应用 HAP 使用模块模式 `assembleHap`（RNOH 0.72 的 release 产物会破坏 NAPI 按名解析导致启动即崩）。每轮重建保证 `golden_patch` 对 RN 源码和依赖的修改进入 bundle。
+- `machine.json` 新增可选 `paths.npm`（默认使用 PATH 上的 `npm`）。
+
+### 修复
+
+- JSON5 配置解析支持不带引号的属性名（DevEco/RNOH 模板风格，如 `app: {`、`bundleName: 'x'`），此前会在工程发现阶段报 `config_file_parse_failed`。
+
+## [0.2.0] - 2026-09-10
+
+### 新增
+
+- Case 支持 `metadata.platform: "web"`：保留鸿蒙 `base_project` 与同级 `web`，在 Case 工作副本根目录应用测试和答案补丁，在鸿蒙子目录执行构建与 ohosTest；缺省 platform 的原生用例保持原有行为。
+- SWE、Answer 每轮先在 Web 副本中执行 `npm ci`，再启动 `npm run dev`，等待 HTTP 就绪后执行鸿蒙流程，结束或失败后回收本轮进程。两轮间重启服务，确保答案补丁不会通过热更新影响 SWE。
+- Web 服务支持端口占用检查、60 秒启动等待、意外退出检测和进程树清理；`npm ci` 等待成功、失败或用户取消，不设 Runner 总耗时上限；npm 缓存、临时文件及每轮日志保存在运行输出目录。
+
+## [0.1.13] - 2026-08-24
+
+### 修复
+
+- case 模式按执行组为 SWE 和 Answer 临时补齐 HAP/HSP 所需的 `deviceTypes`，避免答案漏声明目标设备时在 UT 执行前被构建或安装阻断。
+- Answer 使用临时补齐前的 HAP 原始声明生成 `ModuleDeviceTypeCompatibility` 检查，在继续执行后续 UT 的同时保留 `deviceTypes` 能力点判定。
+- 支持 phone、折叠设备、tablet、PC/2in1、TV、wearable 和 car 的规范设备类型映射，多 HAP 各组独立修改并恢复原始配置。
+
+## [0.1.12] - 2026-08-21
+
+### 修复
+
+- Windows 上模拟器 start/stop 分离进程以工作目录为 cwd，导致运行结束后删除 `work/` 目录时报 EBUSY 而静默保留；分离命令改用系统临时目录作为 cwd，目录清理增加最多 10 次重试，清理失败时输出警告并写入 diagnostics。
+
+## [0.1.11] - 2026-08-18
+
+### 新增
+
+- case 模式支持通过 `bundle_name_isolation`为swe、answer重新分配包名，默认值为false。开启时：SWE 轮包名 → <bundleName>.swe；Answer 轮 → <bundleName>.answer.<Date.now()>。每轮安装前自动 bm dump -a 扫描并卸载<bundleName>. 前缀历史残留包（旧时间戳包与 .swe 包均会被清理）
+
 ## [0.1.10] - 2026-08-14
 
 ### 修复

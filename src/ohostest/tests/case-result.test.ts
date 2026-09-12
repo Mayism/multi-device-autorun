@@ -248,6 +248,46 @@ test("renderCaseSummary marks answer-only cases against answer expectations", ()
   assert.doesNotMatch(summary, /SWE Actual/);
 });
 
+test("renderCaseSummary scores answer device type checks without changing SWE totals", () => {
+  const compatibilityCheck = suite(
+    "ModuleDeviceTypeCompatibility",
+    "failed",
+    1,
+    1,
+    [testCase("should_declare_tablet_device_type", "failed")],
+  );
+  const summary = renderCaseSummary(
+    baseCaseResult({
+      swe: matrix([
+        device("tablet", [
+          suite("LargeScreenSuite", "passed", 1, 0, [
+            testCase("should_launch", "passed"),
+          ]),
+        ]),
+      ]),
+      answer: matrix([
+        device("tablet", [
+          suite("LargeScreenSuite", "passed", 1, 0, [
+            testCase("should_launch", "passed"),
+          ]),
+          compatibilityCheck,
+        ]),
+      ]),
+    }),
+  );
+
+  assert.match(
+    summary,
+    /\| ModuleDeviceTypeCompatibility \| should_declare_tablet_device_type \| runner_check \| missing \| failed \| Answer pass \| incorrect \|/,
+  );
+  assert.doesNotMatch(
+    summary,
+    /should_declare_tablet_device_type.*metadata category required/,
+  );
+  assert.match(summary, /\| tablet \| swe \| 1 \| 1 \| 0 \| correct \|/);
+  assert.match(summary, /\| tablet \| answer \| 2 \| 1 \| 1 \| incorrect \|/);
+});
+
 test("renderCaseSummary marks conflicts and suites without parsed cases as incorrect", () => {
   const summary = renderCaseSummary(
     baseCaseResult(

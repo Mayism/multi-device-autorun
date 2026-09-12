@@ -9,6 +9,7 @@ import type {
   SuiteRunResult,
   TestCaseRunResult,
 } from "../execution/types/index.js";
+import { MODULE_DEVICE_TYPE_CHECK_SUITE } from "./deviceCompatibility.js";
 
 export function deriveCaseStatus(
   runs: { swe?: CaseRunResult; answer?: CaseRunResult },
@@ -98,6 +99,7 @@ export function metadataForResult(
   metadata: CaseMetadata,
 ): CaseResult["metadata"] {
   return {
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
     testCaseTimeoutMs: metadata.testCaseTimeoutMs,
     failToPass: metadata.failToPass,
     passToPass: metadata.passToPass,
@@ -189,6 +191,7 @@ type RunSide = "swe" | "answer";
 type TestCaseCategory =
   | "pass_to_pass"
   | "fail_to_pass"
+  | "runner_check"
   | "unclassified"
   | "conflict";
 
@@ -251,7 +254,7 @@ function testCaseRowsForDevice(
   deviceId: string,
   mode: DeviceResultMode,
 ): ReportTestCaseRow[] {
-  return suiteNamesForDevice(result, deviceId).flatMap((suiteClass) =>
+  return suiteNamesForDevice(result, deviceId, mode).flatMap((suiteClass) =>
     testCaseRowsForSuite(result, deviceId, suiteClass, mode),
   );
 }
@@ -283,7 +286,7 @@ function reportRow(
   return {
     suiteClass,
     testCaseName,
-    category: testCaseCategory(result.metadata, testCaseName),
+    category: testCaseCategory(result.metadata, suiteClass, testCaseName),
     sweStatus: findTestCase(sweSuite, testCaseName)?.status,
     answerStatus: findTestCase(answerSuite, testCaseName)?.status,
   };
@@ -399,6 +402,9 @@ function expectedText(
   mode: DeviceResultMode,
   category: TestCaseCategory,
 ): string {
+  if (category === "runner_check") {
+    return mode === "swe" ? "not applicable" : "Answer pass";
+  }
   if (category === "unclassified" || category === "conflict") {
     return "metadata category required";
   }
@@ -422,6 +428,11 @@ function singleRunVerdict(
   status: SuiteRunResult["status"] | TestCaseRunResult["status"] | undefined,
   category: TestCaseCategory,
 ): string {
+  if (category === "runner_check") {
+    return mode === "answer" && status === "passed"
+      ? "correct"
+      : "incorrect";
+  }
   if (category === "unclassified" || category === "conflict") {
     return "incorrect";
   }
@@ -433,6 +444,9 @@ function singleRunVerdict(
 }
 
 function comparisonVerdict(row: ReportTestCaseRow): string {
+  if (row.category === "runner_check") {
+    return row.answerStatus === "passed" ? "correct" : "incorrect";
+  }
   if (row.category === "unclassified" || row.category === "conflict") {
     return "incorrect";
   }
@@ -500,17 +514,22 @@ function resultDeviceIds(result: CaseResult): string[] {
   ];
 }
 
-function suiteNamesForDevice(result: CaseResult, deviceId: string): string[] {
-  return [
-    ...new Set([
-      ...(findDevice(result.runs.swe, deviceId)?.suiteResults.map(
-        (suite) => suite.suiteClass,
-      ) ?? []),
-      ...(findDevice(result.runs.answer, deviceId)?.suiteResults.map(
-        (suite) => suite.suiteClass,
-      ) ?? []),
-    ]),
-  ];
+function suiteNamesForDevice(
+  result: CaseResult,
+  deviceId: string,
+  mode: DeviceResultMode,
+): string[] {
+  const sweSuites =
+    findDevice(result.runs.swe, deviceId)?.suiteResults.map(
+      (suite) => suite.suiteClass,
+    ) ?? [];
+  const answerSuites =
+    findDevice(result.runs.answer, deviceId)?.suiteResults.map(
+      (suite) => suite.suiteClass,
+    ) ?? [];
+  if (mode === "swe") return sweSuites;
+  if (mode === "answer") return answerSuites;
+  return [...new Set([...sweSuites, ...answerSuites])];
 }
 
 function mergedTestCaseNames(
@@ -534,8 +553,12 @@ function mergedTestCaseNames(
 
 function testCaseCategory(
   metadata: CaseResult["metadata"],
+  suiteClass: string,
   testCaseName: string,
 ): TestCaseCategory {
+  if (suiteClass === MODULE_DEVICE_TYPE_CHECK_SUITE) {
+    return "runner_check";
+  }
   const isPassToPass = metadata.passToPass.includes(testCaseName);
   const isFailToPass = metadata.failToPass.includes(testCaseName);
   if (isPassToPass && isFailToPass) {

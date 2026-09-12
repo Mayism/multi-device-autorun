@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { configFileError, readJsonConfigFile } from "../configFile.js";
 import { AA_TEST_CASE_TIMEOUT_MS } from "../execution/ohostest.js";
+import { readPlatformSettings, readRnBuildSettings } from "./platform.js";
 import type { ExecutionConfig } from "../execution/types/index.js";
 import type {
   CaseDeviceSelection,
@@ -13,6 +14,8 @@ import type {
 } from "./types/index.js";
 
 interface RawCaseMetadata {
+  platform?: unknown;
+  rn_build?: unknown;
   case_id?: string;
   base_project?: string;
   test_patch?: string;
@@ -20,6 +23,7 @@ interface RawCaseMetadata {
   test_case_timeout_ms?: unknown;
   fail_to_pass?: unknown;
   pass_to_pass?: unknown;
+  bundle_name_isolation?: unknown;
   device_test_suites?: unknown;
   enabled_devices?: unknown;
   device_hap_modules?: unknown;
@@ -64,6 +68,8 @@ export async function loadCaseMetadata(
     );
 
     return {
+      ...readPlatformSettings(raw),
+      ...readRnBuildSettings(raw),
       caseId,
       caseDir,
       baseProject,
@@ -72,6 +78,10 @@ export async function loadCaseMetadata(
       testCaseTimeoutMs: readTestCaseTimeoutMs(raw.test_case_timeout_ms),
       failToPass: readStringArray(raw.fail_to_pass, "metadata.fail_to_pass"),
       passToPass: readStringArray(raw.pass_to_pass, "metadata.pass_to_pass"),
+      bundleNameIsolation: readOptionalBoolean(
+        raw.bundle_name_isolation,
+        "metadata.bundle_name_isolation",
+      ),
       deviceTestSuites: readDeviceTestSuites(raw.device_test_suites),
       enabledDevices: readOptionalStringArray(
         raw.enabled_devices,
@@ -105,9 +115,7 @@ export function buildCaseExecutionGroups(
       module,
       selection: {
         devices: [],
-        ...(selection.deviceSuiteOverrides
-          ? { deviceSuiteOverrides: {} }
-          : {}),
+        ...(selection.deviceSuiteOverrides ? { deviceSuiteOverrides: {} } : {}),
         runAllTests: selection.runAllTests,
       },
     };
@@ -308,6 +316,17 @@ function readOptionalStringArray(
   return dedupe(values);
 }
 
+function readOptionalBoolean(
+  value: unknown,
+  label: string,
+): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") {
+    throw new Error(`${label} must be a boolean.`);
+  }
+  return value;
+}
+
 function readDeviceTestSuites(
   value: unknown,
 ): Record<string, CaseDeviceSuite[]> | undefined {
@@ -351,7 +370,9 @@ function readDeviceHapModules(value: unknown): DeviceHapModules | undefined {
   }
   const result: DeviceHapModules = {};
   for (const [deploymentType, module] of entries) {
-    if (!DEVICE_DEPLOYMENT_TYPES.includes(deploymentType as DeviceDeploymentType)) {
+    if (
+      !DEVICE_DEPLOYMENT_TYPES.includes(deploymentType as DeviceDeploymentType)
+    ) {
       throw new Error(
         "metadata.device_hap_modules supports only phone, tablet, and pc.",
       );

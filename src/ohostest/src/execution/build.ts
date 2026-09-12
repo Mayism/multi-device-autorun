@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { verifyFileExists } from "./utils/file.js";
 import { shellQuote } from "./utils/shellQuote.js";
+import { rnPrepareCommands } from "./rn.js";
+import { flutterPrepareCommands } from "./flutter.js";
 import type {
+  BuildCommand,
   BuildOutcome,
   CommandResult,
   ExecutionConfig,
@@ -13,7 +16,7 @@ const BUILD_STDERR_TAIL_LINES = 15;
 interface RunBuildInput {
   config: ExecutionConfig;
   skipBuild: boolean;
-  runCommand: (command: string) => Promise<CommandResult>;
+  runCommand: (command: string, cwd: string) => Promise<CommandResult>;
   diagnostics: string[];
 }
 
@@ -70,10 +73,10 @@ async function runBuildCommands(
   if (input.skipBuild) {
     return undefined;
   }
-  for (const command of buildCommands(input.config)) {
-    const result = await input.runCommand(command);
+  for (const step of buildCommands(input.config)) {
+    const result = await input.runCommand(step.command, step.cwd);
     if (result.exitCode !== 0) {
-      input.diagnostics.push(`构建命令失败：${command}`);
+      input.diagnostics.push(`构建命令失败：${step.command}`);
       input.diagnostics.push(...tailOfStderr(result.stderr));
       return blockedBuild(input.config, started, "build_failed");
     }
@@ -135,17 +138,48 @@ export function buildTestHapCommand(config: ExecutionConfig): string {
   return `${buildExecutable} --mode module -p module=${config.module}@ohosTest ${config.build.testTask} --no-daemon`;
 }
 
-function buildCommands(config: ExecutionConfig): string[] {
+function buildCommands(config: ExecutionConfig): BuildCommand[] {
   const packageManager = shellQuote(config.paths.ohpm);
   const buildExecutable = shellQuote(config.paths.hvigorw);
   const appBase = `${buildExecutable} --mode ${config.build.mode} -p product=${config.product}`;
   const appSuffix = "--analyze=normal --parallel --incremental --no-daemon";
   const testBase = `${buildExecutable} --mode module -p module=${config.module}@ohosTest`;
+  const core: BuildCommand[] = [
+    { command: `${packageManager} install`, cwd: config.project },
+    { command: `${buildExecutable} clean --no-daemon`, cwd: config.project },
+    {
+      command: `${appBase} ${config.build.appTask} ${appSuffix}`,
+      cwd: config.project,
+    },
+    {
+      command: `${testBase} ${config.build.testTask} --no-daemon --stacktrace`,
+      cwd: config.project,
+    },
+  ];
+  if (!config.rn && !config.flutter) {
+    return core;
+  }
+  if (config.flutter) {
+    // flutter 只需在补丁后的每轮构建前刷新 Dart 依赖，hvigor 序列与 native 一致；
+    // Dart 编译与引擎产物由 flutter-hvigor-plugin 在构建内完成。
+    return [flutterPrepareCommands(config)[0]!, ...core];
+  }
+  const [ohpmInstall, clean, , testHap] = core;
+  const [rnInstall, rnCodegen, ...rnBundleSteps] = rnPrepareCommands(config);
   return [
-    `${packageManager} install`,
-    `${buildExecutable} clean --no-daemon`,
-    `${appBase} ${config.build.appTask} ${appSuffix}`,
-    `${testBase} ${config.build.testTask} --no-daemon --stacktrace`,
+    rnInstall,
+    ohpmInstall!,
+    rnCodegen!,
+    ...rnBundleSteps,
+    clean!,
+    {
+      // RNOH 0.72 的 release 产物（assembleApp 项目模式默认 release + 混淆）会破坏
+      // NAPI 按名解析，导致启动即崩（NapiBridge postMessageToCpp undefined）；
+      // 模块模式 assembleHap 默认 debug，与 verify.sh 的已验证流程一致。
+      command: `${buildExecutable} --mode module -p product=${config.product} assembleHap --no-daemon`,
+      cwd: config.project,
+    },
+    testHap!,
   ];
 }
 

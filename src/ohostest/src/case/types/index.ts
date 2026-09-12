@@ -2,6 +2,11 @@ import type { CommandExecutor } from "../../execution/types/index.js";
 import type { ExecutionResult } from "../../execution/types/index.js";
 
 export type CaseRunMode = "answer" | "swe" | "all";
+export type CasePlatform = "native" | "web" | "rn" | "flutter";
+
+export interface RnBuildSettings {
+  bundleCommands: string[];
+}
 
 export interface RunCaseInput {
   caseDir: string;
@@ -26,6 +31,8 @@ export type DeviceDeploymentType = "phone" | "tablet" | "pc";
 export type DeviceHapModules = Partial<Record<DeviceDeploymentType, string>>;
 
 export interface CaseMetadata {
+  platform?: CasePlatform;
+  rnBuild?: RnBuildSettings;
   caseId: string;
   caseDir: string;
   baseProject: string;
@@ -34,6 +41,7 @@ export interface CaseMetadata {
   testCaseTimeoutMs: number;
   failToPass: string[];
   passToPass: string[];
+  bundleNameIsolation?: boolean;
   deviceTestSuites?: Record<string, CaseDeviceSuite[]>;
   enabledDevices?: string[];
   deviceHapModules?: DeviceHapModules;
@@ -80,6 +88,7 @@ export interface CaseResult {
   durationMs: number;
   status: CaseStatus;
   metadata: {
+    platform?: CasePlatform;
     testCaseTimeoutMs: number;
     failToPass: string[];
     passToPass: string[];
@@ -98,6 +107,7 @@ export interface CaseResult {
     sweResult?: string;
     answerResult?: string;
     workdir?: string;
+    webLogs?: string;
   };
   diagnostics: string[];
 }

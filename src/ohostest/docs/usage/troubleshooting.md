@@ -99,6 +99,28 @@ Emulator -version
 
 处理方式：使用 `26.0.0.200` 或以上版本的 Emulator。
 
+## RNOH（platform: "rn"）构建问题
+
+RN 前置命令的顺序是硬约束，颠倒会直接失败：
+
+- `ohpm install` 必须在 `npm install` 之后——壳工程 `oh-package.json5` 常以
+  `file:` 协议引用 `node_modules` 内的 HAR。
+- `codegen-harmony` 必须在 `ohpm install` 之后——`--rnoh-module-path` 指向
+  `oh_modules/@rnoh/react-native-openharmony`，包不存在时 codegen 无处生成 ArkTS 产物。
+
+常见报错与处理：
+
+| 现象 | 处理 |
+|------|------|
+| `npm install` 报 ERESOLVE | runner 已使用 `npm install --force`；若仍失败，检查 Node 版本（RNOH 通常要求 ≥16） |
+| 安装启动即崩（App died） | `oh_modules/@rnoh/react-native-openharmony/ts.ts` 缺少 `export * from './generated/ts';`，该注入由工程 hvigor 脚本负责，确认脚本已生效 |
+| codegen 报找不到命令 | `react-native` CLI 子命令由 `@react-native-oh/react-native-harmony-cli` 注册，确认 devDependencies 已安装（`npm install --force` 已执行） |
+| 改了 C++/codegen 产物但行为不变 | `hvigorw clean` 已删除 `CMakeCache.txt` 强制重新 configure；仍异常时可手动删除 `harmony/<module>/.cxx` 后重跑 |
+
+RN bundle（`bundle.harmony.js` 与 assets）由 `bundle-harmony` 写入
+`harmony/<module>/src/main/resources/rawfile/`，位于 `src/main` 下，`hvigorw clean`
+不会清除；产物为 unsigned HAP，直接安装到模拟器执行。
+
 ## 环境变量生效范围
 
 runner 通过子进程调用 hvigor，子进程继承 runner 启动时 shell 的环境变量。hvigor daemon 如果已经运行，会继续使用启动时的环境变量。

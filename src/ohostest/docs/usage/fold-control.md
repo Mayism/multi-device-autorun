@@ -208,4 +208,4 @@ python3 src/fold/assets/fold-server.py \
   --owner-token <random-token>
 ```
 
-Windows 可将 `python3` 替换为 `python`。HDC、Emulator 和包含空格的可执行文件路径均按参数数组执行，target 会完整保留。
+Windows 可将 `python3` 替换为 `python`。HDC、Emulator 和包含空格的可执行文件路径均按参数数组执行，target 会完整保留。s

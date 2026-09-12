@@ -255,10 +255,7 @@ async function makeMultiHapProject(root: string): Promise<string> {
       JSON.stringify({
         module: {
           name: module.name,
-          deviceTypes:
-            module.name === "multisettingpcsample"
-              ? ["2in1"]
-              : ["phone", "tablet"],
+          deviceTypes: ["phone"],
         },
       }),
       "utf-8",
@@ -381,14 +378,30 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
   const machineConfigPath = await writeMultiHapMachineConfig(root);
   const out = path.join(root, "runs");
   const commands: string[] = [];
+  const buildDeviceTypes: Array<{ module: string; deviceTypes: string[] }> = [];
 
   const result = await runOhosTestCase({
     caseDir,
     machineConfigPath,
     out,
     runMode: "swe",
-    commandExecutor: async (command) => {
+    keepWorkdir: true,
+    commandExecutor: async (command, cwd) => {
       commands.push(command);
+      if (command.includes("assembleApp")) {
+        const module =
+          buildDeviceTypes.length === 0 ? "products/default" : "products/pc";
+        const config = parseJson5ish(
+          await fs.readFile(
+            path.join(cwd, module, "src/main/module.json5"),
+            "utf-8",
+          ),
+        ) as { module: { deviceTypes: string[] } };
+        buildDeviceTypes.push({
+          module,
+          deviceTypes: config.module.deviceTypes,
+        });
+      }
       return {
         stdout: command.includes("aa test")
           ? "OHOS_REPORT_RESULT: stream=Tests run: 1, Failure: 0, Error: 0, Pass: 1, Ignore: 0\nOHOS_REPORT_CODE: 0\n"
@@ -427,6 +440,16 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
     tablet: "multisettingdefaultsample",
     pc: "multisettingpcsample",
   });
+  assert.deepEqual(buildDeviceTypes, [
+    {
+      module: "products/default",
+      deviceTypes: ["phone", "tablet"],
+    },
+    {
+      module: "products/pc",
+      deviceTypes: ["phone", "2in1"],
+    },
+  ]);
   assert.equal(
     commands.filter((command) =>
       command.includes("module=multisettingdefaultsample@ohosTest"),
@@ -480,6 +503,15 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
   const summary = await fs.readFile(path.join(out, "summary.md"), "utf-8");
   assert.match(summary, /multisettingdefaultsample/);
   assert.match(summary, /multisettingpcsample/);
+  for (const module of ["products/default", "products/pc"]) {
+    const config = parseJson5ish(
+      await fs.readFile(
+        path.join(out, "work/project", module, "src/main/module.json5"),
+        "utf-8",
+      ),
+    ) as { module: { deviceTypes: string[] } };
+    assert.deepEqual(config.module.deviceTypes, ["phone"]);
+  }
 });
 
 test("runOhosTestCase applies test and golden patches, runs swe and answer, and writes a case report", async (t) => {
@@ -492,7 +524,9 @@ test("runOhosTestCase applies test and golden patches, runs swe and answer, and 
   await makeProject(root);
   const caseDir = await writeCase(root);
   const machineConfigPath = await writeMachineConfig(root, {
-    foldServerScript: path.resolve("src/fold/assets/fold-server.py"),
+    foldServerScript: path.resolve(
+      "src/ohostest/src/fold/assets/fold-server.py",
+    ),
     hdc: "/fake/hdc-case-all",
   });
   const out = path.join(root, "runs", "result");
@@ -570,7 +604,7 @@ test("runOhosTestCase applies test and golden patches, runs swe and answer, and 
   assert.equal(result.metadata.testCaseTimeoutMs, 30000);
   assert.equal(result.runs.swe?.artifacts.commandLog, "../commands.jsonl");
   assert.equal(result.runs.answer?.artifacts.commandLog, "../commands.jsonl");
-  assert.equal(result.artifacts.workdir, path.join(caseDir, "work"));
+  assert.equal(result.artifacts.workdir, path.join(out, "work/project"));
   assert.ok(
     result.runs.swe?.devices.every(
       (device) => device.log === "../commands.jsonl",
@@ -652,7 +686,7 @@ test("runOhosTestCase defaults to answer run only", async (t) => {
   assert.equal(result.runs.answer?.status, "completed");
   assert.equal(result.artifacts.sweResult, undefined);
   assert.ok(result.artifacts.answerResult);
-  assert.equal(result.artifacts.workdir, path.join(caseDir, "work"));
+  assert.equal(result.artifacts.workdir, path.join(out, "work/project"));
   assert.equal(
     commands.filter((command) => command.includes("aa test")).length,
     1,
@@ -794,7 +828,7 @@ test("runOhosTestCase writes case command log when golden patch fails before ans
   assert.doesNotMatch(summary, /"stderr":/);
 });
 
-test("runOhosTestCase temporarily enables tablet only for swe", async (t) => {
+test("runOhosTestCase runs tablet UTs in both phases and scores a missing answer declaration", async (t) => {
   const root = await fs.mkdtemp(
     path.join(os.tmpdir(), "ohostest-case-device-filter-"),
   );
@@ -885,14 +919,148 @@ test("runOhosTestCase temporarily enables tablet only for swe", async (t) => {
     2,
   );
   assert.ok(commands.every((command) => !command.includes("PhoneSuite")));
-  assert.deepEqual(buildDeviceTypes, [["phone", "tablet"], ["phone"]]);
+  assert.deepEqual(buildDeviceTypes, [
+    ["phone", "tablet"],
+    ["phone", "tablet"],
+  ]);
+  assert.equal(result.runs.swe?.devices[0]?.testsRun, 1);
+  assert.equal(result.runs.answer?.devices[0]?.testsRun, 2);
+  assert.equal(result.runs.answer?.devices[0]?.failures, 1);
+  assert.equal(result.runs.answer?.devices[0]?.status, "failed");
+  assert.deepEqual(
+    result.runs.answer?.devices[0]?.suiteResults.at(-1)?.testCases[0],
+    {
+      name: "should_declare_tablet_device_type",
+      status: "failed",
+      statusCode: -2,
+      message:
+        `${path.join(out, "work/project/products/entry/src/main/module.json5")} module.deviceTypes does not include "tablet"; the runner temporarily injected it for test execution.`,
+    },
+  );
   const finalConfig = parseJson5ish(
     await fs.readFile(
-      path.join(caseDir, "work/products/entry/src/main/module.json5"),
+      path.join(out, "work/project/products/entry/src/main/module.json5"),
       "utf-8",
     ),
   ) as { module: { deviceTypes: string[] } };
   assert.deepEqual(finalConfig.module.deviceTypes, ["phone"]);
+  assert.match(
+    await fs.readFile(path.join(out, "summary.md"), "utf-8"),
+    /should_declare_tablet_device_type.*runner_check.*incorrect/,
+  );
+});
+
+test("runOhosTestCase scores a golden tablet declaration as passed", async (t) => {
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "ohostest-case-device-type-answer-"),
+  );
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  await makeProject(root);
+  const modulePath = path.join(
+    root,
+    "base/products/entry/src/main/module.json5",
+  );
+  await fs.writeFile(
+    modulePath,
+    `${JSON.stringify({ module: { name: "entry", deviceTypes: ["phone"] } })}\n`,
+    "utf-8",
+  );
+  const caseDir = await writeCase(root);
+  await fs.writeFile(
+    path.join(caseDir, "metadata.json"),
+    JSON.stringify({
+      case_id: "responsive-repeat-layout",
+      base_project: "base",
+      test_patch: "test_patch.patch",
+      golden_patch: "golden_patch.patch",
+      fail_to_pass: ["should_adapt"],
+      pass_to_pass: ["should_launch"],
+      device_test_suites: {
+        tablet: [{ suite: "TabletSuite" }],
+      },
+    }),
+    "utf-8",
+  );
+  await fs.writeFile(
+    path.join(caseDir, "golden_patch.patch"),
+    [
+      "diff --git a/products/entry/src/main/module.json5 b/products/entry/src/main/module.json5",
+      "--- a/products/entry/src/main/module.json5",
+      "+++ b/products/entry/src/main/module.json5",
+      "@@ -1 +1 @@",
+      '-{"module":{"name":"entry","deviceTypes":["phone"]}}',
+      '+{"module":{"name":"entry","deviceTypes":["phone","tablet"]}}',
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+  const machineConfigPath = await writeMachineConfig(root);
+  await fs.writeFile(
+    machineConfigPath,
+    JSON.stringify({
+      paths: {
+        hdc: "/fake/hdc",
+        hvigorw: "/fake/hvigorw",
+        emulatorBin: "/fake/Emulator",
+        emulatorDeployedDir: "/fake/deployed",
+      },
+      devices: [{ id: "tablet", target: "127.0.0.1:15003" }],
+    }),
+    "utf-8",
+  );
+  const out = path.join(root, "runs");
+  const buildDeviceTypes: string[][] = [];
+
+  const result = await runOhosTestCase({
+    caseDir,
+    machineConfigPath,
+    out,
+    runMode: "answer",
+    keepWorkdir: true,
+    commandExecutor: async (command, cwd) => {
+      if (command.includes("assembleApp")) {
+        const config = parseJson5ish(
+          await fs.readFile(
+            path.join(cwd, "products/entry/src/main/module.json5"),
+            "utf-8",
+          ),
+        ) as { module: { deviceTypes: string[] } };
+        buildDeviceTypes.push(config.module.deviceTypes);
+      }
+      return {
+        stdout: command.includes("aa test")
+          ? "OHOS_REPORT_RESULT: stream=Tests run: 1, Failure: 0, Error: 0, Pass: 1, Ignore: 0\nOHOS_REPORT_CODE: 0\n"
+          : command.includes("list targets")
+            ? "127.0.0.1:15003\tConnected\n"
+            : "",
+        stderr: "",
+        exitCode: 0,
+        durationMs: 1,
+      };
+    },
+  });
+
+  assert.deepEqual(buildDeviceTypes, [["phone", "tablet"]]);
+  assert.equal(result.runs.answer?.devices[0]?.testsRun, 2);
+  assert.equal(result.runs.answer?.devices[0]?.failures, 0);
+  assert.equal(result.runs.answer?.devices[0]?.status, "passed");
+  assert.equal(
+    result.runs.answer?.devices[0]?.suiteResults.at(-1)?.testCases[0]?.status,
+    "passed",
+  );
+  const finalConfig = parseJson5ish(
+    await fs.readFile(
+      path.join(out, "work/project/products/entry/src/main/module.json5"),
+      "utf-8",
+    ),
+  ) as { module: { deviceTypes: string[] } };
+  assert.deepEqual(finalConfig.module.deviceTypes, ["phone", "tablet"]);
+  assert.match(
+    await fs.readFile(path.join(out, "summary.md"), "utf-8"),
+    /should_declare_tablet_device_type.*runner_check.*passed.*Answer pass.*correct/,
+  );
 });
 
 test("runOhosTestCase writes configuration failures to result and command log", async (t) => {
@@ -936,6 +1104,44 @@ test("runOhosTestCase writes configuration failures to result and command log", 
   assert.match(commandLog, /build-profile\.json5/);
 });
 
+test("runOhosTestCase removes the work directory when keepWorkdir is not set", async (t) => {
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "ohostest-case-cleanup-"),
+  );
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  await makeProject(root);
+  const caseDir = await writeCase(root);
+  const machineConfigPath = await writeMachineConfig(root);
+  const out = path.join(root, "runs");
+
+  const result = await runOhosTestCase({
+    caseDir,
+    machineConfigPath,
+    out,
+    skipBuild: true,
+    commandExecutor: async (command) => ({
+      stdout: command.includes("aa test")
+        ? "OHOS_REPORT_RESULT: stream=Tests run: 1, Failure: 0, Error: 0, Pass: 1, Ignore: 0\nOHOS_REPORT_CODE: 0\n"
+        : command.includes("list targets")
+          ? "127.0.0.1:15001\tConnected\n"
+          : "",
+      stderr: "",
+      exitCode: 0,
+      durationMs: 1,
+    }),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.artifacts.workdir, undefined);
+  assert.ok(result.diagnostics.every((item) => !item.includes("cleanup_failed")));
+  await assert.rejects(
+    fs.stat(path.join(out, "work")),
+    (error: NodeJS.ErrnoException) => error.code === "ENOENT",
+  );
+});
+
 test("runOhosTestCase logs metadata failures before context creation", async (t) => {
   const root = await fs.mkdtemp(
     path.join(os.tmpdir(), "ohostest-case-metadata-error-"),
@@ -960,5 +1166,21 @@ test("runOhosTestCase logs metadata failures before context creation", async (t)
   assert.match(
     await fs.readFile(path.join(out, "result.json"), "utf-8"),
     /config_file_parse_failed/,
+  );
+});
+
+test("default output dir uses a compact local timestamp", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ohostest-timestamp-"));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  const caseDir = path.join(root, "case");
+
+  const result = await runOhosTestCase({ caseDir });
+
+  assert.equal(result.status, "failed");
+  assert.match(
+    result.artifacts.result.replace(/\\/g, "/"),
+    /^\.ohostest-runs\/(\d{14})\/result\.json$/,
   );
 });

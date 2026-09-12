@@ -29,7 +29,9 @@ export type BlockedReason =
   | "test_output_unparseable"
   | "fold_server_start_failed"
   | "device_unlock_failed"
-  | "fold_cleanup_failed";
+  | "fold_cleanup_failed"
+  | "web_forward_failed"
+  | "web_forward_cleanup_failed";
 
 export interface RawExecutionConfig {
   product?: string;
@@ -47,6 +49,8 @@ export interface RawExecutionConfig {
   paths?: {
     hvigorw?: string;
     ohpm?: string;
+    npm?: string;
+    flutter?: string;
     hdc?: string;
     emulatorBin?: string;
     emulatorDeployedDir?: string;
@@ -69,6 +73,11 @@ export interface RawDeviceConfig {
   testSuites?: unknown;
 }
 
+export interface BundleNameCleanup {
+  prefixes: string[];
+  keep: string[];
+}
+
 export interface ExecutionConfig {
   project: string;
   product: string;
@@ -76,6 +85,7 @@ export interface ExecutionConfig {
   moduleSrcPath: string;
   sharedModules: SharedModuleInfo[];
   bundleName: string;
+  bundleNameCleanup?: BundleNameCleanup;
   testModule: string;
   testRunner: string;
   testClass?: string;
@@ -86,9 +96,18 @@ export interface ExecutionConfig {
     appTask: string;
     testTask: string;
   };
+  rn?: {
+    root: string;
+    bundleCommands?: string[];
+  };
+  flutter?: {
+    root: string;
+  };
   paths: {
     hvigorw: string;
     ohpm: string;
+    npm?: string;
+    flutter?: string;
     hdc: string;
     emulatorBin: string;
     emulatorDeployedDir: string;
@@ -141,6 +160,11 @@ export interface BuildResult {
   testHap: string;
   durationMs?: number;
   blockedReason?: string;
+}
+
+export interface BuildCommand {
+  command: string;
+  cwd: string;
 }
 
 export interface InstallArtifacts {
@@ -216,6 +240,8 @@ export interface RunExecutionInput {
   outDir: string;
   skipBuild?: boolean;
   keepEmulators?: boolean;
+  /** Case-owned Web service port; forwarded from each selected device. */
+  webServerPort?: number;
   commandExecutor?: CommandExecutor;
   logger: import("../../logging/logger.js").RunnerLogger;
 }

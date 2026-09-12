@@ -292,7 +292,9 @@ test("runOhosTestMatrix manages forwarding around a fold-enabled device run", as
   const project = await makeProject(t);
   await prepareRunnerArtifacts(project);
   const machineConfigPath = await makeMachineConfig(project, {
-    foldServerScript: path.resolve("src/fold/assets/fold-server.py"),
+    foldServerScript: path.resolve(
+      "src/ohostest/src/fold/assets/fold-server.py",
+    ),
     hdc: "/fake/hdc-runner-managed",
   });
   const out = path.join(project, ".ohostest-runs/fold/result.json");
@@ -348,7 +350,9 @@ test("runOhosTestMatrix releases one fold device before starting the next", asyn
   const hdc = "/fake/hdc-runner-multi-fold";
   const targets = ["127.0.0.1:15001", "127.0.0.1:15002"];
   const machineConfigPath = await makeMachineConfig(project, {
-    foldServerScript: path.resolve("src/fold/assets/fold-server.py"),
+    foldServerScript: path.resolve(
+      "src/ohostest/src/fold/assets/fold-server.py",
+    ),
     hdc,
     devices: targets.map((target, index) => ({
       id: `fold-${index + 1}`,
@@ -411,7 +415,9 @@ test("runOhosTestMatrix cleans fold resources when trigger deployment throws", a
   const project = await makeProject(t);
   await prepareRunnerArtifacts(project);
   const machineConfigPath = await makeMachineConfig(project, {
-    foldServerScript: path.resolve("src/fold/assets/fold-server.py"),
+    foldServerScript: path.resolve(
+      "src/ohostest/src/fold/assets/fold-server.py",
+    ),
     hdc: "/fake/hdc-runner-deploy-error",
   });
   const commands: string[] = [];
@@ -459,7 +465,9 @@ test("runOhosTestMatrix preserves test counts when fold cleanup remains blocked"
   const project = await makeProject(t);
   await prepareRunnerArtifacts(project);
   const machineConfigPath = await makeMachineConfig(project, {
-    foldServerScript: path.resolve("src/fold/assets/fold-server.py"),
+    foldServerScript: path.resolve(
+      "src/ohostest/src/fold/assets/fold-server.py",
+    ),
     hdc: "/fake/hdc-runner-cleanup-error",
   });
   t.after(async () => {

@@ -9,10 +9,10 @@ const execAsync = promisify(nodeExec);
 /**
  * hvigor daemon 退出码归一化：daemon 可能已退出导致非零退出码，属正常情况。
  */
-function daemonStopResult(result: {
+function daemonStopResult(result: { stdout: string; stderr: string }): {
   stdout: string;
   stderr: string;
-}): { stdout: string; stderr: string } {
+} {
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -72,7 +72,11 @@ const RETRYABLE_CODES = new Set(["EBUSY", "ENOTEMPTY", "EPERM", "EMFILE"]);
 
 export async function removeWithRetry(
   target: string,
-  options: { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number } = {},
+  options: {
+    maxRetries?: number;
+    baseDelayMs?: number;
+    maxDelayMs?: number;
+  } = {},
 ): Promise<void> {
   const maxRetries = options.maxRetries ?? 5;
   const baseDelayMs = options.baseDelayMs ?? 100;

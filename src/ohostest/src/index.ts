@@ -4,6 +4,7 @@ export { runOhosTestCase } from "./case/runner.js";
 export { runOhosTestMatrix } from "./matrix/runner.js";
 export type {
   CaseMetadata,
+  CasePlatform,
   CaseResult,
   RunCaseInput,
 } from "./case/types/index.js";

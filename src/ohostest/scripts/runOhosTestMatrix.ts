@@ -11,7 +11,7 @@ async function main(): Promise<void> {
       path.join(
         path.resolve(parsed.project),
         ".ohostest-runs",
-        new Date().toISOString().replace(/[:.]/g, "-"),
+        compactTimestamp(new Date()),
         "result.json",
       ),
   };
@@ -48,6 +48,14 @@ function printFailureSummary(
     `Result: ${resultPath}`,
   ];
   console.error(lines.join("\n"));
+}
+
+function compactTimestamp(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
 }
 
 main().catch((error) => {

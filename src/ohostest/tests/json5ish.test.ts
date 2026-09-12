@@ -34,3 +34,40 @@ test("parseJson5ish keeps comment markers in single-quoted strings", () => {
     trailingCommaLike: "keep ,}",
   });
 });
+
+test("parseJson5ish parses unquoted keys as written by DevEco JSON5 templates", () => {
+  const result = parseJson5ish(`{
+  app: {
+    bundleName: 'org.hadss.rnim',
+    versionCode: 1000000,
+  },
+  modules: [
+    {
+      name: 'entry',
+      srcPath: './entry',
+    },
+  ],
+}`);
+
+  assert.deepEqual(result, {
+    app: {
+      bundleName: "org.hadss.rnim",
+      versionCode: 1000000,
+    },
+    modules: [{ name: "entry", srcPath: "./entry" }],
+  });
+});
+
+test("parseJson5ish does not quote identifiers in value position", () => {
+  const result = parseJson5ish(`{
+    "flag": true,
+    "empty": null,
+    "nested": { "key": "value" },
+  }`);
+
+  assert.deepEqual(result, {
+    flag: true,
+    empty: null,
+    nested: { key: "value" },
+  });
+});

@@ -183,10 +183,43 @@ export async function installHaps(
 ): Promise<void> {
   const hdc = hdcFor(ctx.config, ctx.device);
   await ctx.runCommand(`${hdc} uninstall ${shellQuote(ctx.config.bundleName)}`);
+  await cleanupStaleIsolatedBundles(ctx, hdc);
   for (const hspPath of artifacts.hspPaths) {
     await runInstallCommand(ctx, hdc, [hspPath]);
   }
   await runInstallCommand(ctx, hdc, [artifacts.appHap, artifacts.testHap]);
+}
+
+async function cleanupStaleIsolatedBundles(
+  ctx: DeviceCommandContext,
+  hdc: string,
+): Promise<void> {
+  const cleanup = ctx.config.bundleNameCleanup;
+  if (!cleanup) return;
+  try {
+    const listing = await ctx.runCommand(`${hdc} shell bm dump -a`);
+    if (listing.exitCode !== 0) return;
+    const names = listing.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const stale = [
+      ...new Set(
+        names.filter(
+          (name) =>
+            cleanup.prefixes.some((prefix) => name.startsWith(prefix)) &&
+            !cleanup.keep.includes(name),
+        ),
+      ),
+    ];
+    for (const name of stale) {
+      await ctx.runCommand(`${hdc} uninstall ${shellQuote(name)}`);
+    }
+  } catch (error) {
+    ctx.logger?.recordError(error, {
+      errorCode: "BUNDLE_NAME_CLEANUP_FAILED",
+    });
+  }
 }
 
 async function runInstallCommand(
