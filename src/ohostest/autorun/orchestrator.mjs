@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { withDeviceLease } from "./device-lease.mjs";
+import {
+  checkConfiguredEmulatorPorts,
+  formatEmulatorPortConflict,
+} from "../../platform/emulator-hdc-port-check.mjs";
 
 const RESULT_POLL_INTERVAL_MS = 500;
 const RESULT_EXIT_GRACE_MS = 10_000;
@@ -109,6 +113,13 @@ export async function loadOhosTestConfig(config) {
   }
   if (!await exists(path.join(REPO_ROOT, "node_modules"))) {
     throw new Error(`工程依赖尚未安装，请在工程根目录执行 npm install: ${REPO_ROOT}`);
+  }
+  const portConflicts = await checkConfiguredEmulatorPorts(machineConfig);
+  if (portConflicts.length > 0) {
+    throw new Error([
+      "模拟器 HDC 端口检查失败",
+      ...portConflicts.map(formatEmulatorPortConflict),
+    ].join("；"));
   }
   return { ...normalized, runnerVersion: String(runnerPackageJson?.version || "") };
 }
