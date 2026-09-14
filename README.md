@@ -39,7 +39,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会为�
 - Git，需要能够从命令行执行 `git`。
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
 - 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
-- `softwareEngineering` 来源的 `resources/opencode` 需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。新版 `harmonyBot` 扩展允许以 `skills.zip` 分发资源：Autorun 根据扩展内 `.bundle-hash` 自动准备并使用 `~/.harmonybot/opencode-bundle/vscode/<hash>` 中的 Plugin、Provider 和 Skills，`opencode.json` 与 OpenCode 二进制仍从扩展目录读取；旧版已展开目录继续兼容。
+- `softwareEngineering` 来源的 `resources/opencode` 需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。`harmonyBot` 直接调用扩展自带的官方启动器，由扩展负责选择已初始化的 Bundle，并加载对应的 Agent、Plugin、Provider 和 Skills；Autorun 不解析 `.bundle-hash`，也不维护独立的 Skill 解压目录。
 - `opencode.json` 中需存在可用的模型配置和 API 凭据。Autorun 启动 Server 时会生成运行时配置副本并强制覆盖全局及 Agent 权限为 `allow`；来源配置不会被修改。不要把真实 API Key 提交到 Git。
 
 ## 目录结构
@@ -62,7 +62,7 @@ autorun/
 ```
 
 工程提供 `.mjs` 启动入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行，不需要手工维护平台启动脚本。Autorun 会按需在私有 runtime 中生成 CLI 的 shell/`.cmd` 包装脚本。
-首次检出后需要安装 Autorun、内置 Runner 和白盒评价子系统的依赖并完成构建。根目录依赖用于自动解压 HarmonyBot Bundle：
+首次检出后需要安装 Autorun、内置 Runner 和白盒评价子系统的依赖并完成构建：
 
 ```bash
 npm install
@@ -235,7 +235,7 @@ devecocli --version
 }
 ```
 
-该模式会在 `root` 下查找最高版本且资源可用的 HarmonyBot 扩展。存在 `.bundle-hash` 时，Autorun 使用与扩展版本精确匹配的 `~/.harmonybot/opencode-bundle/vscode/<hash>`；缓存缺失时会从扩展的 `skills.zip` 等资源自动构建，使用临时目录、跨进程锁和完成标记防止读取半成品。Bundle 提供 Plugin、Provider 和 Skills，`opencode.json` 与 OpenCode 二进制仍从扩展目录读取，确保本机 Provider 配置不会被缓存中的旧副本覆盖。没有 `.bundle-hash` 的旧扩展继续直接使用 `resources/opencode`。
+该模式会在 `root` 下查找最高版本且资源可用的 HarmonyBot 扩展，也支持把 `root` 直接配置为某个扩展版本目录。Autorun 使用扩展的 `tools/plugin-cli/run-opencode-serve.mjs` 启动 OpenCode，Bundle 与 Skill 的实际位置完全由插件决定。首次使用或插件升级后，应先在 VS Code 中启动并完成一次 HarmonyBot 初始化；如果插件尚未准备好 Bundle，Autorun 会给出初始化提示，而不会自行解压或猜测缓存路径。
 
 `softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`，加载其中的模型配置和 Skills，并使用 OpenCode 内置 `build` Agent。正式执行时 Autorun 会把所选来源的 `plugin`、`skills`、`provider` 复制到当前目标的私有 runtime 配置快照，不会合并或回退到另一来源，也不会复用启动前已有的 OpenCode Server。`softwareEngineering` 还会关闭 `~/.agents/skills` 和 `~/.claude/skills` 扫描，并通过精确权限白名单阻止 OpenCode 内置 Skill，只向 Agent 暴露来源 `resources/opencode/skills` 下的 Skill。
 
@@ -271,7 +271,7 @@ devecocli --version
 }
 ```
 
-每个目标使用独立 OpenCode Server、配置资产副本、数据库、状态、缓存、日志和 workspace。批次级 Provider 配置只包含统一生成模型及其连接配置，不会携带来源的 Agent、Plugin 或 Skill；它会以权限受限的快照文件注入所有目标。`softwareEngineering` 会在 Agent Session 创建前校验来源 Skill 与权限白名单完全一致；OpenCode 固定注册但已被拒绝的内置 Skill 只记录在 `environment.json` 的 `skills.blocked`，不会进入 `skills.loaded` 或模型会话。多个目标还会共用一份启动时冻结的用例输入快照，保证后执行的 Agent 不会读取前一个 Agent 修改后的工程。
+每个目标使用独立 OpenCode Server 和 workspace。`softwareEngineering` 的配置资产、数据库、状态和缓存使用目标私有副本；`harmonyBot` 的 Bundle、配置和 Skill 由插件管理。批次级 Provider 配置只包含统一生成模型及其连接配置，不会携带来源的 Agent、Plugin 或 Skill；HarmonyBot 动态注入的 Provider/模型在 Server 启动后通过运行时接口校验。`softwareEngineering` 会在 Agent Session 创建前校验来源 Skill 与权限白名单完全一致；OpenCode 固定注册但已被拒绝的内置 Skill 只记录在 `environment.json` 的 `skills.blocked`，不会进入 `skills.loaded` 或模型会话。多个目标还会共用一份启动时冻结的用例输入快照，保证后执行的 Agent 不会读取前一个 Agent 修改后的工程。
 
 ### Windows/Hvigor 输出路径建议
 
@@ -373,13 +373,13 @@ node src/ask-opencode.mjs --help
 
 ### 5. 单独启动 OpenCode Server
 
-通常不需要手工启动 Server。如果需要排查 Server 启动问题，可以执行：
+通常不需要手工启动 Server。下面的仓库内启动脚本仅用于 `softwareEngineering` 来源；如果需要排查该来源的 Server 启动问题，可以执行：
 
 ```bash
 node src/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extensions\software-multi-device\resources\opencode" --runtime-root ./output/_runtime/opencode --workspace .
 ```
 
-`--source` 指向包含 `opencode.json` 的配置资源目录。也可以用 `--root` 传入资源包根目录，脚本会读取其 `resources/opencode`；Plugin、Provider 和 Skills 位于其他目录时用 `--assets-source`，二进制位于其他目录时用 `--opencode-bin`。`--runtime-root`、`--port` 和 `--deveco-home` 分别设置运行目录、端口和 DevEco Studio 路径。Autorun 正常启动时会自动解析并传入三个路径。
+`--source` 指向包含 `opencode.json` 的配置资源目录。也可以用 `--root` 传入资源包根目录，脚本会读取其 `resources/opencode`；Plugin、Provider 和 Skills 位于其他目录时用 `--assets-source`，二进制位于其他目录时用 `--opencode-bin`。`--runtime-root`、`--port` 和 `--deveco-home` 分别设置运行目录、端口和 DevEco Studio 路径。HarmonyBot 不使用该脚本，而是由 Autorun 调用扩展自带的官方启动器。
 
 默认启动和 Autorun 自动启动都不会创建或写入旧的 `opencode/run/`。已有旧目录不会自动删除，以保留历史会话；确认不再需要后可手工归档或删除。
 
@@ -500,7 +500,7 @@ Agent 运行期间，结果目录中只有工程和 Agent 自身产物，不会�
 
 Agent 的实际提示词会追加无人值守确认和“业务工程 + 授权工具资源”边界：所有 permission 自动允许，question 自动采用允许、继续、推荐或默认方案；禁止读取其他用例、隐藏测试、标准答案和评测结果，但允许读取当前来源实际注册的 Skill 快照，并从工程 cwd 调用其中的脚本，以及读取明确列出的 SDK/工具目录。授权不扩大到整个 runtime、父目录或 Provider 配置。这是提示词约束，不是操作系统级文件沙箱。工程复制会排除 `.hvigor`、`build`、`node_modules` 等缓存/产物，避免历史构建日志泄漏源 case 路径。
 
-`harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version` 和 `install-to-project.py` 安装入口；其他脚本属于 Skill 内部实现，不校验固定名称或数量。Python、Skill 注册或安装入口损坏仍会在模型会话前报错；`devecocli` 不可用仅告警并继续评测。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和实际脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约，确因 CLI 缺失无法完成时必须标为未验证。
+`harmonyBot` 的 Skill 以 OpenCode `/skill` 返回的实际 `location` 为准，不依赖固定缓存根目录。旧版 `harmonyos-ui-multi` 如果仍提供 `scripts/install-to-project.py`，Autorun 会在会话创建前预装到工程 `.onemulti/`，并检查 Python >= 3.10；新版纯知识 Skill 不要求安装器，也不会强制生成 `.onemulti/`。两种形态都会检查 Skill 注册和 `devecocli --version`，其中 `devecocli` 不可用仅告警并继续评测。Autorun 不修改原始工程，也不会借用其他 Agent 的同名 Skill。
 
 Agent 正常结束后，Autorun 检查 `.onemulti/decisions.json` 能否解析以及汇总 HTML 是否存在，结果写入 `generate/skill-workflow.json` 和用例 `result.json.skillWorkflow`。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
 
@@ -590,7 +590,7 @@ pending -> running/preparing -> session_creating -> agent_running
 检查：
 
 - `server.opencodeSource.mode` 是否为 `harmonyBot` 或 `softwareEngineering`；
-- `server.opencodeSource.root` 是否正确；新版 HarmonyBot 扩展的 `.bundle-hash`、`skills.zip` 或对应 `~/.harmonybot/opencode-bundle/vscode/<hash>` 是否可用；
+- `server.opencodeSource.root` 是否指向 VS Code 扩展根目录或具体 HarmonyBot 扩展目录；扩展是否包含官方 `tools/plugin-cli/run-opencode-serve.mjs`，以及当前版本是否已在 VS Code 中完成 HarmonyBot 初始化；
 - 当前平台对应的 OpenCode 二进制是否存在；
 - `server.devecoHome` 或 `DEVECO_HOME` 是否正确；
 - 配置端口是否被其他程序占用；
@@ -612,7 +612,7 @@ node autorun.mjs --check
 
 `harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 状态，并在会话前预装 Skill；Python 版本不够、Skill 未注册或必需脚本失效会直接报错，`devecocli` 不可用只输出告警并继续。无人值守策略写入 Autorun 专用 OpenCode 的 Agent 会话配置，不拼接到用户消息；`generate/input.txt` 只保存源用例 `PROMPT.md` 原文。Skill 预装和 CLI 状态见 `generate/skill-runtime.json`，流程产物检查见 `generate/skill-workflow.json`。修改代码后需要重启 Autorun；旧会话不会自动更新会话策略或预装状态。
 
-自动启动 Server 时，Autorun 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，将无人值守策略写入当前 Agent 会话 prompt，并强制全局及 Agent 的运行工具权限为 `allow`。`softwareEngineering` 的 Skill 权限例外采用来源精确白名单。运行数据、数据库、配置、状态和缓存均不跨 Agent 复用；配置端口已占用时会自动选择其他端口。
+自动启动 Server 时，`softwareEngineering` 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，注入无人值守策略并采用来源 Skill 精确白名单；`harmonyBot` 则保持插件配置不变，由官方启动器加载 Agent、Plugin、Skill 和 Provider，运行中的 question/permission 请求由监控逻辑自动处理。配置端口已占用时会自动选择其他端口。
 
 ### 提示 Server 未强制全部权限 allow
 

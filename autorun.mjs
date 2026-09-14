@@ -31,6 +31,7 @@ import {
   hasAgentSessionPolicy,
 } from "./src/lib/session-policy.mjs";
 import { normalizeAgentTargets, normalizeGenerationModel } from "./src/lib/agent-targets.mjs";
+import { resolveConfiguredModel } from "./src/lib/model-validation.mjs";
 import { writeAgentComparisonReport } from "./src/lib/agent-comparison-report.mjs";
 import {
   filterGeneratedArtifactPatch,
@@ -414,11 +415,14 @@ async function ensureOpenCodeServer(config, {
     const expectedAgent = source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
       ? "build"
       : String(config.execution?.agent || "").trim();
-    if (serverAllowsEverything(serverConfig, expectedAgent) && hasAgentSessionPolicy(serverConfig, expectedAgent)) {
-      log(`[server] 复用已运行且已启用全权限允许的 OpenCode Server: ${serverUrl}`);
+    const reusable = source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
+      ? Object.hasOwn(serverConfig?.agent || {}, expectedAgent)
+      : serverAllowsEverything(serverConfig, expectedAgent) && hasAgentSessionPolicy(serverConfig, expectedAgent);
+    if (reusable) {
+      log(`[server] 复用已运行的 OpenCode Server: ${serverUrl}`);
       return { client, serverConfig, owned: false, child: null, logPath: "" };
     }
-    log(`[server] 已运行的 OpenCode Server 未启用全权限或无人值守会话策略，改为启动 Autorun 专用 Server`);
+    log("[server] 已运行的 OpenCode Server 与当前 Agent 来源不匹配，改为启动独立 Server");
   } else if (!reuseExisting && await client.health()) {
     log("[server] 隔离执行不复用已有 OpenCode Server，将自动选择独立端口");
   }
@@ -429,43 +433,49 @@ async function ensureOpenCodeServer(config, {
     client = new OpenCodeClient(serverUrl);
   }
 
-  const serveScript = fileURLToPath(new URL("./src/run-opencode-serve.mjs", import.meta.url));
-  if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
   const runtimeRoot = config.server.runtimeRoot;
-  const sessionPolicyPath = path.join(runtimeRoot, "session-policy.md");
   await fs.mkdir(runtimeRoot, { recursive: true });
-  await fs.writeFile(sessionPolicyPath, `${AGENT_AUTO_APPROVAL_POLICY}\n`, "utf8");
   const port = new URL(serverUrl).port || "61417";
   const runId = `${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}-autorun-serve`;
   const logDir = path.join(runtimeRoot, "logs", "runs", runId);
   const logPath = path.join(logDir, "opencode-server.log");
   await fs.mkdir(logDir, { recursive: true });
   const logFile = await fs.open(logPath, "a");
-  const args = [
-    serveScript,
-    "--source", source.resourcesDir,
-    "--assets-source", source.assetsDir,
-    "--opencode-bin", source.opencodeBinPath,
-    "--runtime-root", runtimeRoot,
-    "--workspace", workspace,
-    "--port", port,
-    "--session-agent", String(config.execution.agent || "").trim(),
-    "--session-policy-file", sessionPolicyPath,
-  ];
-  if (isolateConfig) args.push("--isolate-config");
-  if (source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
+  let args;
+  if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    args = [
+      source.serverLauncherPath,
+      "--root", source.installation.extensionDir,
+      "--workspace", workspace,
+      "--port", port,
+    ];
+  } else {
+    const serveScript = fileURLToPath(new URL("./src/run-opencode-serve.mjs", import.meta.url));
+    if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
+    const sessionPolicyPath = path.join(runtimeRoot, "session-policy.md");
+    await fs.writeFile(sessionPolicyPath, `${AGENT_AUTO_APPROVAL_POLICY}\n`, "utf8");
+    args = [
+      serveScript,
+      "--source", source.resourcesDir,
+      "--assets-source", source.assetsDir,
+      "--opencode-bin", source.opencodeBinPath,
+      "--runtime-root", runtimeRoot,
+      "--workspace", workspace,
+      "--port", port,
+      "--session-agent", String(config.execution.agent || "").trim(),
+      "--session-policy-file", sessionPolicyPath,
+    ];
+    if (isolateConfig) args.push("--isolate-config");
     args.push("--strict-source-skills");
-  }
-  if (config.server.providerOverlayPath) {
-    args.push("--provider-overlay", config.server.providerOverlayPath);
+    if (config.server.providerOverlayPath) {
+      args.push("--provider-overlay", config.server.providerOverlayPath);
+    }
   }
   if (config.server.devecoHome) args.push("--deveco-home", config.server.devecoHome);
 
   if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
     log(`[server] 使用 HarmonyBot 扩展 ${source.installation.version}: ${source.installation.extensionDir}`);
-    if (source.installation.bundleHash) {
-      log(`[server] 使用 HarmonyBot Bundle ${source.installation.bundleHash} (${source.installation.bundleStatus}): ${source.assetsDir}`);
-    }
+    log(`[server] Bundle 解析和 Skill 加载委托给插件启动器: ${source.serverLauncherPath}`);
   } else {
     log(`[server] 使用 Software Engineering 资源: ${source.root}`);
   }
@@ -473,6 +483,13 @@ async function ensureOpenCodeServer(config, {
   try {
     child = spawn(process.execPath, args, {
       cwd: config.__baseDir,
+      env: source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
+        ? {
+          ...process.env,
+          OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
+          OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1",
+        }
+        : process.env,
       stdio: ["ignore", logFile.fd, logFile.fd, "ipc"],
       windowsHide: true,
     });
@@ -505,7 +522,12 @@ async function ensureOpenCodeServer(config, {
   if (!healthy) {
     await stopServerProcessTree(child);
     if (child.exitCode !== null) {
-      throw new Error(`OpenCode Server 启动后提前退出（code=${child.exitCode}），日志: ${logPath}`);
+      const initializationHint = source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
+        ? `；请先在 VS Code 中启动并初始化 HarmonyBot ${source.installation.version}`
+        : "";
+      const error = new Error(`OpenCode Server 启动后提前退出（code=${child.exitCode}），日志: ${logPath}${initializationHint}`);
+      error.code = "OPENCODE_SERVER_EARLY_EXIT";
+      throw error;
     }
     throw new Error(`OpenCode Server 健康检查超时，日志: ${logPath}`);
   }
@@ -520,6 +542,12 @@ async function ensureOpenCodeServer(config, {
   }
   child.unref();
   log(`[server] OpenCode Server 已就绪: ${serverUrl}`);
+  if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    toolResources = {
+      env: { PATH: process.env.PATH || "" },
+      toolReadRoots: [],
+    };
+  }
   return { client, serverConfig, owned: true, child, logPath, serverUrl, toolResources };
 }
 
@@ -657,7 +685,9 @@ async function prepareSharedGenerationProvider(config, runId) {
     break;
   }
   if (!selected) {
-    throw new Error(`所有 Agent 来源都未配置统一生成模型 ${providerId}/${modelId}`);
+    // HarmonyBot 新版 Provider/模型可由插件在运行时动态注入，静态
+    // opencode.json 中不一定存在 models；启动 Server 后再通过接口校验。
+    return "";
   }
   const overlayPath = path.join(config.server.runtimeRoot, runId, "shared", "generation-provider.json");
   await atomicWriteJson(overlayPath, { providerId, provider: selected.provider });
@@ -694,6 +724,14 @@ function sanitizedConfigFingerprint(value) {
 
 async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig, source, server, model, signal }) {
   const skills = await waitForSkills(server.client, targetConfig.execution.casesRoot, { signal });
+  const registeredSkills = (Array.isArray(skills) ? skills : [])
+    .map((item) => String(item?.name || item?.id || "").trim())
+    .filter(Boolean)
+    .sort();
+  if (target.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    server.toolResources ||= { env: { PATH: process.env.PATH || "" }, toolReadRoots: [] };
+    server.toolResources.skillNames = registeredSkills;
+  }
   server.skillRuntime = await prepareAgentSkillRuntime({
     resources: server.toolResources,
     registeredSkills: Array.isArray(skills) ? skills : [],
@@ -704,14 +742,12 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
   if (server.skillRuntime.oneMulti?.devecoCli?.status === "unavailable") {
     console.warn(`[warn] Agent ${target.id}: devecocli 预检未通过，将继续评测；${server.skillRuntime.oneMulti.devecoCli.warning}`);
   }
-  const registeredSkills = (Array.isArray(skills) ? skills : [])
-    .map((item) => String(item?.name || item?.id || "").trim())
-    .filter(Boolean)
-    .sort();
-  const sourceSkillEntries = await fs.readdir(path.join(source.assetsDir, "skills"), { withFileTypes: true }).catch(() => []);
-  const sourceSkills = sourceSkillEntries
-    .map((item) => item.name)
-    .filter((name) => name && !name.startsWith("."))
+  if (!Array.isArray(server.toolResources?.skillNames)) {
+    throw new Error(`Agent ${target.id} Server 未返回私有 Skill 快照清单`);
+  }
+  const sourceSkills = [...new Set(server.toolResources.skillNames
+    .map((name) => String(name || "").trim())
+    .filter(Boolean))]
     .sort();
   let loadedSkills = registeredSkills;
   let blockedSkills = [];
@@ -738,7 +774,6 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     throw new Error(`Agent ${target.id} 来源 skills 为空，但 Server 实际加载了 Skill: ${loadedSkills.join(", ")}`);
   }
   const provider = server.serverConfig?.provider?.[model.providerId] || {};
-  const providerIdentity = Object.fromEntries(Object.entries(provider).filter(([key]) => key !== "models"));
   const manifest = {
     schemaVersion: "autorun-agent-environment-v1",
     targetId: target.id,
@@ -747,17 +782,17 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     agent: targetConfig.execution.agent,
     generationModel: {
       ...model,
-      configFingerprint: sanitizedConfigFingerprint({
-        provider: providerIdentity,
-        model: provider?.models?.[model.modelId],
-      }),
+      // HarmonyBot 新版通过 /config/providers 动态提供模型目录，静态
+      // provider.models 可能为空；统一模型校验以实际选择的 ID 为准。
+      configFingerprint: sanitizedConfigFingerprint(model),
     },
     source: {
       root: source.root,
       resourcesDir: source.resourcesDir,
-      assetsDir: source.assetsDir,
       opencodeBinPath: source.opencodeBinPath,
-      bundleHash: source.installation?.bundleHash || "",
+      ...(source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? { assetsDir: source.assetsDir }
+        : { serverLauncherPath: source.serverLauncherPath }),
       version: source.installation?.version || "",
       configFingerprint: sanitizedConfigFingerprint({
         opencode: server.serverConfig,
@@ -767,12 +802,16 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     },
     isolation: {
       dedicatedServer: true,
-      runtimeRoot: targetConfig.server.runtimeRoot,
+      runtimeRoot: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? targetConfig.server.runtimeRoot
+        : "plugin-managed",
       workspace: path.join(path.dirname(targetConfig.server.runtimeRoot), "workspace"),
-      configAssets: "copied_snapshot",
+      configAssets: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? "copied_snapshot"
+        : "plugin_managed",
       skillPolicy: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
         ? "strict_source_allowlist"
-        : "source_snapshot",
+        : "plugin_loaded_locations",
     },
     skills: {
       sourceDirectories: sourceSkills,
@@ -1929,14 +1968,17 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
 
 async function validateServerConfig(client, execution, loadedConfig, sourceMode, signal) {
   const config = loadedConfig || await client.getConfig(120);
-  if (!serverAllowsExecution(config, execution.agent)) {
+  const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
+  if (usesBuiltInAgent && !serverAllowsExecution(config, execution.agent)) {
     throw new Error(`OpenCode Server 未对 Agent ${execution.agent} 启用运行权限（Skill 来源白名单除外）`);
   }
-  const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
   if (!usesBuiltInAgent && !Object.hasOwn(config?.agent || {}, execution.agent)) {
     throw new Error(`Server 未配置 Agent: ${execution.agent}`);
   }
-  if (!hasAgentSessionPolicy(config, execution.agent)) {
+  // Software Engineering 使用 Autorun 配置副本，必须在启动前注入无人值守
+  // 权限。HarmonyBot 配置完全由插件管理，运行中的 question/permission
+  // 请求由 session monitor 自动回复，不修改插件配置或 Bundle。
+  if (usesBuiltInAgent && !hasAgentSessionPolicy(config, execution.agent)) {
     throw new Error(`OpenCode Server 未为 Agent ${execution.agent} 注入无人值守会话策略`);
   }
   if (execution.agent === "harmonyos-multi-device") {
@@ -1952,27 +1994,14 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode,
       }
     }
   }
-  const requestedProviderId = String(execution.providerId || "").trim();
-  if (requestedProviderId) {
-    const provider = config?.provider?.[requestedProviderId];
-    if (!provider) {
-      throw new Error(`Server 未配置指定 Provider: ${requestedProviderId}`);
-    }
-    if (!Object.hasOwn(provider?.models || {}, execution.model)) {
-      throw new Error(`Server Provider ${requestedProviderId} 未配置模型: ${execution.model}`);
-    }
-    return { providerId: requestedProviderId, modelId: execution.model };
-  }
-  const matches = Object.entries(config?.provider || {})
-    .filter(([, provider]) => Object.hasOwn(provider?.models || {}, execution.model))
-    .map(([providerId]) => providerId);
-  if (matches.length === 1) {
-    return { providerId: matches[0], modelId: execution.model };
-  }
-  if (matches.length > 1) {
-    throw new Error(`模型 ${execution.model} 同时存在于多个 Provider（${matches.join(", ")}），请配置 execution.providerId`);
-  }
-  throw new Error(`Server 未配置模型: ${execution.model}`);
+  return resolveConfiguredModel({
+    client,
+    config,
+    providerId: String(execution.providerId || "").trim(),
+    modelId: execution.model,
+    directory: execution.casesRoot,
+    signal,
+  });
 }
 
 async function runBatch(config, client, serverConfig, checkOnly = false, {

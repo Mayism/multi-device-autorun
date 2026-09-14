@@ -467,6 +467,14 @@ for (const name of ['skills', 'plugin', 'provider']) {
   }
 }
 
+let snapshotSkillNames;
+try {
+  snapshotSkillNames = discoverSourceSkillNames(path.join(effectiveConfigDir, 'skills'));
+} catch (e) {
+  err(`[error] 无法读取运行时 Skill 快照: ${e.message}`);
+  process.exit(1);
+}
+
 // 插件 CLI（pluginFetch linkBin:true 写入的 wrapper）。隔离模式下优先使用
 // 私有快照，确保 PATH 不再指向来源包中的可写 plugin 目录。
 const pluginBinDir = path.join(opts.isolateConfig ? effectiveConfigDir : bundledAssetsDir, 'plugin', '.bin');
@@ -560,6 +568,7 @@ if (process.send) {
     type: 'autorun:tool-runtime',
     resources: {
       skillsRoot: path.join(effectiveConfigDir, 'skills'),
+      skillNames: snapshotSkillNames,
       ...(pinnedDevEcoCli ? { devecoCliRuntime: pinnedDevEcoCli } : {}),
       env: Object.fromEntries([
         'PATH', 'JAVA_HOME', 'TOOL_HOME', 'DEVECO_HOME', 'DEVECO_SDK_HOME',
