@@ -193,7 +193,7 @@ devecocli --version
 | `whiteboxEvaluation.timeoutSec` | 单个白盒任务超时，默认 `1800` 秒。 |
 | `whiteboxEvaluation.failurePolicy` | 当前支持 `record_only`：白盒失败只记录，不改变原用例状态。 |
 | `whiteboxEvaluation.runtime` | 白盒固定使用 HarmonyBot 附带的 OpenCode，不随当前生成 Agent 切换。`source` 仅支持 `harmonyBot`；`root` 可省略，此时复用 `server.opencodeSource.targets` 中第一个 HarmonyBot 来源的 root。单独运行 Software Engineering 且启用白盒时必须显式配置该 root。 |
-| `whiteboxEvaluation.judge` | 选择裁判 Provider、模型和端口。`providerId` 必须与当前 OpenCode `opencode.json` 中的 Provider 名称完全一致；协议适配器、baseURL、API Key 和模型定义均从该 Provider 配置原样继承。 |
+| `whiteboxEvaluation.judge` | 选择裁判 Provider、模型和端口。Autorun 会通过 `whiteboxEvaluation.runtime.root` 对应的 HarmonyBot 官方启动器准备独立运行时，从其 `/config` 和动态 `/config/providers` 解析协议适配器、baseURL、API Key 与模型定义；不读取当前生成 Agent 的 Provider，也不需要在 Autorun 配置中重复填写 API Key。 |
 | `whiteboxEvaluation.prompt.includeAdditionalPrompt` | 是否将 `execution.additionalPrompt` 作为有效业务要求交给裁判，默认 `true`。 |
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
@@ -536,7 +536,7 @@ output/<batchId>/
             └── skill-workflow.json   # 一多 Skill 的账本、状态、报告完整性检查
 ```
 
-白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。白盒固定使用 HarmonyBot 附带的 OpenCode，因此 HarmonyBot 与 Software Engineering 的生成结果共享同一套裁判运行时。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
+白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。白盒固定使用 HarmonyBot 附带的 OpenCode，并在开始生成任务前从白盒自己的 HarmonyBot 运行时解析 Provider 和动态模型，因此 HarmonyBot 与 Software Engineering 的生成结果共享同一套裁判环境，不依赖生成 Agent 的 `serverConfig`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
 
 Agent 结束后，Autorun 会在业务 Patch 和白盒 Sandbox 边界排除 `.onemulti/`、`__pycache__/`、`*.pyc` 和 `**/evidence/tmp/`，并从生成工程中清理后三类临时产物。`.onemulti/` 的正式内容保留在生成工程中并打包进用例 ZIP，供分发和排查；它仍不属于业务交付差异，ohosTest Runner 复制测试工程时也会独立排除该目录，不依赖工程 `.gitignore`。
 

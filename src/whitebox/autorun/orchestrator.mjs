@@ -100,36 +100,110 @@ export function bindHarmonyBotWhiteboxRuntime(config, targets, baseDir = process
   };
 }
 
-function providerByName(serverConfig, requestedProviderId) {
-  const providers = serverConfig?.provider && typeof serverConfig.provider === "object"
-    ? serverConfig.provider
-    : {};
-  if (!requestedProviderId) {
-    throw new Error("无法解析白盒裁判 Provider 名称");
-  }
-  const provider = providers[requestedProviderId];
-  if (!provider || typeof provider !== "object") {
-    const available = Object.keys(providers);
-    throw new Error(
-      `OpenCode opencode.json 未配置白盒裁判 Provider: ${requestedProviderId}`
-      + (available.length ? `；可用 Provider: ${available.join(", ")}` : ""),
-    );
-  }
-  return provider;
+function providerList(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.providers)) return value.providers;
+  if (Array.isArray(value?.data?.providers)) return value.data.providers;
+  return [];
 }
 
-function buildJudgeEnvironment({ config, serverConfig, generationModel, opencodeBinPath }) {
-  const providerId = config.judge.providerId || generationModel.providerId;
-  const modelId = config.judge.modelId || generationModel.modelId;
-  const provider = providerByName(serverConfig, providerId);
-  const models = provider.models && typeof provider.models === "object" ? provider.models : {};
-  if (!Object.hasOwn(models, modelId)) {
-    const available = Object.keys(models);
+function providerModels(provider) {
+  if (Array.isArray(provider?.models)) {
+    return Object.fromEntries(provider.models
+      .map((model) => [String(model?.id || model || ""), model])
+      .filter(([id]) => id));
+  }
+  return provider?.models && typeof provider.models === "object" ? provider.models : {};
+}
+
+// 白盒固定从自己的 HarmonyBot Server 解析 Provider。/config 提供连接配置，
+// /config/providers 提供插件动态注册后的真实模型目录和已解析凭据。
+export async function resolveWhiteboxJudgeRuntime({
+  client,
+  serverConfig,
+  judge,
+  generationModel,
+  directory,
+  signal,
+}) {
+  const staticProviders = serverConfig?.provider && typeof serverConfig.provider === "object"
+    ? serverConfig.provider
+    : {};
+  let runtimeProviders = [];
+  try {
+    runtimeProviders = providerList(await client.getProviders(directory, 30, signal));
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    // 兼容尚未提供 /config/providers 的旧版 OpenCode。
+  }
+  const requestedProviderId = String(judge?.providerId || generationModel?.providerId || "").trim();
+  const modelId = String(judge?.modelId || generationModel?.modelId || "").trim();
+  if (!modelId) throw new Error("无法解析白盒裁判模型名称");
+
+  const providerIds = [...new Set([
+    ...Object.keys(staticProviders),
+    ...runtimeProviders.map((provider) => String(provider?.id || "").trim()).filter(Boolean),
+  ])];
+  const matchingProviderIds = providerIds.filter((providerId) => {
+    const staticModels = providerModels(staticProviders[providerId]);
+    const runtimeProvider = runtimeProviders.find((provider) => provider?.id === providerId);
+    return Object.hasOwn(staticModels, modelId)
+      || Object.hasOwn(providerModels(runtimeProvider), modelId);
+  });
+  let providerId = requestedProviderId;
+  if (!providerId) {
+    if (matchingProviderIds.length === 1) providerId = matchingProviderIds[0];
+    else if (matchingProviderIds.length > 1) {
+      throw new Error(
+        `白盒裁判模型 ${modelId} 同时存在于多个 HarmonyBot Provider（${matchingProviderIds.join(", ")}），请配置 whiteboxEvaluation.judge.providerId`,
+      );
+    } else {
+      throw new Error(`HarmonyBot 运行时未配置白盒裁判模型: ${modelId}`);
+    }
+  }
+
+  const staticProvider = staticProviders[providerId];
+  const runtimeProvider = runtimeProviders.find((provider) => provider?.id === providerId);
+  if (!staticProvider && !runtimeProvider) {
     throw new Error(
-      `OpenCode Provider ${providerId} 未配置白盒裁判模型: ${modelId}`
+      `HarmonyBot 运行时未配置白盒裁判 Provider: ${providerId}`
+      + (providerIds.length ? `；可用 Provider: ${providerIds.join(", ")}` : ""),
+    );
+  }
+  const staticModels = providerModels(staticProvider);
+  const runtimeModels = providerModels(runtimeProvider);
+  if (!Object.hasOwn(staticModels, modelId) && !Object.hasOwn(runtimeModels, modelId)) {
+    const available = [...new Set([...Object.keys(staticModels), ...Object.keys(runtimeModels)])];
+    throw new Error(
+      `HarmonyBot Provider ${providerId} 未配置白盒裁判模型: ${modelId}`
       + (available.length ? `；可用模型: ${available.join(", ")}` : ""),
     );
   }
+
+  const options = {
+    ...(runtimeProvider?.options || {}),
+    ...(staticProvider?.options || {}),
+  };
+  // OpenCode 的动态 Provider 目录会把最终凭据放在 key 中。只在内存中
+  // 传给白盒子进程，不写入环境清单、日志或 Autorun 配置。
+  if (typeof runtimeProvider?.key === "string" && runtimeProvider.key) {
+    options.apiKey = runtimeProvider.key;
+  }
+  return {
+    providerId,
+    modelId,
+    providerConfig: {
+      ...(staticProvider || {}),
+      options,
+      models: {
+        [modelId]: runtimeModels[modelId] ?? staticModels[modelId] ?? {},
+      },
+    },
+  };
+}
+
+function buildJudgeEnvironment({ config, judgeRuntime, opencodeBinPath }) {
+  const { providerId, modelId, providerConfig } = judgeRuntime;
   const executableDir = path.dirname(opencodeBinPath);
   return {
     ...process.env,
@@ -138,7 +212,7 @@ function buildJudgeEnvironment({ config, serverConfig, generationModel, opencode
     HMOS_OPENCODE_PORT: String(config.judge.basePort),
     HMOS_OPENCODE_PROVIDER_ID: providerId,
     HMOS_OPENCODE_MODEL_ID: modelId,
-    HMOS_OPENCODE_PROVIDER_CONFIG: JSON.stringify(provider),
+    HMOS_OPENCODE_PROVIDER_CONFIG: JSON.stringify(providerConfig),
     HMOS_OPENCODE_TIMEOUT_MS: String(config.timeoutSec * 1000),
     HMOS_OPENCODE_MAX_OUTPUT_BYTES: "1048576",
     HMOS_OPENCODE_RUNTIME_ROOT: config.runtimeRoot,
@@ -307,8 +381,7 @@ function runEvaluator({ cliPath, cwd, inputPath, port, env, timeoutSec, signal, 
 
 export async function createWhiteboxOrchestrator({
   config,
-  serverConfig,
-  generationModel,
+  judgeRuntime,
   opencodeBinPath,
   repoRoot,
   signal,
@@ -318,7 +391,7 @@ export async function createWhiteboxOrchestrator({
   if (!await exists(cliPath)) {
     throw new Error(`白盒评价尚未构建: ${cliPath}；请在工程根目录执行 npm install（会自动构建），或执行 npm run build:whitebox`);
   }
-  const env = buildJudgeEnvironment({ config, serverConfig, generationModel, opencodeBinPath });
+  const env = buildJudgeEnvironment({ config, judgeRuntime, opencodeBinPath });
   const pending = [];
   const allJobs = [];
   const freeSlots = Array.from({ length: config.concurrency }, (_, index) => index);
