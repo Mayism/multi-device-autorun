@@ -1,0 +1,416 @@
+diff --git a/lib/graphic_text_layout/utils/breakpoint_constants.dart b/lib/graphic_text_layout/utils/breakpoint_constants.dart
+new file mode 100644
+index 0000000..b2490b2
+--- /dev/null
++++ b/lib/graphic_text_layout/utils/breakpoint_constants.dart
+@@ -0,0 +1,106 @@
++import 'package:flutter/material.dart';
++import 'package:hadss_adaptive_layout/hadss_adaptive_layout.dart';
++import 'package:graphic_text_layout_ohos/AppThemes.dart';
++
++/// 断点常量和管理工具类
++///
++/// 使用hadss_adaptive_layout的断点系统
++/// WidthBreakpointRange默认值: xs=320, sm=600, md=840, lg=1440, xl=infinity
++class BreakpointConstants {
++  /// 获取背景颜色
++  static Color getBackgroundColor(BuildContext context) {
++    final brightness = MediaQuery.of(context).platformBrightness;
++    return brightness == Brightness.light
++        ? AppThemes.lightTheme.scaffoldBackgroundColor
++        : AppThemes.darkTheme.scaffoldBackgroundColor;
++  }
++
++  /// 获取容器颜色
++  static Color getContainerColor(BuildContext context) {
++    final brightness = MediaQuery.of(context).platformBrightness;
++    return brightness == Brightness.light
++        ? AppThemes.lightTheme.cardColor
++        : AppThemes.darkTheme.cardColor;
++  }
++
++  /// 获取价格颜色
++  static Color getPriceColor(BuildContext context) {
++    return priceColor;
++  }
++
++  /// 获取文本颜色
++  static Color getTextColor(BuildContext context) {
++    final brightness = MediaQuery.of(context).platformBrightness;
++    return brightness == Brightness.light
++        ? Colors.grey[600]!
++        : Colors.grey[400]!;
++  }
++
++  /// 获取促销颜色
++  static Color getPromotionColor(BuildContext context) {
++    return promotionColor;
++  }
++
++  /// 亮色模式下的背景颜色
++  static const Color backgroundColor = Color(0xFFF1F3F5);
++
++  /// 亮色模式下的容器颜色
++  static const Color containerColor = Color(0xFFFFFFFF);
++
++  /// 价格颜色
++  static const Color priceColor = Color(0xFFCF0A2C);
++
++  /// 亮色模式下的文本颜色
++  static const Color textColor = Color(0xFF666666);
++
++  /// 促销颜色
++  static const Color promotionColor = Color(0xFFCF0A2C);
++
++  /// 断点管理器实例
++  static final BreakpointManager _breakpointManager = BreakpointManager();
++
++  /// 初始化断点系统
++  ///
++  /// 返回初始化后的断点数据
++  static Future<BreakpointData> initBreakpoints() async {
++    return await _breakpointManager.init();
++  }
++
++  /// 初始化断点系统（简化方法）
++  ///
++  /// 用于StatelessWidget等需要简化调用的场景
++  static Future<void> initialize() async {
++    await initBreakpoints();
++  }
++
++  /// 获取当前宽度断点
++  static WidthBreakpoint getCurrentWidthBreakpoint() {
++    return _breakpointManager.getWindowWidthBreakpoint();
++  }
++
++  /// 获取当前高度断点
++  static HeightBreakpoint getCurrentHeightBreakpoint() {
++    return _breakpointManager.getWindowHeightBreakpoint();
++  }
++
++  /// 添加断点变化回调
++  ///
++  /// [callback] 断点变化时的回调函数
++  static void addBreakpointCallback(Function(BreakpointData) callback) {
++    _breakpointManager.addBreakpointCallback(callback);
++  }
++
++  /// 移除断点变化回调
++  ///
++  /// [callback] 要移除的回调函数，为null时移除所有回调
++  static void removeBreakpointCallback({Function(BreakpointData)? callback}) {
++    _breakpointManager.removeBreakpointCallback(callback: callback);
++  }
++
++  /// 销毁断点管理器
++  ///
++  /// 清理资源，避免内存泄漏
++  static void dispose() {
++    _breakpointManager.destroy();
++  }
++}
+diff --git a/lib/graphic_text_layout/utils/screen_utils.dart b/lib/graphic_text_layout/utils/screen_utils.dart
+new file mode 100644
+index 0000000..47e8202
+--- /dev/null
++++ b/lib/graphic_text_layout/utils/screen_utils.dart
+@@ -0,0 +1,82 @@
++import 'package:hadss_adaptive_layout/hadss_adaptive_layout.dart';
++
++/// 屏幕工具类
++///
++/// 提供断点判断、布局计算等屏幕相关工具方法
++class ScreenUtils {
++  /// 判断是否为小屏幕
++  static bool isSmallScreen(WidthBreakpoint widthBreakpoint) {
++    return widthBreakpoint == WidthBreakpoint.xs ||
++        widthBreakpoint == WidthBreakpoint.sm;
++  }
++
++  /// 判断是否为中等屏幕
++  static bool isMediumScreen(WidthBreakpoint widthBreakpoint) {
++    return widthBreakpoint == WidthBreakpoint.md;
++  }
++
++  /// 判断是否为大屏幕
++  static bool isLargeScreen(WidthBreakpoint widthBreakpoint) {
++    return widthBreakpoint == WidthBreakpoint.lg;
++  }
++
++  /// 判断是否为超大屏幕
++  static bool isExtraLargeScreen(WidthBreakpoint widthBreakpoint) {
++    return widthBreakpoint == WidthBreakpoint.xl;
++  }
++
++  /// 判断是否使用水平布局
++  static bool isHorizontalLayout(WidthBreakpoint widthBreakpoint) {
++    return widthBreakpoint == WidthBreakpoint.md ||
++        widthBreakpoint == WidthBreakpoint.lg ||
++        widthBreakpoint == WidthBreakpoint.xl;
++  }
++
++  /// 判断是否为小高度
++  static bool isSmallHeight(HeightBreakpoint heightBreakpoint) {
++    return heightBreakpoint == HeightBreakpoint.sm;
++  }
++
++  /// 基于断点获取图片宽度比例
++  static double getImageWidthRatio(WidthBreakpoint widthBreakpoint) {
++    switch (widthBreakpoint) {
++      case WidthBreakpoint.xl:
++        return 0.5; // xl: 6/12
++      case WidthBreakpoint.lg:
++        return 0.5; // lg: 5/10
++      case WidthBreakpoint.md:
++        return 0.6; // md: 6/10
++      case WidthBreakpoint.sm:
++      case WidthBreakpoint.xs:
++      default:
++        return 1.0; // xs, sm: 4/4
++    }
++  }
++
++  /// 基于断点获取图片宽度
++  static double getImageWidth(WidthBreakpoint widthBreakpoint,
++      HeightBreakpoint heightBreakpoint, double screenWidth) {
++    final isSmall = isSmallScreen(widthBreakpoint);
++
++    if (isSmall) {
++      return double.infinity; // 竖屏小屏时，图片宽度满屏
++    } else {
++      return 0.9 * screenWidth; // 横屏时，图片宽度90%
++    }
++  }
++
++  /// 基于断点获取图片高度
++  static double getImageHeight(WidthBreakpoint widthBreakpoint,
++      HeightBreakpoint heightBreakpoint, double screenHeight) {
++    final isSmall = isSmallScreen(widthBreakpoint);
++
++    if (isSmall) {
++      // 竖版屏时，图片高度占60%，文字占40%
++      // 使用最小高度限制，确保分屏模式下也能正常显示
++      final imageHeight = screenHeight * 0.6; // 60%
++      return imageHeight.clamp(150.0, 400.0); // 限制最小150，最大400
++    } else {
++      return 0.7 * screenHeight; // 70%
++    }
++  }
++}
+diff --git a/lib/graphic_text_layout/widgets/graphic_text_view.dart b/lib/graphic_text_layout/widgets/graphic_text_view.dart
+index d74c84c..44c1ccb 100644
+--- a/lib/graphic_text_layout/widgets/graphic_text_view.dart
++++ b/lib/graphic_text_layout/widgets/graphic_text_view.dart
+@@ -1,5 +1,8 @@
+ import 'package:flutter/material.dart';
++import 'package:hadss_adaptive_layout/hadss_adaptive_layout.dart';
+ import 'package:graphic_text_layout_ohos/AppThemes.dart';
++import 'package:graphic_text_layout_ohos/graphic_text_layout/utils/breakpoint_constants.dart';
++import 'package:graphic_text_layout_ohos/graphic_text_layout/utils/screen_utils.dart';
+ import 'package:graphic_text_layout_ohos/graphic_text_layout/widgets/image_container.dart';
+ import 'package:graphic_text_layout_ohos/graphic_text_layout/widgets/text_container.dart';
+ 
+@@ -11,35 +14,124 @@ class GraphicTextView extends StatefulWidget {
+ }
+ 
+ class _GraphicTextViewState extends State<GraphicTextView> {
++  late WidthBreakpoint _currentWidthBreakpoint;
++  late HeightBreakpoint _currentHeightBreakpoint;
++  bool _isInitialized = false;
++
+   final ScrollController _verticalScrollController = ScrollController();
+ 
++  @override
++  void initState() {
++    super.initState();
++  }
++
++  @override
++  void didChangeDependencies() {
++    super.didChangeDependencies();
++    _initializeBreakpoints();
++  }
++
+   @override
+   void dispose() {
+     _verticalScrollController.dispose();
++    BreakpointConstants.dispose();
+     super.dispose();
+   }
+ 
++  Future<void> _initializeBreakpoints() async {
++    if (_isInitialized) return;
++
++    try {
++      await BreakpointConstants.initialize();
++
++      if (mounted) {
++        setState(() {
++          _currentWidthBreakpoint = BreakpointConstants.getCurrentWidthBreakpoint();
++          _currentHeightBreakpoint = BreakpointConstants.getCurrentHeightBreakpoint();
++          _isInitialized = true;
++        });
++
++        BreakpointConstants.addBreakpointCallback((breakpointData) {
++          if (mounted) {
++            setState(() {
++              _currentWidthBreakpoint = breakpointData.widthBreakpoint;
++              _currentHeightBreakpoint = breakpointData.heightBreakpoint;
++            });
++          }
++        });
++      }
++    } catch (e) {
++      debugPrint('Error initializing breakpoints: $e');
++    }
++  }
++
+   @override
+   Widget build(BuildContext context) {
++    if (!_isInitialized) {
++      return const Center(child: CircularProgressIndicator());
++    }
++
+     final brightness = MediaQuery.of(context).platformBrightness;
+     final backgroundColor = brightness == Brightness.light
+         ? AppThemes.lightTheme.scaffoldBackgroundColor
+         : AppThemes.darkTheme.scaffoldBackgroundColor;
++    final screenWidth = MediaQuery.of(context).size.width;
++    final screenHeight = MediaQuery.of(context).size.height;
++    final isHorizontalLayout =
++        ScreenUtils.isHorizontalLayout(_currentWidthBreakpoint);
+ 
+     return Container(
+       color: backgroundColor,
+-      child: _buildVerticalLayout(),
++      child: isHorizontalLayout
++          ? _buildHorizontalLayout(screenWidth, screenHeight)
++          : _buildVerticalLayout(screenWidth, screenHeight),
+     );
+   }
+ 
+-  Widget _buildVerticalLayout() {
++  Widget _buildHorizontalLayout(double screenWidth, double screenHeight) {
++    final imageWidthRatio =
++        ScreenUtils.getImageWidthRatio(_currentWidthBreakpoint);
++    final imageFlex = (imageWidthRatio * 10).toInt();
++    final textFlex = 10 - imageFlex;
++
++    return Row(
++      children: [
++        Expanded(
++          flex: imageFlex,
++          child: Container(
++            padding: const EdgeInsets.only(left: 16, right: 8),
++            child: ImageContainer(
++              width: ScreenUtils.getImageWidth(_currentWidthBreakpoint,
++                  _currentHeightBreakpoint, screenWidth),
++              height: ScreenUtils.getImageHeight(_currentWidthBreakpoint,
++                  _currentHeightBreakpoint, screenHeight),
++            ),
++          ),
++        ),
++        Expanded(
++          flex: textFlex,
++          child: Container(
++            padding: const EdgeInsets.only(left: 8, right: 16),
++            child: const TextContainer(
++              enableScroll: true,
++              key: PageStorageKey('horizontal_scroll'),
++            ),
++          ),
++        ),
++      ],
++    );
++  }
++
++  Widget _buildVerticalLayout(double screenWidth, double screenHeight) {
+     return LayoutBuilder(
+       builder: (context, constraints) {
++        // 使用实际可用的布局高度，而不是屏幕高度
+         final availableHeight = constraints.maxHeight;
++        // 计算图片区域的高度（60%比例）
+         final imageHeight = availableHeight * 0.6;
+ 
+         return Container(
+-          height: availableHeight,
++          height: availableHeight, // 设置固定高度
+           child: SingleChildScrollView(
+             controller: _verticalScrollController,
+             physics: const AlwaysScrollableScrollPhysics(),
+@@ -48,8 +140,13 @@ class _GraphicTextViewState extends State<GraphicTextView> {
+               children: [
+                 Container(
+                   height: imageHeight,
+-                  child: const ImageContainer(),
++                  child: ImageContainer(
++                    width: ScreenUtils.getImageWidth(_currentWidthBreakpoint,
++                        _currentHeightBreakpoint, screenWidth),
++                    height: imageHeight,
++                  ),
+                 ),
++                // 文字区域不设置固定高度，让内容自然滚动
+                 Container(
+                   padding: const EdgeInsets.only(left: 8, right: 8),
+                   child: const TextContainer(
+diff --git a/lib/graphic_text_layout/widgets/image_container.dart b/lib/graphic_text_layout/widgets/image_container.dart
+index 12ecb87..3a5f275 100644
+--- a/lib/graphic_text_layout/widgets/image_container.dart
++++ b/lib/graphic_text_layout/widgets/image_container.dart
+@@ -35,7 +35,7 @@ class ImageContainer extends StatelessWidget {
+     final imageWidth = width ?? screenWidth;
+     final imageHeight = height ?? screenHeight;
+ 
+-    // qa_ 语义标识内置于组件自身：无论外层代码如何调整/删改，
++    // qa_ 语义标识内置于组件自身：无论外层一多适配代码如何调整/删改，
+     // 标识始终随图片区存在（供鸿蒙 ohosTest UiTest 定位，发布版可按 qa_ 前缀移除）
+     return Semantics(
+       label: 'qa_image_container',
+diff --git a/pubspec.lock b/pubspec.lock
+index 8fa822b..b9e5046 100644
+--- a/pubspec.lock
++++ b/pubspec.lock
+@@ -67,6 +67,14 @@ packages:
+     description: flutter
+     source: sdk
+     version: "0.0.0"
++  hadss_adaptive_layout:
++    dependency: "direct main"
++    description:
++      name: hadss_adaptive_layout
++      sha256: "6b6ce023e7a80b6d39a2a5a87b495b1fe4b0a25cb644aede238896c15aa5b88b"
++      url: "https://pub.flutter-io.cn"
++    source: hosted
++    version: "1.0.0-rc.3"
+   leak_tracker:
+     dependency: transitive
+     description:
+@@ -131,6 +139,14 @@ packages:
+       url: "https://pub.flutter-io.cn"
+     source: hosted
+     version: "1.9.1"
++  plugin_platform_interface:
++    dependency: transitive
++    description:
++      name: plugin_platform_interface
++      sha256: "4820fbfdb9478b1ebae27888254d445073732dae3d6ea81f0b7e06d5dedc3f02"
++      url: "https://pub.flutter-io.cn"
++    source: hosted
++    version: "2.1.8"
+   sky_engine:
+     dependency: transitive
+     description: flutter
+diff --git a/pubspec.yaml b/pubspec.yaml
+index c3f8f88..8733f23 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -31,6 +31,8 @@ dependencies:
+   flutter:
+     sdk: flutter
+ 
++  # 一多适配断点系统：WidthBreakpoint xs=320/sm=600/md=840/lg=1440/xl
++  hadss_adaptive_layout: ^1.0.0-rc.2
+ 
+ dev_dependencies:
+   flutter_test:

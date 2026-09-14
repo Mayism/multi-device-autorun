@@ -1,0 +1,48 @@
+{
+  "case_id": "case-graphic-text-layout",
+  "mode": "derive_base",
+  "platform": "flutter",
+  "test_case_timeout_ms": 45000,
+  "source_base_commit": null,
+  "source_answer_commit": "e66efd8cc6aab56eade65f912d7e433917927826",
+  "removal_commits": [
+    "313913e822568fa550930a1920513073a467b964"
+  ],
+  "golden_commits": [],
+  "test_commits": [
+    "28c8a4318dd05204678c5bad639c8131dc763ecb"
+  ],
+  "generated_base_commit": "11f78359e0df3e551850a479c350d7959813be3a",
+  "generated_answer_commit": "e66efd8cc6aab56eade65f912d7e433917927826",
+  "generated_test_commit": "03d7fdeb77ec6c72ff4f12e384a5f99129abb78e",
+  "golden_patch": "golden_patch.patch",
+  "test_patch": "test_patch.patch",
+  "base_project": "base",
+  "fail_to_pass": [
+    "should_sixty_forty_columns_on_md_breakpoint",
+    "should_fifty_fifty_columns_on_lg_breakpoint"
+  ],
+  "pass_to_pass": [
+    "should_vertical_layout_on_sm_breakpoint"
+  ],
+  "device_test_suites": {
+    "phone": [
+      {
+        "suite": "SmPassToPassTest",
+        "file": "entry/src/ohosTest/ets/test/SmPassToPass.test.ets"
+      }
+    ],
+    "foldable": [
+      {
+        "suite": "MdFailToPassTest",
+        "file": "entry/src/ohosTest/ets/test/MdFailToPass.test.ets"
+      }
+    ],
+    "tablet": [
+      {
+        "suite": "LgFailToPassTest",
+        "file": "entry/src/ohosTest/ets/test/LgFailToPass.test.ets"
+      }
+    ]
+  }
+}
