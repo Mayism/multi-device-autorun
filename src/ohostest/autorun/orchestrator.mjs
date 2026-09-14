@@ -3,7 +3,6 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { withDeviceLease } from "./device-lease.mjs";
 
@@ -168,8 +167,17 @@ async function prepareGeneratedCase({ caseInfo, caseRunDir, patchPath }) {
 }
 
 function runnerOutputDir(caseDir, startedAt) {
-  const timestamp = startedAt.toISOString().replace(/[:.]/g, "-");
-  return path.join(caseDir, ".ohostest-runs", `${timestamp}-${randomUUID().slice(0, 8)}`);
+  // 与 autorun 批次 ID 同格式：本地时间 yyyymmddHHmmss
+  const pad = (value) => String(value).padStart(2, "0");
+  const timestamp = [
+    startedAt.getFullYear(),
+    pad(startedAt.getMonth() + 1),
+    pad(startedAt.getDate()),
+    pad(startedAt.getHours()),
+    pad(startedAt.getMinutes()),
+    pad(startedAt.getSeconds()),
+  ].join("");
+  return path.join(caseDir, ".ohostest-runs", timestamp);
 }
 
 async function readFinalRunnerResult(resultPath) {
