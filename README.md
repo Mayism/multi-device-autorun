@@ -12,7 +12,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会为�
 - 从每个用例的 `PROMPT.md` 读取任务提示词。
 - 通过可配置的 Worker Pool 并行执行多个用例。
 - 任意用例完成后立即领取下一个待执行用例，不等待同批其他用例结束。
-- 每个用例创建独立的 OpenCode session、`original/` 和工程目录；Agent 从开始到结束都在运行目录对应的 `base/` 或 `task/` 中工作。
+- 每个用例创建独立的 OpenCode session、`original/` 和工程目录；原生用例在运行目录对应的 `base/` 或 `task/` 中工作，`metadata.platform=web` 的用例在同时包含 `base/` 与 `web/` 的父级沙箱中工作。
 - 使用 `prompt_async` 下发任务，并参考 SkillTest 的机制监听 Agent：
   - SSE 实时事件监听；
   - HTTP 消息轮询兜底；
@@ -96,6 +96,7 @@ devecocli --version
 <casesRoot>/
 └── CaseHomeStay/
     ├── base/ 或 task/          # 原始工程，Autorun 不会直接修改
+    ├── web/                    # platform=web 时必需，与 base 一起提供给 Agent
     ├── PROMPT.md               # Agent 任务提示词
     ├── metadata.json           # ohosTest case 元数据
     ├── test_patch.patch        # 测试补丁
@@ -103,6 +104,8 @@ devecocli --version
 ```
 
 缺少 `base/`、`task/` 中任意一个工程目录或缺少 `PROMPT.md` 的用例不会进入 Agent 执行队列。工程目录名只支持 `base` 和 `task`；若两者同时存在则优先使用 `base`。启用 ohosTest 后，还必须存在合法的 `metadata.json` 及其引用的两个 patch，并且 `metadata.base_project` 必须与实际使用的工程目录名一致。`PROMPT.md` 应使用 UTF-8 编码且内容不能为空。
+
+`metadata.platform` 缺省为 `native`，此时保持单工程行为。值为 `web` 时，Case 还必须包含同级 `web/`；Autorun 会把 `base/` 和 `web/` 一起复制到 Agent 的隔离工作目录，Git 基线和 `changes.patch` 以两者的父目录为根，因此差异路径保持为 `base/...` 或 `web/...`。`metadata.json`、测试 patch 和 golden patch 仍只在 Agent 结束后提供给 ohosTest，不会暴露给 Agent。
 
 ## 配置
 
@@ -545,7 +548,7 @@ ohosTest 执行期间会先创建 `<caseName>/work/` 作为实际编译工程；
 
 Agent 成功生成 `changes.patch` 后会删除临时 `original/`；Agent 成功时还会删除 SSE、轮询日志。ohosTest 结束后会从最终 `base/` 或 `task/` 工程中清理 `.git`、`.hvigor`、`build` 和 `node_modules` 等可再生成目录，但始终保留 `all-messages.json` 以及 `work/` 或 `ohostest-workdir/`。`golden_patch.patch` 仅在 SWE 启动校验期间临时复制，Runner 结束后删除。
 
-`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径，并直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出和原始消息路径，Agent 异常时还会列出 SSE、轮询日志路径。`summary.json` 同时保存批次使用的 `agent`、`providerId`、`modelId`、全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
+`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径；Web 用例的 `projectDir` 指向同时包含 `base/` 与 `web/` 的父级工作目录，并额外用 `buildProjectDir` 指向可构建的鸿蒙 `base/`。结果还直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出和原始消息路径，Agent 异常时还会列出 SSE、轮询日志路径。`summary.json` 同时保存批次使用的 `agent`、`providerId`、`modelId`、全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
 
 执行期间单独跟踪某个用例：
 

@@ -1,0 +1,888 @@
+diff --git a/base/entry/src/ohosTest/ets/test/CreditCardFold.test.ets b/base/entry/src/ohosTest/ets/test/CreditCardFold.test.ets
+new file mode 100644
+index 0000000..57e54ad
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/test/CreditCardFold.test.ets
+@@ -0,0 +1,109 @@
++import { describe, expect, it } from '@ohos/hypium';
++import { Driver, Rect } from '@kit.TestKit';
++import { TestHelper } from '../utils/TestHelper';
++import { clickText, findButton, foldScreen, readLayout } from '../utils/CreditFoldHelper';
++import { PhysicalOrientation, PhysicalRotationHelper } from '../utils/PhysicalRotationHelper';
++
++const PAGE_WAIT_MS: number = 3000;
++
++function width(rect: Rect | undefined): number {
++  return rect ? rect.right - rect.left : 0;
++}
++
++function inside(rect: Rect | undefined, web: Rect): boolean {
++  // 保留左右边距，避免把“裁剪后变窄的矩形”当作适配后的完整按钮。
++  return rect !== undefined && width(rect) > 0 && rect.bottom > rect.top &&
++    rect.left >= web.left + 8 && rect.right <= web.right - 8 &&
++    rect.top >= web.top && rect.bottom <= web.bottom;
++}
++
++function sameSizeAndX(before: Rect | undefined, after: Rect | undefined): boolean {
++  // 页面采集时可能发生纵向滚动，因此比较宽、高和 X，不比较按钮的绝对 Y。
++  return before !== undefined && after !== undefined &&
++    Math.abs(width(before) - width(after)) <= 6 &&
++    Math.abs((before.bottom - before.top) - (after.bottom - after.top)) <= 6 &&
++    Math.abs(before.left - after.left) <= 6;
++}
++
++export default function creditCardFoldTest(): void {
++  describe('CreditCardFoldTest', () => {
++    it('credit_fold_round_trip', 0, async () => {
++      const driver: Driver = Driver.create();
++      if (!driver) {
++        throw new Error('Driver.create() 返回空值，请通过 ohosTest 运行本用例。');
++      }
++
++      // 1. 打开 APP。
++      await TestHelper.prepareAbility(driver);
++
++      // 2. 解除屏幕旋转锁定。
++      await driver.setDisplayRotationEnabled(true);
++
++      // 3. 展开折叠屏。
++      await foldScreen('open');
++      await driver.delayMs(PAGE_WAIT_MS);
++
++      // 4. 准备正向竖屏；旋转只用于初始化。
++      await PhysicalRotationHelper.getInstance().rotateTo(PhysicalOrientation.ROTATION_180, 15000);
++      await driver.delayMs(PAGE_WAIT_MS);
++
++      // 5. 点击登录。演示账号已预填；已有会话时跳过登录。
++      if (await findButton(driver, '安全登录')) {
++        await clickText(driver, '安全登录');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      // 上一次演示若停留在信用卡页，先回首页；后续开合过程中不再退出页面。
++      if (await findButton(driver, '返回')) {
++        await clickText(driver, '返回');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      if (!await findButton(driver, '信用卡')) {
++        throw new Error('尚未到达数字银行首页：未找到信用卡入口，请检查登录结果。');
++      }
++
++      // 6. 进入信用卡页，记录展开布局 A。
++      await clickText(driver, '信用卡');
++      await driver.delayMs(PAGE_WAIT_MS);
++      const initial = await readLayout(driver, 'A 初始展开');
++      expect(inside(initial.minimum, initial.web) && inside(initial.repay, initial.web))
++        .message(`初始展开时，两颗还款按钮应完整显示。布局=${JSON.stringify(initial)}`).assertTrue();
++
++      let foldChanged = false;
++      let foldFits = false;
++      let foldShrinks = false;
++      let foldedDetails = '';
++      try {
++        // 7. 折叠，记录布局 B。
++        await foldScreen('close');
++        await driver.delayMs(PAGE_WAIT_MS);
++        const folded = await readLayout(driver, 'B 折叠');
++        foldedDetails = `Web=${JSON.stringify(folded.web)}；` +
++          `最低还款=${folded.minimum ? JSON.stringify(folded.minimum) : '未采到'}；` +
++          `立即还款=${folded.repay ? JSON.stringify(folded.repay) : '未采到'}`;
++
++        // 8. 先记录检查结果，保证布局不通过时也能继续第 9 步。
++        foldChanged = width(folded.web) < width(initial.web) * 0.9;
++        foldFits = inside(folded.minimum, folded.web) && inside(folded.repay, folded.web);
++        foldShrinks = width(folded.minimum) > 0 && width(folded.repay) > 0 &&
++          width(folded.minimum) < width(initial.minimum) * 0.95 &&
++          width(folded.repay) < width(initial.repay) * 0.95;
++      } finally {
++        // 9. 再展开，随后与初始布局 A 比较。
++        await foldScreen('open');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      const restored = await readLayout(driver, 'A′ 再展开');
++      const recovered = sameSizeAndX(initial.web, restored.web) &&
++        inside(restored.minimum, restored.web) && inside(restored.repay, restored.web) &&
++        sameSizeAndX(initial.minimum, restored.minimum) && sameSizeAndX(initial.repay, restored.repay);
++
++      const checks = `视口变窄=${foldChanged}, 完整显示=${foldFits}, ` +
++        `按钮缩小=${foldShrinks}, 展开恢复=${recovered}`;
++      console.info(`[CREDIT_FOLD] ${checks}`);
++      expect(foldChanged).message(`折叠后 Web 宽度应缩小至少 10%。${checks}`).assertTrue();
++      expect(foldFits).message(`折叠后两颗还款按钮应完整显示，左右留出至少 8px。${foldedDetails}；${checks}`).assertTrue();
++      expect(foldShrinks).message(`折叠后两颗还款按钮的宽度应各缩小超过 5%。${checks}`).assertTrue();
++      expect(recovered).message(`再展开后布局应恢复。${checks}`).assertTrue();
++    });
++  });
++}
+diff --git a/base/entry/src/ohosTest/ets/test/List.test.ets b/base/entry/src/ohosTest/ets/test/List.test.ets
+new file mode 100644
+index 0000000..b63a86a
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/test/List.test.ets
+@@ -0,0 +1,9 @@
++import creditCardFoldTest from './CreditCardFold.test';
++import creditCardPhoneTest from './CreditCardPhone.test';
++import creditCardFoldableTest from './CreditCardFoldable.test';
++
++export default function testsuite() {
++  creditCardFoldTest();
++  creditCardPhoneTest();
++  creditCardFoldableTest();
++}
+diff --git a/base/entry/src/ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets b/base/entry/src/ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets
+new file mode 100644
+index 0000000..1024b94
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets
+@@ -0,0 +1,26 @@
++import { abilityDelegatorRegistry, TestRunner } from '@kit.TestKit';
++import { Hypium } from '@ohos/hypium';
++
++const CASE_TIMEOUT_MS: number = 330000;
++
++export default class OpenHarmonyTestRunner implements TestRunner {
++  onPrepare(): void {
++    console.info('[CREDIT_UITEST] 准备信用卡页面 UITest。');
++  }
++
++  async onRun(): Promise<void> {
++    const delegator = abilityDelegatorRegistry.getAbilityDelegator();
++    const args = abilityDelegatorRegistry.getArguments();
++    // UITest 导入时就尝试获取 AbilityDelegator 并启动 daemon。运行器顶层不能静态导入
++    // 依赖 Driver/ON 的测试模块，否则可能在 delegator 注册前把 UITest 初始化到错误的连接。
++    const suite = await import('../test/List.test');
++    // Hypium 1.0.25 的默认超时只有 5 秒，且 it() 不支持第四个 timeout 参数。
++    // 必须在 hypiumTest 读取参数之前设置；保留调用者指定的更长超时。
++    const supplied = Number(args.parameters['-s timeout'] ?? args.parameters['timeout'] ?? '0');
++    const timeout = Number.isFinite(supplied) ? Math.max(supplied, CASE_TIMEOUT_MS) : CASE_TIMEOUT_MS;
++    args.parameters['-s timeout'] = timeout.toString();
++    args.parameters['timeout'] = timeout.toString();
++    console.info(`[CREDIT_UITEST] 每条用例超时 ${timeout} ms。`);
++    Hypium.hypiumTest(delegator, args, suite.default);
++  }
++}
+diff --git a/base/entry/src/ohosTest/ets/utils/CreditFoldHelper.ets b/base/entry/src/ohosTest/ets/utils/CreditFoldHelper.ets
+new file mode 100644
+index 0000000..f61541d
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/utils/CreditFoldHelper.ets
+@@ -0,0 +1,110 @@
++import { Component, Driver, MatchPattern, ON, Rect } from '@kit.TestKit';
++import { BusinessError } from '@kit.BasicServicesKit';
++import http from '@ohos.net.http';
++
++const CONTROL_URL: string = 'http://127.0.0.1:8765';
++const MAX_SCROLLS: number = 6;
++
++export interface CreditLayout {
++  web: Rect;
++  minimum?: Rect;
++  repay?: Rect;
++}
++
++interface FoldResponse {
++  success: boolean;
++  message?: string;
++}
++
++export async function foldScreen(state: 'open' | 'close'): Promise<void> {
++  const client = http.createHttp();
++  try {
++    const response = await client.request(`${CONTROL_URL}/fold?state=${state}`, {
++      method: http.RequestMethod.GET, connectTimeout: 2000, readTimeout: 12000
++    });
++    const result = JSON.parse(response.result as string) as FoldResponse;
++    if (response.responseCode !== 200 || result.success !== true) {
++      throw new Error(`折叠命令 ${state} 失败：${result.message ?? response.responseCode}`);
++    }
++    console.info(`[CREDIT_FOLD] 屏幕命令：${state}`);
++  } finally {
++    client.destroy();
++  }
++}
++
++export async function findButton(driver: Driver, text: string): Promise<Component | undefined> {
++  // ArkWeb 会把图标字符并入按钮名称，例如“图标 + 信用卡”，不能只做文字全等匹配。
++  let found = await driver.findComponents(ON.text(text, MatchPattern.CONTAINS).clickable(true).within(ON.type('Web')));
++  if (!found || found.length === 0) {
++    found = await driver.findComponents(ON.description(text).clickable(true).within(ON.type('Web')));
++  }
++  if (found && found.length > 1) {
++    throw new Error(`“${text}”匹配了多个可点击节点。`);
++  }
++  return found && found.length === 1 ? found[0] : undefined;
++}
++
++async function webBounds(driver: Driver): Promise<Rect> {
++  const web = await driver.findComponent(ON.type('Web'));
++  if (!web) {
++    throw new Error('未找到 Web，请检查 APP 和页面地址。');
++  }
++  return await web.getBounds();
++}
++
++async function swipe(driver: Driver, web: Rect, towardTop: boolean): Promise<void> {
++  const x = Math.round(web.left + (web.right - web.left) * 0.45);
++  const high = Math.round(web.top + (web.bottom - web.top) * 0.22);
++  const low = Math.round(web.top + (web.bottom - web.top) * 0.82);
++  await driver.swipeBetween({ x: x, y: towardTop ? high : low, displayId: web.displayId },
++    { x: x, y: towardTop ? low : high, displayId: web.displayId }, 1600);
++  await driver.delayMs(300);
++}
++
++async function visibleButton(driver: Driver, text: string, web: Rect): Promise<Rect | undefined> {
++  const button = await findButton(driver, text);
++  if (!button) {
++    return undefined;
++  }
++  try {
++    const rect = await button.getBounds();
++    // 先找到纵向完整的样本。横向越界保留给主用例判断，不能横向滚动“找回”按钮。
++    return rect.top >= web.top + 8 && rect.bottom <= web.bottom - 8 && rect.bottom > rect.top ?
++      rect : undefined;
++  } catch (error) {
++    if ((error as BusinessError).code === 17000004) { // 节点不在当前可见区域。
++      return undefined;
++    }
++    throw error as Error;
++  }
++}
++
++export async function clickText(driver: Driver, text: string): Promise<void> {
++  const web = await webBounds(driver);
++  const rect = await visibleButton(driver, text, web);
++  if (!rect || rect.right <= rect.left || rect.left < web.left || rect.right > web.right) {
++    throw new Error(`当前可见页面中找不到“${text}”按钮，请检查页面和 UITest 节点。`);
++  }
++  await driver.clickAt({ x: Math.round((rect.left + rect.right) / 2),
++    y: Math.round((rect.top + rect.bottom) / 2), displayId: web.displayId });
++}
++
++export async function readLayout(driver: Driver, stage: string): Promise<CreditLayout> {
++  const web = await webBounds(driver);
++  for (let step = 0; step < MAX_SCROLLS; step++) {
++    await swipe(driver, web, true);
++  }
++  const layout: CreditLayout = { web: web };
++  for (let step = 0; step <= MAX_SCROLLS; step++) {
++    layout.minimum = await visibleButton(driver, '最低还款', web) ?? layout.minimum;
++    layout.repay = await visibleButton(driver, '立即还款', web) ?? layout.repay;
++    if (layout.minimum && layout.repay) {
++      break;
++    }
++    if (step < MAX_SCROLLS) {
++      await swipe(driver, web, false);
++    }
++  }
++  console.info(`[CREDIT_FOLD] ${stage}：${JSON.stringify(layout)}`);
++  return layout;
++}
+diff --git a/base/entry/src/ohosTest/ets/utils/Logger.ets b/base/entry/src/ohosTest/ets/utils/Logger.ets
+new file mode 100644
+index 0000000..1bb2457
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/utils/Logger.ets
+@@ -0,0 +1,26 @@
++
++
++export class Logger {
++
++  private static readonly TAG: string = '[OHOS_TEST_LOG]';
++
++  public static log(msg: string): void {
++    console.log(`${Logger.TAG} ${msg}`);
++  }
++
++  public static debug(msg: string): void {
++    console.debug(`${Logger.TAG} ${msg}`);
++  }
++
++  public static info(msg: string): void {
++    console.info(`${Logger.TAG} ${msg}`);
++  }
++
++  public static warn(msg: string): void {
++    console.warn(`${Logger.TAG} ${msg}`);
++  }
++
++  public static error(msg: string): void {
++    console.error(`${Logger.TAG} ${msg}`);
++  }
++}
+diff --git a/base/entry/src/ohosTest/ets/utils/NormalizedError.ets b/base/entry/src/ohosTest/ets/utils/NormalizedError.ets
+new file mode 100644
+index 0000000..20324c8
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/utils/NormalizedError.ets
+@@ -0,0 +1,56 @@
++import { Logger } from './Logger';
++
++export class NormalizedError extends Error {
++
++  public code?: number;
++
++  public data?: ESObject;
++
++  public static from(cause: ESObject): NormalizedError {
++    if (cause === null || cause === undefined) {
++      return new NormalizedError();
++    }
++    if (typeof cause === 'object') {
++      let msg: string | undefined = undefined;
++      let code: number | undefined = undefined;
++      let data: ESObject = cause.data;
++      if (typeof cause.message === 'string') {
++        msg = cause.message;
++      }
++      if (typeof cause.code === 'number') {
++        code = cause.code;
++      }
++      const err: NormalizedError = new NormalizedError(msg, code, data);
++      if (typeof cause.stack === 'string') {
++        err.stack = cause.stack;
++      }
++      if (typeof cause.name === 'string') {
++        err.name = cause.name;
++      }
++      return err;
++    }
++    return new NormalizedError(String(cause));
++  }
++
++  public static logAndThrow(cause: ESObject): never {
++    const err: NormalizedError = NormalizedError.from(cause);
++    Logger.error(err.toLogLine());
++    throw err;
++  }
++
++  public toLogLine(): string {
++    const name: string = this.name ?? NormalizedError.name;
++    if (this.code || this.code === 0) {
++      return `${name}: code=${this.code} msg=${this.message}`;
++    } else {
++      return `${name}: ${this.message}`;
++    }
++  }
++
++  constructor(message?: string, code?: number, data?: ESObject) {
++    super(message);
++    this.code = code;
++    this.data = data;
++    this.name = NormalizedError.name;
++  }
++}
+diff --git a/base/entry/src/ohosTest/ets/utils/PhysicalRotationHelper.ets b/base/entry/src/ohosTest/ets/utils/PhysicalRotationHelper.ets
+new file mode 100644
+index 0000000..f4af6d6
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/utils/PhysicalRotationHelper.ets
+@@ -0,0 +1,370 @@
++import http from '@ohos.net.http';
++import { sensor } from '@kit.SensorServiceKit';
++import { NormalizedError } from './NormalizedError';
++
++/**
++ * 设备相对于自身自然方向的物理旋转方向。
++ *
++ * 该值描述的是设备自身的物理姿态，与 Window / Display 最终是否旋转无关。
++ */
++export enum PhysicalOrientation {
++  UNKNOWN = -1,
++  /**
++   * 竖屏，自然方向。
++   *
++   * Pura 90 6.1.1(24) Emulator 实测：
++   * x ≈ 0
++   * y ≈ +9.8
++   */
++  ROTATION_0 = 0,
++  /**
++   * 横屏，从自然方向向右旋转一次。
++   *
++   * Pura 90 6.1.1(24) Emulator 实测：
++   * x ≈ -9.8
++   * y ≈ 0
++   */
++  ROTATION_90 = 90,
++  /**
++   * 反向竖屏，从自然方向旋转 180°。
++   *
++   * Pura 90 6.1.1(24) Emulator 实测：
++   * x ≈ 0
++   * y ≈ -9.8
++   */
++  ROTATION_180 = 180,
++  /**
++   * 反向横屏，从自然方向向左旋转一次。
++   *
++   * Pura 90 6.1.1(24) Emulator 实测：
++   * x ≈ +9.8
++   * y ≈ 0
++   */
++  ROTATION_270 = 270
++}
++
++type PhysicalRotationDirection = 'left' | 'right';
++
++interface FoldServerResponse {
++  success?: boolean;
++  message?: string;
++}
++
++const SENSOR_INTERVAL_NS: number = 50_000_000;
++const POLL_INTERVAL_MS: number = 20;
++const DEFAULT_TIMEOUT_MS: number = 3000;
++
++const MIN_PLANE_GRAVITY: number = 5.0;
++const MAX_CARDINAL_DEVIATION_DEG: number = 30;
++
++const FOLD_SERVER_HOST: string = '127.0.0.1';
++const FOLD_SERVER_PORT_START: number = 8765;
++const FOLD_SERVER_PORT_END: number = 8772;
++const PORT_CONNECT_TIMEOUT_MS: number = 500;
++const PORT_READ_TIMEOUT_MS: number = 1000;
++
++function delayExecutor(resolve: () => void): void {
++  setTimeout(resolve, POLL_INTERVAL_MS);
++}
++
++function delay(): Promise<void> {
++  return new Promise<void>(delayExecutor);
++}
++
++export class PhysicalRotationHelper {
++
++  private static instance: PhysicalRotationHelper | null = null;
++
++  private latestOrientation: PhysicalOrientation = PhysicalOrientation.UNKNOWN;
++
++  /**
++   * 已发现的 fold-server 端口。
++   * 首次调用时扫描 8765~8772，成功后复用。
++   */
++  private foldServerPort: number | null = null;
++
++  /**
++   * 防止多个 rotateTo() 同时向 Emulator 发旋转命令。
++   */
++  private rotating: boolean = false;
++
++  private constructor() {
++    try {
++      sensor.on(sensor.SensorId.GRAVITY, this.onGravity, { interval: SENSOR_INTERVAL_NS });
++    } catch (e) {
++      NormalizedError.logAndThrow(e);
++    }
++  }
++
++  public static getInstance(): PhysicalRotationHelper {
++    if (PhysicalRotationHelper.instance === null) {
++      PhysicalRotationHelper.instance = new PhysicalRotationHelper();
++    }
++    return PhysicalRotationHelper.instance;
++  }
++
++  /**
++   * 获取当前设备物理方向。
++   */
++  public async getPhysicalOrientation(timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<PhysicalOrientation> {
++    const deadline: number = Date.now() + timeoutMs;
++    while (Date.now() <= deadline) {
++      if (this.latestOrientation !== PhysicalOrientation.UNKNOWN) {
++        return this.latestOrientation;
++      }
++      await delay();
++    }
++    throw new Error(`Failed to determine physical orientation within ${timeoutMs}ms.`);
++  }
++
++  /**
++   * 将设备物理旋转至指定方向。
++   *
++   * 该方法只有在 GRAVITY 确认设备已经到达 target 后才返回。
++   * 如果在 timeout 内无法到达，则直接抛异常。
++   *
++   * 多个 rotateTo() 并发调用时会被串行处理。
++   */
++  public async rotateTo(
++    target: PhysicalOrientation,
++    timeoutMs: number = DEFAULT_TIMEOUT_MS
++  ): Promise<void> {
++    if (target === PhysicalOrientation.UNKNOWN) {
++      throw new Error('Cannot rotate to UNKNOWN.');
++    }
++    const deadline: number = Date.now() + timeoutMs;
++    await this.acquireRotationLock(deadline);
++    try {
++      await this.rotateToInternal(target, deadline);
++    } finally {
++      this.rotating = false;
++    }
++  }
++
++  /**
++   * 实际执行旋转。
++   */
++  private async rotateToInternal(target: PhysicalOrientation, deadline: number): Promise<void> {
++    let current: PhysicalOrientation = await this.waitForKnownOrientation(deadline);
++    if (current === target) {
++      return;
++    }
++    const delta: number = (target - current + 360) % 360;
++    switch (delta) {
++      case 90:
++        await this.rotateOneStep('right', target, deadline);
++        break;
++      case 180:
++        current = this.getRightOrientation(current);
++        await this.rotateOneStep('right', current, deadline);
++        await this.rotateOneStep('right', target, deadline);
++        break;
++      case 270:
++        await this.rotateOneStep('left', target, deadline);
++        break;
++      default:
++        throw new Error(`Invalid rotation delta: ${delta}`);
++    }
++    if (this.latestOrientation !== target) {
++      throw new Error('Physical orientation did not reach target.');
++    }
++  }
++
++  /**
++   * 执行单次 90° physical rotation。
++   *
++   * HTTP 返回成功不代表旋转完成，必须继续等待 GRAVITY 到达 expected。
++   */
++  private async rotateOneStep(
++    direction: PhysicalRotationDirection,
++    expected: PhysicalOrientation,
++    deadline: number
++  ): Promise<void> {
++    this.ensureNotTimeout(deadline);
++    await this.executePhysicalRotation(direction, deadline);
++    await this.waitForOrientation(expected, deadline);
++  }
++
++  /**
++   * 向 fold-server 发送物理旋转指令。
++   *
++   * 首次调用扫描 8765~8772，找到后缓存端口。
++   * HTTP 200 且响应 success=true 才认为指令发送成功。
++   */
++  private async executePhysicalRotation(direction: PhysicalRotationDirection, deadline: number): Promise<void> {
++    const cachedPort: number | null = this.foldServerPort;
++    if (cachedPort !== null) {
++      if (await this.tryExecutePhysicalRotation(cachedPort, direction, deadline)) {
++        return;
++      }
++      this.foldServerPort = null;
++    }
++    for (let port: number = FOLD_SERVER_PORT_START; port <= FOLD_SERVER_PORT_END; port++) {
++      if (port === cachedPort) {
++        continue;
++      }
++      this.ensureNotTimeout(deadline);
++      if (await this.tryExecutePhysicalRotation(port, direction, deadline)) {
++        this.foldServerPort = port;
++        return;
++      }
++    }
++    throw new Error(`Cannot find fold-server on ports ${FOLD_SERVER_PORT_START}-${FOLD_SERVER_PORT_END}.`);
++  }
++
++  /**
++   * 尝试在指定端口执行一次 rotation。
++   *
++   * 返回 false：该端口不是可用的 fold-server，调用方可继续探测其它端口。
++   * 已确认是 fold-server 但 command 执行失败：直接抛异常，不继续换端口。
++   */
++  private async tryExecutePhysicalRotation(port: number, direction: PhysicalRotationDirection, deadline: number): Promise<boolean> {
++    const remainingMs: number = deadline - Date.now();
++    if (remainingMs <= 0) {
++      throw new Error('Physical rotation timeout.');
++    }
++    const httpRequest: http.HttpRequest = http.createHttp();
++    const url: string = `http://${FOLD_SERVER_HOST}:${port}/rotation?direction=${direction}`;
++    let foldServerMatched: boolean = false;
++    try {
++      const response: http.HttpResponse = await httpRequest.request(url, {
++        method: http.RequestMethod.GET,
++        connectTimeout: Math.min(PORT_CONNECT_TIMEOUT_MS, remainingMs),
++        readTimeout: Math.min(PORT_READ_TIMEOUT_MS, remainingMs)
++      });
++      if (response.responseCode !== 200) {
++        return false;
++      }
++      let body: FoldServerResponse;
++      try {
++        body = JSON.parse(response.result as string) as FoldServerResponse;
++      } catch {
++        return false;
++      }
++      if (typeof body.success !== 'boolean') {
++        return false;
++      }
++      foldServerMatched = true;
++      if (!body.success) {
++        throw new Error(`Physical rotation command failed: ${body.message ?? 'unknown error'}`);
++      }
++      return true;
++    } catch (e) {
++      if (foldServerMatched) {
++        NormalizedError.logAndThrow(e);
++      }
++      return false;
++    } finally {
++      try {
++        httpRequest.destroy();
++      } catch {
++      }
++    }
++  }
++
++  /**
++   * 等待 GRAVITY 到达明确的目标物理方向。
++   */
++  private async waitForOrientation(target: PhysicalOrientation, deadline: number): Promise<void> {
++    while (Date.now() <= deadline) {
++      if (this.latestOrientation === target) {
++        return;
++      }
++      await delay();
++    }
++    throw new Error(`Physical rotation timeout. target=${target}, actual=${this.latestOrientation}`);
++  }
++
++  private async waitForKnownOrientation(deadline: number): Promise<PhysicalOrientation> {
++    while (Date.now() <= deadline) {
++      if (this.latestOrientation !== PhysicalOrientation.UNKNOWN) {
++        return this.latestOrientation;
++      }
++      await delay();
++    }
++    throw new Error('Failed to determine current physical orientation.');
++  }
++
++  /**
++   * rotateTo() 串行化。
++   */
++  private async acquireRotationLock(deadline: number): Promise<void> {
++    while (this.rotating) {
++      this.ensureNotTimeout(deadline);
++      await delay();
++    }
++    this.rotating = true;
++  }
++
++  private ensureNotTimeout(deadline: number): void {
++    if (Date.now() > deadline) {
++      throw new Error('Physical rotation timeout.');
++    }
++  }
++
++  private getRightOrientation(current: PhysicalOrientation): PhysicalOrientation {
++    switch (current) {
++      case PhysicalOrientation.ROTATION_0:
++        return PhysicalOrientation.ROTATION_90;
++      case PhysicalOrientation.ROTATION_90:
++        return PhysicalOrientation.ROTATION_180;
++      case PhysicalOrientation.ROTATION_180:
++        return PhysicalOrientation.ROTATION_270;
++      case PhysicalOrientation.ROTATION_270:
++        return PhysicalOrientation.ROTATION_0;
++      default:
++        throw new Error('Current orientation is UNKNOWN.');
++    }
++  }
++
++  /**
++   * 实测坐标：
++   *
++   *          y+
++   *          0°
++   *           ↑
++   *           |
++   * x+ 270° <-+-> 90° x-
++   *           |
++   *           ↓
++   *          180°
++   *          y-
++   *
++   * 因此：angle = atan2(-x, y)
++   */
++  private classifyGravity(data: sensor.GravityResponse): PhysicalOrientation {
++    const planeGravity: number = Math.sqrt(data.x * data.x + data.y * data.y);
++    if (planeGravity < MIN_PLANE_GRAVITY) {
++      return PhysicalOrientation.UNKNOWN;
++    }
++    let angle: number = Math.atan2(-data.x, data.y) * 180 / Math.PI;
++    if (angle < 0) {
++      angle += 360;
++    }
++    const nearestIndex: number = Math.round(angle / 90) % 4;
++    const nearestAngle: number = nearestIndex * 90;
++    let deviation: number = Math.abs(angle - nearestAngle);
++    if (deviation > 180) {
++      deviation = 360 - deviation;
++    }
++    if (deviation > MAX_CARDINAL_DEVIATION_DEG) {
++      return PhysicalOrientation.UNKNOWN;
++    }
++    switch (nearestIndex) {
++      case 0:
++        return PhysicalOrientation.ROTATION_0;
++      case 1:
++        return PhysicalOrientation.ROTATION_90;
++      case 2:
++        return PhysicalOrientation.ROTATION_180;
++      case 3:
++        return PhysicalOrientation.ROTATION_270;
++      default:
++        return PhysicalOrientation.UNKNOWN;
++    }
++  }
++
++  private onGravity = (data: sensor.GravityResponse): void => {
++    this.latestOrientation = this.classifyGravity(data);
++  };
++}
+diff --git a/base/entry/src/ohosTest/ets/utils/TestHelper.ets b/base/entry/src/ohosTest/ets/utils/TestHelper.ets
+new file mode 100644
+index 0000000..1a3c917
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/utils/TestHelper.ets
+@@ -0,0 +1,16 @@
++import { abilityDelegatorRegistry, Driver } from '@kit.TestKit';
++import { Want } from '@kit.AbilityKit';
++
++export class TestHelper {
++
++  static async prepareAbility(driver: Driver) {
++    const bundleName = abilityDelegatorRegistry.getArguments().bundleName;
++    const want: Want = {
++      bundleName: bundleName,
++      abilityName: 'EntryAbility'
++    };
++    const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
++    await delegator.startAbility(want);
++    await driver.waitForIdle(4000, 5000);
++  }
++}
+diff --git a/base/entry/src/ohosTest/module.json5 b/base/entry/src/ohosTest/module.json5
+new file mode 100644
+index 0000000..f7194f1
+--- /dev/null
++++ b/base/entry/src/ohosTest/module.json5
+@@ -0,0 +1,17 @@
++{
++  "module": {
++    "name": "default_test",
++    "type": "feature",
++    "deviceTypes": [
++      "phone",
++      "tablet"
++    ],
++    "deliveryWithInstall": true,
++    "installationFree": false,
++    "requestPermissions": [
++      {
++        "name": "ohos.permission.INTERNET"
++      }
++    ]
++  }
++}
+diff --git a/base/entry/src/ohosTest/ets/test/CreditCardPhone.test.ets b/base/entry/src/ohosTest/ets/test/CreditCardPhone.test.ets
+new file mode 100644
+index 0000000..1609502
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/test/CreditCardPhone.test.ets
+@@ -0,0 +1,36 @@
++import { describe, it } from '@ohos/hypium';
++import { Driver } from '@kit.TestKit';
++import { TestHelper } from '../utils/TestHelper';
++import { clickText, findButton } from '../utils/CreditFoldHelper';
++
++const PAGE_WAIT_MS: number = 3000;
++
++export default function creditCardPhoneTest(): void {
++  describe('CreditCardPhoneTest', () => {
++    it('credit_phone_open_page', 0, async () => {
++      const driver: Driver = Driver.create();
++      if (!driver) {
++        throw new Error('Driver.create() 返回空值，请通过 ohosTest 运行本用例。');
++      }
++
++      // 直板机只验证进入页面，不调用折叠或物理旋转服务。
++      await TestHelper.prepareAbility(driver);
++      await driver.delayMs(PAGE_WAIT_MS);
++      if (await findButton(driver, '安全登录')) {
++        await clickText(driver, '安全登录');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      if (await findButton(driver, '返回')) {
++        await clickText(driver, '返回');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      if (!await findButton(driver, '信用卡')) {
++        throw new Error('尚未到达数字银行首页：未找到信用卡入口，请检查登录结果。');
++      }
++
++      await clickText(driver, '信用卡');
++      await driver.delayMs(PAGE_WAIT_MS);
++      console.info('[CREDIT_PHONE] 已点击信用卡入口，页面等待结束。');
++    });
++  });
++}
+diff --git a/base/entry/src/ohosTest/ets/test/CreditCardFoldable.test.ets b/base/entry/src/ohosTest/ets/test/CreditCardFoldable.test.ets
+new file mode 100644
+index 0000000..b951df9
+--- /dev/null
++++ b/base/entry/src/ohosTest/ets/test/CreditCardFoldable.test.ets
+@@ -0,0 +1,47 @@
++import { describe, it } from '@ohos/hypium';
++import { Driver } from '@kit.TestKit';
++import { TestHelper } from '../utils/TestHelper';
++import { clickText, findButton, foldScreen } from '../utils/CreditFoldHelper';
++
++const PAGE_WAIT_MS: number = 3000;
++const FOLD_OBSERVE_MS: number = 5000;
++
++export default function creditCardFoldableTest(): void {
++  describe('CreditCardFoldableTest', () => {
++    it('credit_foldable_smoke', 0, async () => {
++      const driver: Driver = Driver.create();
++      if (!driver) {
++        throw new Error('Driver.create() 返回空值，请通过 ohosTest 运行本用例。');
++      }
++
++      await TestHelper.prepareAbility(driver);
++      await foldScreen('open');
++      await driver.delayMs(PAGE_WAIT_MS);
++      if (await findButton(driver, '安全登录')) {
++        await clickText(driver, '安全登录');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      if (await findButton(driver, '返回')) {
++        await clickText(driver, '返回');
++        await driver.delayMs(PAGE_WAIT_MS);
++      }
++      if (!await findButton(driver, '信用卡')) {
++        throw new Error('尚未到达数字银行首页：未找到信用卡入口，请检查登录结果。');
++      }
++
++      await clickText(driver, '信用卡');
++      await driver.delayMs(PAGE_WAIT_MS);
++      console.info('[CREDIT_FOLDABLE] 已点击信用卡入口，开始折叠服务检查。');
++      try {
++        // 保留观察时间，不采集布局、不添加折叠效果断言。
++        await foldScreen('close');
++        console.info('[CREDIT_FOLDABLE] 折叠命令成功，等待人工观察。');
++        await driver.delayMs(FOLD_OBSERVE_MS);
++      } finally {
++        await foldScreen('open');
++        console.info('[CREDIT_FOLDABLE] 展开命令成功，等待人工观察。');
++        await driver.delayMs(FOLD_OBSERVE_MS);
++      }
++    });
++  });
++}

@@ -1,0 +1,45 @@
+:root {
+  color-scheme: light;
+  --bank-navy-950: #06142f;
+  --bank-navy-900: #071a3d;
+  --bank-navy-800: #0c2857;
+  --bank-blue-700: #0758df;
+  --bank-blue-600: #0e6bf6;
+  --bank-blue-500: #2b82ff;
+  --bank-cyan-500: #09b9c8;
+  --bank-violet-500: #7258e8;
+  --bank-green-600: #07966b;
+  --bank-red-600: #dc4a5d;
+  --bank-amber-600: #b97808;
+  --bank-ink-900: #10203c;
+  --bank-ink-700: #3d4d68;
+  --bank-ink-500: #6d7a91;
+  --bank-ink-300: #aab4c4;
+  --bank-line: #e7ebf2;
+  --bank-canvas: #f3f6fb;
+  --bank-surface: #ffffff;
+  --bank-surface-soft: #f8faff;
+  --bank-shadow: 0 14px 38px rgb(28 50 88 / 9%);
+  --bank-shadow-soft: 0 8px 24px rgb(28 50 88 / 7%);
+  --bank-radius-xl: 24px;
+  --bank-radius-lg: 18px;
+  --bank-radius-md: 14px;
+  --bank-content-width: 1080px;
+  --bank-page-gutter: clamp(16px, 3.5vw, 32px);
+
+  --van-primary-color: var(--bank-blue-600);
+  --van-success-color: var(--bank-green-600);
+  --van-danger-color: var(--bank-red-600);
+  --van-warning-color: var(--bank-amber-600);
+  --van-text-color: var(--bank-ink-900);
+  --van-text-color-2: var(--bank-ink-700);
+  --van-text-color-3: var(--bank-ink-500);
+  --van-border-color: var(--bank-line);
+  --van-background: var(--bank-canvas);
+  --van-background-2: var(--bank-surface);
+  --van-radius-lg: var(--bank-radius-lg);
+  --van-button-primary-background: linear-gradient(135deg, var(--bank-blue-600), #1552d8);
+  --van-button-primary-border-color: transparent;
+  --van-field-input-text-color: var(--bank-ink-900);
+  --van-tabbar-height: 62px;
+}

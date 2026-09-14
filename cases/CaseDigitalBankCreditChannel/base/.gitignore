@@ -1,0 +1,36 @@
+# =========================
+# Dependency directories
+# =========================
+node_modules/
+oh_modules/
+oh-package-lock.json5
+
+
+# =========================
+# HarmonyOS / DevEco build outputs
+# =========================
+build/
+.hvigor/
+.cxx/
+.appanalyzer/
+BuildProfile.ets
+
+# =========================
+# Local project configuration
+# =========================
+local.properties
+
+
+# =========================
+# IDE / editor files
+# =========================
+.idea/
+.clangd
+.clang-format
+.clang-tidy
+
+
+# =========================
+# Test / temporary directories
+# =========================
+.test/

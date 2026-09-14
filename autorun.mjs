@@ -12,6 +12,13 @@ import { runMonitoredSession, isQuotaExceededMessage } from "./src/agent/session
 import { copyProject } from "./src/runtime/sandbox-copy.mjs";
 import { ConsoleReporter } from "./src/runtime/console-reporter.mjs";
 import {
+  agentCaseLayout,
+  copyCaseSourceSnapshot,
+  materializeAgentCaseProjects,
+  normalizeCasePlatform,
+  prepareAgentCaseWorkspace,
+} from "./src/runtime/agent-case-workspace.mjs";
+import {
   registerOwnedProcessTree,
   signalOwnedProcessTree,
 } from "./src/runtime/owned-process-tree.mjs";
@@ -1198,33 +1205,48 @@ async function discoverCases(casesRoot, { requireOhosTest = false } = {}) {
     } catch {
       issues.push("缺少 PROMPT.md");
     }
-    if (requireOhosTest) {
-      const metadataPath = path.join(caseRoot, "metadata.json");
-      let metadata;
-      try {
-        metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
-      } catch {
+    const metadataPath = path.join(caseRoot, "metadata.json");
+    let metadata;
+    try {
+      metadata = JSON.parse(await fs.readFile(metadataPath, "utf8"));
+    } catch {
+      if (requireOhosTest) {
         issues.push("缺少或无法解析 metadata.json");
       }
-      if (metadata) {
-        for (const field of ["base_project", "test_patch", "golden_patch"]) {
-          if (!metadata[field]) issues.push(`metadata.json 缺少 ${field}`);
+    }
+    const platform = normalizeCasePlatform(metadata);
+    let webProjectDir = "";
+    if (platform === "web") {
+      webProjectDir = path.join(caseRoot, "web");
+      const webProject = await fs.stat(webProjectDir).catch(() => null);
+      if (!webProject?.isDirectory()) issues.push("metadata.platform=web 时缺少 web/ 工程目录");
+    }
+    if (requireOhosTest && metadata) {
+      for (const field of ["base_project", "test_patch", "golden_patch"]) {
+        if (!metadata[field]) issues.push(`metadata.json 缺少 ${field}`);
+      }
+      for (const field of ["test_patch", "golden_patch"]) {
+        const relative = String(metadata[field] || "").trim();
+        if (relative && !await exists(path.join(caseRoot, relative))) {
+          issues.push(`缺少 ${relative}`);
         }
-        for (const field of ["test_patch", "golden_patch"]) {
-          const relative = String(metadata[field] || "").trim();
-          if (relative && !await exists(path.join(caseRoot, relative))) {
-            issues.push(`缺少 ${relative}`);
-          }
-        }
-        if (projectDir && metadata.base_project) {
-          const configuredProject = path.resolve(caseRoot, String(metadata.base_project));
-          if (configuredProject !== path.resolve(projectDir)) {
-            issues.push(`metadata.base_project 必须指向实际工程 ${projectName}`);
-          }
+      }
+      if (projectDir && metadata.base_project) {
+        const configuredProject = path.resolve(caseRoot, String(metadata.base_project));
+        if (configuredProject !== path.resolve(projectDir)) {
+          issues.push(`metadata.base_project 必须指向实际工程 ${projectName}`);
         }
       }
     }
-    const item = { name: entry.name, caseRoot, projectName, projectDir, promptPath };
+    const item = {
+      name: entry.name,
+      caseRoot,
+      projectName,
+      projectDir,
+      promptPath,
+      platform,
+      webProjectDir,
+    };
     if (issues.length) skipped.push({ ...item, skipReason: issues.join("；") });
     else runnable.push(item);
   }
@@ -1456,9 +1478,8 @@ async function runCase({
 }) {
   const caseName = caseInfo.name;
   const caseRunDir = path.join(batchRoot, safeName(caseName));
-  const originalDir = path.join(caseRunDir, "original");
-  // 保留源用例的工程目录名（base 或 task），使输出工程与 metadata.base_project 一致。
-  const projectDir = path.join(caseRunDir, caseInfo.projectName);
+  const caseLayout = agentCaseLayout(caseInfo, caseRunDir);
+  const { originalDir, projectDir, buildProjectDir } = caseLayout;
   const generateDir = path.join(caseRunDir, "generate");
   const patchPath = path.join(caseRunDir, "diff", "changes.patch");
   const resultPath = path.join(caseRunDir, "result.json");
@@ -1484,7 +1505,9 @@ async function runCase({
     startedAt: startedAt.toISOString(),
     runDir: caseRunDir,
     projectName: caseInfo.projectName,
+    platform: caseInfo.platform,
     projectDir,
+    buildProjectDir,
   });
   await writeAgentConsole("start", `开始执行；project=${projectDir}`);
 
@@ -1498,8 +1521,7 @@ async function runCase({
     throwIfInterrupted(signal);
     const sourcePrompt = await fs.readFile(caseInfo.promptPath, "utf8");
     if (!sourcePrompt.trim()) throw new Error(`PROMPT.md 内容为空: ${caseInfo.promptPath}`);
-    await copyProject(caseInfo.projectDir, originalDir);
-    await copyProject(originalDir, projectDir);
+    await prepareAgentCaseWorkspace(caseInfo, caseLayout);
     const installedSkill = await installProjectSkill({ runtime: skillRuntime, projectDir, signal });
     await atomicWriteJson(path.join(generateDir, "skill-runtime.json"), {
       ...summarizeAgentSkillRuntime(skillRuntime),
@@ -1520,7 +1542,9 @@ async function runCase({
     await atomicWriteJson(path.join(caseRunDir, "session.json"), {
       sessionId,
       projectName: caseInfo.projectName,
+      platform: caseInfo.platform,
       projectDir,
+      buildProjectDir,
       agent: execution.agent,
       providerId: model.providerId,
       modelId: model.modelId,
@@ -1611,6 +1635,7 @@ async function runCase({
       pruneProject: !ohosTestEnabled,
       keepOriginal: preserveForWhitebox,
     });
+    await materializeAgentCaseProjects(caseInfo, caseLayout, caseRunDir);
 
     const agentFinishedAt = new Date();
     const agentElapsedSec = Math.round((agentFinishedAt.getTime() - startedAt.getTime()) / 1000);
@@ -1635,7 +1660,9 @@ async function runCase({
       agentCompileAttempts: agentLogs.agentCompileAttempts,
       ...(skillWorkflow ? { skillWorkflow } : {}),
       projectName: caseInfo.projectName,
+      platform: caseInfo.platform,
       projectDir,
+      buildProjectDir,
       patchPath,
       resultPath,
       outputPath: path.join(generateDir, "output.txt"),
@@ -1688,6 +1715,7 @@ async function runCase({
       keepOriginal: preserveForWhitebox,
       pruneTransientArtifacts: true,
     });
+    await materializeAgentCaseProjects(caseInfo, caseLayout, caseRunDir).catch(() => {});
     if (error.lastMessage) {
       await atomicWriteJson(path.join(generateDir, "last-message.json"), error.lastMessage).catch(() => {});
     }
@@ -1723,7 +1751,9 @@ async function runCase({
       agentCompile,
       agentCompileAttempts: agentLogs?.agentCompileAttempts || [],
       projectName: caseInfo.projectName,
+      platform: caseInfo.platform,
       projectDir,
+      buildProjectDir,
       resultPath,
       patchPath: await exists(patchPath) ? patchPath : "",
       logs: {
@@ -1747,7 +1777,13 @@ async function runCase({
 async function canReuseSuccessfulAgent(previousResult, caseInfo) {
   if (!previousResult || previousResult.agentStatus !== "completed") return false;
   const previousProjectName = String(previousResult.projectName || path.basename(previousResult.projectDir || "")).trim();
+  const reusableWebWorkspace = caseInfo.platform !== "web"
+    || await Promise.all([
+      exists(path.join(previousResult.projectDir || "", caseInfo.projectName)),
+      exists(path.join(previousResult.projectDir || "", "web")),
+    ]).then((checks) => checks.every(Boolean));
   return previousProjectName === caseInfo.projectName
+    && reusableWebWorkspace
     && Boolean(previousResult.projectDir)
     && Boolean(previousResult.patchPath)
     && await exists(previousResult.projectDir)
@@ -1763,8 +1799,8 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
   }
 
   const caseRunDir = path.join(batchRoot, safeName(caseInfo.name));
-  const projectDir = path.join(caseRunDir, caseInfo.projectName);
-  const originalDir = path.join(caseRunDir, "original");
+  const caseLayout = agentCaseLayout(caseInfo, caseRunDir);
+  const { originalDir, projectDir, buildProjectDir } = caseLayout;
   const generateDir = path.join(caseRunDir, "generate");
   const diffDir = path.join(caseRunDir, "diff");
   const patchPath = path.join(diffDir, "changes.patch");
@@ -1774,9 +1810,10 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
 
   await fs.mkdir(generateDir, { recursive: true });
   await fs.mkdir(diffDir, { recursive: true });
-  if (preserveForWhitebox) await copyProject(caseInfo.projectDir, originalDir);
+  if (preserveForWhitebox) await copyCaseSourceSnapshot(caseInfo, originalDir);
   await copyProject(previousResult.projectDir, projectDir);
   await pruneGeneratedArtifacts(projectDir);
+  await materializeAgentCaseProjects(caseInfo, caseLayout, caseRunDir);
   const previousPatch = await fs.readFile(previousResult.patchPath, "utf8");
   await fs.writeFile(patchPath, filterGeneratedArtifactPatch(previousPatch), "utf8");
 
@@ -1790,7 +1827,9 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     startedAt,
     agentFinishedAt: startedAt,
     projectName: caseInfo.projectName,
+    platform: caseInfo.platform,
     projectDir,
+    buildProjectDir,
     runDir: caseRunDir,
     patchPath,
     resultPath,
@@ -1828,7 +1867,9 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     agentReused: true,
     runDir: caseRunDir,
     projectName: caseInfo.projectName,
+    platform: caseInfo.platform,
     projectDir,
+    buildProjectDir,
     patchPath,
     resultPath,
     retry: result.retry,
@@ -2227,7 +2268,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     const submitted = cloudSubmitTail.then(() => submitCloudTestForProject({
       config,
       settings: cloudTest.settings,
-      projectDir: agentResult.projectDir,
+      projectDir: agentResult.buildProjectDir || agentResult.projectDir,
       caseName,
       // 任务名默认为 工程名(用例名)_时间戳
       taskNameLabel: caseName,

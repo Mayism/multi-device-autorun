@@ -1,0 +1,47 @@
+{
+  "case_id": "digital-bank-credit-channel",
+  "mode": "from_base",
+  "platform": "web",
+  "source_base_commit": "4b9937196c6bc06bb848186eb81fb93da78175a6",
+  "source_answer_commit": null,
+  "removal_commits": [],
+  "golden_commits": [
+    "aecd873b614e4f950273475b73b6b367d58ed481"
+  ],
+  "test_commits": [
+    "15d77d85b76c05de0612859ec93a2bb8127a69f4"
+  ],
+  "generated_base_commit": "4b9937196c6bc06bb848186eb81fb93da78175a6",
+  "generated_answer_commit": "f21be7b0352a66ff919892a7634935cda12c292a",
+  "generated_test_commit": "56de810c50b7d5c46dd0c83a87bdb66c087c9d37",
+  "golden_patch": "golden_patch.patch",
+  "test_patch": "test_patch.patch",
+  "base_project": "base",
+  "fail_to_pass": [
+    "credit_fold_round_trip"
+  ],
+  "pass_to_pass": [
+    "credit_phone_open_page",
+    "credit_foldable_smoke"
+  ],
+  "device_test_suites": {
+    "wide_fold": [
+      {
+        "suite": "CreditCardFoldTest",
+        "file": "entry/src/ohosTest/ets/test/CreditCardFold.test.ets"
+      }
+    ],
+    "phone": [
+      {
+        "suite": "CreditCardPhoneTest",
+        "file": "entry/src/ohosTest/ets/test/CreditCardPhone.test.ets"
+      }
+    ],
+    "foldable": [
+      {
+        "suite": "CreditCardFoldableTest",
+        "file": "entry/src/ohosTest/ets/test/CreditCardFoldable.test.ets"
+      }
+    ]
+  }
+}
