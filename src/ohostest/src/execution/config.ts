@@ -116,6 +116,7 @@ function readDevice(
     ...(device.hdcPort !== undefined
       ? { hdcPort: readHdcPort(device.hdcPort, index) }
       : {}),
+    bootMode: readBootMode(device.bootMode, index),
     startEmulator: device.startEmulator ?? false,
     foldControl: device.foldControl ?? false,
     ...(testClasses.length > 0 ? { testClasses } : {}),
@@ -312,4 +313,17 @@ function readHdcPort(value: number, index: number): number {
     throw new Error(`config.devices[${index}].hdcPort is invalid.`);
   }
   return value;
+}
+
+function readBootMode(
+  value: string | undefined,
+  index: number,
+): "coldboot" | "reset" | "snapshot" {
+  const bootMode = value?.trim().toLowerCase() || "coldboot";
+  if (!new Set(["coldboot", "reset", "snapshot"]).has(bootMode)) {
+    throw new Error(
+      `config.devices[${index}].bootMode must be coldboot, reset, or snapshot.`,
+    );
+  }
+  return bootMode as "coldboot" | "reset" | "snapshot";
 }

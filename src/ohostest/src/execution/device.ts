@@ -41,6 +41,8 @@ export function buildStartEmulatorCommand(
     shellQuote(device.profile, platform),
     "-instancePath",
     shellQuote(config.paths.emulatorDeployedDir, platform),
+    "-bootMode",
+    device.bootMode ?? "coldboot",
     ...(device.hdcPort !== undefined
       ? ["-hdcport", String(device.hdcPort)]
       : []),

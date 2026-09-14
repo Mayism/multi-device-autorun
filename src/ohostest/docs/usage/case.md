@@ -292,6 +292,7 @@ Autorun 会从 `config/autorun.config.json` 的 `ohosTest` 配置生成该文件
       "profile": "Mate 80 Pro",
       "target": "127.0.0.1:15001",
       "hdcPort": 15001,
+      "bootMode": "coldboot",
       "startEmulator": true
     },
     {
@@ -322,6 +323,7 @@ Autorun 会从 `config/autorun.config.json` 的 `ohosTest` 配置生成该文件
 | `devices[].profile` | 模拟器 profile 名称 |
 | `devices[].target` | hdc target，例如 `127.0.0.1:15002` |
 | `devices[].hdcPort` | 启动模拟器时使用的 hdc 端口 |
+| `devices[].bootMode` | 模拟器启动模式，默认 `coldboot`；可选 `reset` 或 `snapshot` |
 | `devices[].startEmulator` | 是否由运行器启动该模拟器 |
 | `devices[].foldControl` | 是否启用折叠屏/旋转控制 |
 

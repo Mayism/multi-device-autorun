@@ -420,8 +420,23 @@ test("buildStartEmulatorCommand quotes Windows profile and instance path with do
 
   assert.equal(
     command,
-    'start "" /min "D:\\Software\\Deveco Studio\\tools\\emulator\\Emulator.exe" -start "Mate 80 Pro" -instancePath "D:\\Software\\Deveco Studio\\emulator\\deployed" -hdcport 15001',
+    'start "" /min "D:\\Software\\Deveco Studio\\tools\\emulator\\Emulator.exe" -start "Mate 80 Pro" -instancePath "D:\\Software\\Deveco Studio\\emulator\\deployed" -bootMode coldboot -hdcport 15001',
   );
+});
+
+test("buildStartEmulatorCommand allows an explicit snapshot boot override", () => {
+  const device: DeviceConfig = {
+    id: "phone",
+    profile: "Mate 80 Pro",
+    target: "127.0.0.1:15001",
+    hdcPort: 15001,
+    bootMode: "snapshot",
+    startEmulator: true,
+  };
+
+  const command = buildStartEmulatorCommand(makeConfig(), device, "win32");
+
+  assert.match(command, / -bootMode snapshot -hdcport 15001$/);
 });
 
 test("buildStartEmulatorCommand keeps non-Windows commands unwrapped", () => {

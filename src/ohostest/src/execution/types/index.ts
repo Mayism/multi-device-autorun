@@ -68,6 +68,7 @@ export interface RawDeviceConfig {
   profile?: string;
   target?: string;
   hdcPort?: number;
+  bootMode?: string;
   startEmulator?: boolean;
   foldControl?: boolean;
   testSuites?: unknown;
@@ -133,6 +134,7 @@ export interface DeviceConfig {
   profile?: string;
   target: string;
   hdcPort?: number;
+  bootMode?: "coldboot" | "reset" | "snapshot";
   startEmulator: boolean;
   foldControl?: boolean;
   testClasses?: string[];

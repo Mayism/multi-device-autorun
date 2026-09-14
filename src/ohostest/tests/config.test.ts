@@ -115,7 +115,33 @@ test("loadMatrixConfig infers project information and reads machine devices", as
     ),
   );
   assert.equal(config.devices[0]?.hdcPort, 15001);
+  assert.equal(config.devices[0]?.bootMode, "coldboot");
   assert.equal(config.devices[0]?.startEmulator, false);
+});
+
+test("loadMatrixConfig accepts supported emulator boot modes", async (t) => {
+  const project = await makeTempProject(t);
+  const machineConfigPath = await writeMachineConfig(project);
+  const machineConfig = JSON.parse(await fs.readFile(machineConfigPath, "utf-8"));
+  machineConfig.devices[0].bootMode = "snapshot";
+  await fs.writeFile(machineConfigPath, JSON.stringify(machineConfig), "utf-8");
+
+  const config = await loadMatrixConfig({ project, machineConfigPath });
+
+  assert.equal(config.devices[0]?.bootMode, "snapshot");
+});
+
+test("loadMatrixConfig rejects an unsupported emulator boot mode", async (t) => {
+  const project = await makeTempProject(t);
+  const machineConfigPath = await writeMachineConfig(project);
+  const machineConfig = JSON.parse(await fs.readFile(machineConfigPath, "utf-8"));
+  machineConfig.devices[0].bootMode = "quick";
+  await fs.writeFile(machineConfigPath, JSON.stringify(machineConfig), "utf-8");
+
+  await assert.rejects(
+    loadMatrixConfig({ project, machineConfigPath }),
+    /bootMode must be coldboot, reset, or snapshot/,
+  );
 });
 
 test("loadMatrixConfig accepts an in-memory test case timeout override", async (t) => {

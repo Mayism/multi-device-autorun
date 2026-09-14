@@ -5,6 +5,12 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.4.0] - 2026-09-14
+
+### 变更
+
+- Runner 自动启动模拟器时默认传入 `-bootMode coldboot`，避免 Emulator 26.0.0 及以上版本默认使用快照启动而更容易遗留或复用 HDC 端口。设备配置新增可选 `bootMode`，支持显式选择 `coldboot`、`reset` 或 `snapshot`；未配置时保持冷启动。
+
 ## [0.3.0] - 2026-09-14
 
 ### 新增
