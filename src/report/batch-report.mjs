@@ -161,7 +161,7 @@ export function buildWhiteboxSummary(results, enabled) {
   };
 }
 
-export async function writeBatchReport({ batchRoot, summary, uploadConfig }) {
+export async function writeBatchReport({ batchRoot, summary, uploadConfig, onLog = () => {} }) {
   const results = Array.isArray(summary?.results) ? summary.results : [];
   const agentCases = await Promise.all(results.map(collectAgentCase));
   const ohosTestCases = await Promise.all(results.filter((item) => item?.ohosTest).map(collectOhosTestCase));
@@ -185,9 +185,9 @@ export async function writeBatchReport({ batchRoot, summary, uploadConfig }) {
   // 打包失败用例产物，upload.enabled 时同时上传到 AGC 云存储
   try {
     const { uploadFailedCases } = await import("../artifacts/upload-orchestrator.mjs");
-    await uploadFailedCases({ batchRoot, summary, report, enabled: uploadConfig?.enabled === true, onLog: (m) => console.log(`[upload] ${m}`) });
+    await uploadFailedCases({ batchRoot, summary, report, enabled: uploadConfig?.enabled === true, onLog });
   } catch (error) {
-    console.warn(`[warn] 批量打包/上传失败: ${error.message}`);
+    onLog(`批量打包/上传失败: ${error.message}`);
   }
   const html = { overviewPath: "", subpageDir: "" };
   try {

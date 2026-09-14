@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { detectDevEcoCli } from "../platform/deveco-cli.mjs";
 import {
-  discoverRuntimeSkills, prepareAgentSkillRuntime, installProjectSkill,
+  discoverLoadedSkills, discoverRuntimeSkills, prepareAgentSkillRuntime, installProjectSkill,
   inspectSkillWorkflow, findSkillPython,
 } from "./agent-skill-runtime.mjs";
 
@@ -43,6 +43,35 @@ test("only registered skills from this source snapshot enter the runtime", async
   assert.ok(!runtime.skills.some((skill) => skill.root === outside));
   assert.equal(await installProjectSkill({ runtime, projectDir: "/does-not-exist" }), null);
   await assert.rejects(discoverRuntimeSkills(skillsRoot, [{ name: "own", location: path.join(outside, "SKILL.md") }]), /不属于当前来源快照/);
+});
+
+test("HarmonyBot Skill paths come from OpenCode locations without a cache root", async (t) => {
+  const { skillsRoot } = await fixture(t);
+  const skillRoot = await addSkill(skillsRoot, "plugin-owned");
+  const skillFile = path.join(skillRoot, "SKILL.md");
+  const skills = await discoverLoadedSkills([
+    { name: "built-in", location: "<built-in>" },
+    { name: "missing", location: path.join(skillsRoot, "missing", "SKILL.md") },
+    { name: "plugin-owned", location: skillFile },
+  ]);
+  assert.deepEqual(skills, [{ name: "plugin-owned", root: await fs.realpath(skillRoot) }]);
+
+  const runtime = await prepareAgentSkillRuntime({
+    resources: { env: { PATH: process.env.PATH } },
+    registeredSkills: [{ name: "plugin-owned", location: skillFile }],
+    agent: "other",
+    sourceMode: "harmonyBot",
+  });
+  assert.deepEqual(runtime.skills, skills);
+});
+
+test("HarmonyBot rejects a mismatched Skill location", async (t) => {
+  const { skillsRoot } = await fixture(t);
+  const skillRoot = await addSkill(skillsRoot, "actual-name");
+  await assert.rejects(
+    discoverLoadedSkills([{ name: "reported-name", location: path.join(skillRoot, "SKILL.md") }]),
+    /location 与文件声明不一致/,
+  );
 });
 
 async function oneMultiFixture(t) {
@@ -117,13 +146,22 @@ test("workflow audit checks products without depending on helper script names", 
   assert.equal(audit.checks[0].status, "missing-or-invalid");
 });
 
-test("required Skill preparation fails clearly when the installer is missing", async (t) => {
+test("new HarmonyBot knowledge Skill works without a project installer", async (t) => {
   const { skillsRoot, skillRoot } = await oneMultiFixture(t);
   await fs.rm(path.join(skillRoot, "scripts/install-to-project.py"));
-  await assert.rejects(prepareAgentSkillRuntime({
+  const prepared = await prepareAgentSkillRuntime({
     resources: { skillsRoot, env: process.env }, registeredSkills: [{ name: "harmonyos-ui-multi" }],
     agent: "harmonyos-multi-device", sourceMode: "harmonyBot",
-  }), /缺少安装入口: scripts\/install-to-project\.py/);
+  });
+  assert.equal(prepared.oneMulti.installer, null);
+  assert.equal(
+    await installProjectSkill({ runtime: prepared, projectDir: "/does-not-need-to-exist" }),
+    null,
+  );
+  assert.equal(
+    await inspectSkillWorkflow({ runtime: prepared, projectDir: "/does-not-need-to-exist" }),
+    undefined,
+  );
 });
 
 test("required Skill preparation accepts any auxiliary script layout", async (t) => {
@@ -218,6 +256,7 @@ test("server launcher sends its actual private Skill and tool paths over IPC wit
   assert.equal(code, 0, stderr);
   const resources = messages.find((message) => message.type === "autorun:tool-runtime")?.resources;
   assert.ok(resources.skillsRoot.startsWith(runtime + path.sep));
+  assert.deepEqual(resources.skillNames, ["example"]);
   assert.equal(resources.env.DEVECO_HOME, studio);
   assert.ok(resources.env.PATH.includes(path.join(studio, "tools", "hvigor", "bin")));
   assert.equal(resources.env.TEST_PROVIDER_API_KEY, undefined);
@@ -226,6 +265,7 @@ test("server launcher sends its actual private Skill and tool paths over IPC wit
   assert.equal(cli.version, process.execPath);
   assert.equal(resources.devecoCliRuntime.nodePath, process.execPath);
   assert.ok(resources.toolReadRoots.includes(resources.devecoCliRuntime.binDir));
+  await fs.rm(path.join(source, "skills"), { recursive: true, force: true });
   const skills = await discoverRuntimeSkills(resources.skillsRoot, [{ name: "example" }]);
   assert.equal(skills.length, 1);
   assert.ok(!skills[0].root.startsWith(source + path.sep));

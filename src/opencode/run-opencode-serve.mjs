@@ -8,7 +8,7 @@
 //
 // 用法：
 //   node src/opencode/run-opencode-serve.mjs --source D:\bundle\resources\opencode
-//       --assets-source %USERPROFILE%\.harmonybot\opencode-bundle\vscode\<hash>
+//       --assets-source D:\resolved-assets
 //       --opencode-bin D:\extension\resources\opencode\bin\win32\x64\opencode.exe
 //   node src/opencode/run-opencode-serve.mjs --source D:\bundle\resources\opencode --port 62000
 //   node src/opencode/run-opencode-serve.mjs --root D:\bundle --workspace D:\proj
@@ -16,8 +16,8 @@
 // --source 直接指向 resources/opencode；--root 保留为资源包根目录入口：
 //   bundled:   $ROOT/resources/opencode/{bin/<platform>/<arch>/opencode[.exe],
 //                                        opencode.json, plugin/, skills/}
-//   cache:     --source 指向包含 opencode.json 的扩展资源，--assets-source 指向
-//              解压后的 Bundle，--opencode-bin 指向扩展内二进制
+//   split:     --source 指向包含 opencode.json 的配置资源，--assets-source 指向
+//              调用方已解析的资产目录，--opencode-bin 指向所选二进制
 //   运行时:    ~/.harmonybot/opencode/vscode/{data,xdg-config,state,cache,config}
 //              ~/.harmonybot/logs/vscode/runs/<runId>
 //
@@ -467,6 +467,15 @@ for (const name of ['skills', 'plugin', 'provider']) {
   }
 }
 
+// 后续环境检查只能依赖本次 runtime 的私有快照，不能再次扫描来源目录。
+let snapshotSkillNames;
+try {
+  snapshotSkillNames = discoverSourceSkillNames(path.join(effectiveConfigDir, 'skills'));
+} catch (e) {
+  err(`[error] 无法读取运行时 Skill 快照: ${e.message}`);
+  process.exit(1);
+}
+
 // 插件 CLI（pluginFetch linkBin:true 写入的 wrapper）。隔离模式下优先使用
 // 私有快照，确保 PATH 不再指向来源包中的可写 plugin 目录。
 const pluginBinDir = path.join(opts.isolateConfig ? effectiveConfigDir : bundledAssetsDir, 'plugin', '.bin');
@@ -560,6 +569,7 @@ if (process.send) {
     type: 'autorun:tool-runtime',
     resources: {
       skillsRoot: path.join(effectiveConfigDir, 'skills'),
+      skillNames: snapshotSkillNames,
       ...(pinnedDevEcoCli ? { devecoCliRuntime: pinnedDevEcoCli } : {}),
       env: Object.fromEntries([
         'PATH', 'JAVA_HOME', 'TOOL_HOME', 'DEVECO_HOME', 'DEVECO_SDK_HOME',

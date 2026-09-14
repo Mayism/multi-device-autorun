@@ -1,7 +1,5 @@
 import process from "node:process";
-import path from "node:path";
-
-const MODES = new Set(["dashboard", "summary", "verbose"]);
+const MIN_DYNAMIC_COLUMNS = 90;
 const STATUS_LABELS = {
   queued: "排队中",
   preparing: "准备中",
@@ -71,6 +69,17 @@ function supportsDashboard(stream) {
   );
 }
 
+function measuredStreamColumns(stream) {
+  const columns = Number(stream?.columns);
+  return Number.isFinite(columns) && columns > 1 ? Math.floor(columns) : 0;
+}
+
+function streamColumns(stream) {
+  // 某些 MSYS/mintty 组合可能把 stdout 标为 TTY，却不给出可靠列数。
+  // 这种场景按保守的 80 列生成最终静态表，不启用动态光标操作。
+  return measuredStreamColumns(stream) || 80;
+}
+
 function elapsed(startedAt, finishedAt = Date.now()) {
   if (!startedAt) return "--:--";
   const seconds = Math.max(0, Math.round((finishedAt - startedAt) / 1000));
@@ -106,11 +115,76 @@ function statusText(status) {
   return STATUS_LABELS[status] || status || "--";
 }
 
+function dashboardColumns(terminalColumns) {
+  const terminalWidth = Math.max(1, terminalColumns - 1);
+  if (terminalColumns < 16) {
+    return [{
+      title: "用例状态",
+      width: terminalWidth,
+      value: (item) => `${item.name}: ${statusText(item.agentStatus)}`,
+    }];
+  }
+
+  let caseWidth;
+  let agentStatusWidth;
+  let includeTest = true;
+  let includeCloud = terminalColumns >= 70;
+  let includeElapsed = terminalColumns >= 70;
+  let tokenColumns = [];
+  let compileColumns = [];
+
+  if (terminalColumns >= 140) caseWidth = 40;
+  else if (terminalColumns >= 100) caseWidth = 28;
+  else if (terminalColumns >= 90) caseWidth = Math.max(16, Math.min(24, Math.floor(terminalWidth * 0.28)));
+  else if (terminalColumns >= 80) caseWidth = 20;
+  else if (terminalColumns >= 70) caseWidth = 17;
+  else if (terminalColumns >= 60) caseWidth = 16;
+  else if (terminalColumns >= 40) caseWidth = Math.max(10, Math.floor(terminalWidth * 0.28));
+  else if (terminalColumns >= 32) caseWidth = 8;
+  else {
+    caseWidth = Math.max(4, Math.floor(terminalWidth * 0.34));
+    includeTest = false;
+  }
+
+  agentStatusWidth = terminalColumns >= 70 ? 10 : terminalColumns >= 32 ? 8 : Math.max(4, Math.floor(terminalWidth * 0.28));
+  const testStatusWidth = agentStatusWidth;
+  const cloudTestStatusWidth = terminalColumns >= 70 ? 10 : 8;
+  const elapsedWidth = terminalColumns >= 70 ? 9 : 7;
+  if (terminalColumns >= 160) {
+    tokenColumns = [
+      { title: "输入Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.input) },
+      { title: "输出Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.output) },
+      { title: "总Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.total) },
+    ];
+    compileColumns = [{ title: "编译", width: 18, value: (item) => compileText(item.compileUsage) }];
+  } else if (terminalColumns >= 120) {
+    tokenColumns = [{ title: "Token(入/出/总)", width: 22, value: (item) => tokenText(item.tokenUsage) }];
+  } else if (terminalColumns >= 100) {
+    tokenColumns = [{ title: "总Token", width: 10, value: (item) => formatTokenCount(item.tokenUsage.total) }];
+  }
+
+  const columns = [
+    { title: "用例", width: caseWidth, value: (item) => item.name },
+    { title: "生成状态", width: agentStatusWidth, value: (item) => statusText(item.agentStatus) },
+    ...(includeTest ? [{ title: "测试状态", width: testStatusWidth, value: (item) => statusText(item.ohosTestStatus) }] : []),
+    ...(includeCloud ? [{ title: "云测试", width: cloudTestStatusWidth, value: (item) => statusText(item.cloudTestStatus) }] : []),
+    ...(includeElapsed ? [{ title: "耗时", width: elapsedWidth, value: (item) => elapsed(item.startedAt, item.finishedAt || Date.now()) }] : []),
+    ...tokenColumns,
+    ...compileColumns,
+  ];
+  const separatorWidth = 2 * columns.length;
+  const fixedWidth = columns.reduce((sum, column) => sum + column.width, 0);
+  const activityWidth = Math.max(1, terminalWidth - fixedWidth - separatorWidth);
+  columns.push({ title: "当前操作", width: activityWidth, value: (item) => item.activity });
+  return columns;
+}
+
 export class ConsoleReporter {
-  constructor({ mode = "dashboard", batchId, cases, concurrency, batchRoot }) {
-    const requested = MODES.has(mode) ? mode : "dashboard";
-    this.mode = requested === "dashboard" && !supportsDashboard(process.stdout) ? "summary" : requested;
-    this.requestedMode = requested;
+  constructor({ batchId, cases, concurrency, batchRoot, stream = process.stdout }) {
+    this.stream = stream;
+    this.mode = supportsDashboard(stream) && measuredStreamColumns(stream) >= MIN_DYNAMIC_COLUMNS
+      ? "dashboard"
+      : "static";
     this.batchId = batchId;
     this.batchRoot = batchRoot;
     this.concurrency = concurrency;
@@ -121,6 +195,7 @@ export class ConsoleReporter {
     this.lastTerminalColumns = 0;
     this.renderedLineCount = 0;
     this.dashboardPaused = false;
+    this.finished = false;
     this.cases = new Map(cases.map((item) => [item.name, {
       name: item.name,
       status: item.skipReason ? "skipped" : "queued",
@@ -139,7 +214,7 @@ export class ConsoleReporter {
   }
 
   write(line = "") {
-    process.stdout.write(`${line}\n`);
+    this.stream.write(`${line}\n`);
   }
 
   start() {
@@ -147,11 +222,6 @@ export class ConsoleReporter {
       this.render(true);
       this.timer = setInterval(() => this.render(), 1000);
       this.timer.unref?.();
-      return;
-    }
-    this.write(`[batch:${this.batchId}] 启动 ${this.concurrency} 个 Worker，控制台模式=${this.mode}`);
-    if (this.requestedMode === "dashboard" && this.mode !== "dashboard") {
-      this.write("[console] 当前终端不支持可靠的光标重绘，dashboard 已自动切换为 summary");
     }
   }
 
@@ -162,7 +232,6 @@ export class ConsoleReporter {
     item.ohosTestStatus = "not_started";
     item.cloudTestStatus = "not_started";
     Object.assign(item, { status: "preparing", phase: "agent", activity: "复制并初始化工程", startedAt: Date.now(), worker });
-    if (this.mode !== "dashboard") this.write(`[case:${caseName}] 开始执行（Worker ${worker}）`);
   }
 
   caseProgress(caseName, activity) {
@@ -172,7 +241,6 @@ export class ConsoleReporter {
     item.status = "running";
     item.phase = "agent";
     item.activity = String(activity || "Agent 运行中");
-    if (this.mode === "verbose") this.write(`[case:${caseName}] ${item.activity}`);
   }
 
   caseTokenUsage(caseName, usage) {
@@ -201,7 +269,6 @@ export class ConsoleReporter {
         ? "Agent 超时，仍等待串行 ohosTest"
         : "Agent 已完成，等待串行 ohosTest",
     });
-    if (this.mode === "verbose") this.write(`[case:${caseName}] ${item.activity}`);
     this.render(true);
   }
 
@@ -214,7 +281,6 @@ export class ConsoleReporter {
       phase: "ohostest",
       activity: "ohosTest 执行中：拉起模拟器并运行用例",
     });
-    if (this.mode !== "dashboard") this.write(`[case:${caseName}] ${item.activity}`);
     this.render(true);
   }
 
@@ -232,7 +298,6 @@ export class ConsoleReporter {
         ? (cloudPending ? "ohosTest 已完成，等待云测试" : "ohosTest 已完成")
         : `ohosTest ${statusText(item.ohosTestStatus)}${errorText ? `：${errorText}` : ""}`;
     }
-    if (this.mode !== "dashboard") this.write(`[case:${caseName}] ${item.activity}`);
     this.render(true);
   }
 
@@ -248,20 +313,12 @@ export class ConsoleReporter {
     if (!item) return;
     // 只更新云测试列，不占用“当前操作”列（那里留给 ohosTest 等本地阶段）
     item.cloudTestStatus = status;
-    if (this.mode === "verbose") this.write(`[case:${caseName}] ${String(activity || "云测试执行中")}`);
   }
 
   caseCloudTestFinished(caseName, cloudResult = {}) {
     const item = this.cases.get(caseName);
     if (!item) return;
     item.cloudTestStatus = cloudResult.status || "failed";
-    if (this.mode !== "dashboard") {
-      const errorText = String(cloudResult.error || "").replace(/\s+/g, " ").trim();
-      const label = item.cloudTestStatus === "completed"
-        ? "云测试已完成"
-        : `云测试${statusText(item.cloudTestStatus)}${errorText ? `：${errorText}` : ""}`;
-      this.write(`[case:${caseName}] ${label}`);
-    }
     this.render(true);
   }
 
@@ -284,13 +341,6 @@ export class ConsoleReporter {
       tokenUsage: { ...(result.tokenUsage || item.tokenUsage) },
       compileUsage: { ...(result.agentCompile || item.compileUsage) },
     });
-    if (this.mode !== "dashboard") {
-      const label = result.status === "completed"
-        ? testedAfterAgentTimeout ? "完成（Agent 曾超时，ohosTest 通过）" : "完成"
-        : `${result.status}: ${result.error || ""}`;
-      this.write(`[case:${result.case}] ${label}，耗时 ${result.elapsedSec}s`);
-      if (transcriptPath) this.write(`[case:${result.case}] Agent 完整输出：${transcriptPath}`);
-    }
     this.render(true);
   }
 
@@ -302,14 +352,34 @@ export class ConsoleReporter {
     this.render(true);
   }
 
+  finishWithError(reason) {
+    const message = String(reason || "运行失败").replace(/\s+/g, " ").trim();
+    for (const item of this.cases.values()) {
+      if (["completed", "failed", "timed_out", "interrupted", "cancelled", "skipped"].includes(item.status)) continue;
+      Object.assign(item, {
+        status: "failed",
+        agentStatus: item.agentStatus === "completed" ? item.agentStatus : "failed",
+        activity: message,
+        finishedAt: Date.now(),
+      });
+    }
+    this.finish();
+  }
+
   clearDashboard() {
     if (this.mode !== "dashboard") return;
     if (this.renderedLineCount) {
+      const columns = streamColumns(this.stream);
+      // 终端缩放后，现代 Windows Terminal / mintty 会按新宽度重排已经
+      // 输出的行。此时按当前宽度重算物理行数，避免只清掉旧表的一部分。
+      const lineCount = columns !== this.lastTerminalColumns && this.lastRenderedLines.length
+        ? renderedRows(this.lastRenderedLines, columns)
+        : this.renderedLineCount;
       // 使用 Node 的 TTY 光标 API，让 Windows Console、Windows Terminal 和
       // VS Code Terminal 分别走其支持的控制方式，避免原始 VT 序列被当成普通输出。
-      process.stdout.moveCursor(0, -this.renderedLineCount);
-      process.stdout.cursorTo(0);
-      process.stdout.clearScreenDown();
+      this.stream.moveCursor(0, -lineCount);
+      this.stream.cursorTo(0);
+      this.stream.clearScreenDown();
     }
     this.renderedLineCount = 0;
     this.lastRendered = "";
@@ -327,51 +397,22 @@ export class ConsoleReporter {
     this.dashboardPaused = true;
   }
 
-  render(force = false) {
-    if (this.mode !== "dashboard" || this.dashboardPaused) return;
-    const terminalColumns = Math.max(1, Number(process.stdout.columns) || 120);
-    // 预留最后一列，避免 Windows 终端写满整行后触发自动换行。
-    const terminalWidth = Math.max(40, terminalColumns - 1);
-    const caseWidth = terminalColumns >= 140
-      ? 40
-      : terminalColumns >= 100
-        ? 28
-        : Math.max(16, Math.min(24, Math.floor(terminalWidth * 0.28)));
-    const agentStatusWidth = terminalColumns >= 70 ? 10 : 8;
-    const ohosTestStatusWidth = terminalColumns >= 70 ? 10 : 8;
-    const cloudTestStatusWidth = terminalColumns >= 70 ? 10 : 8;
-    const elapsedWidth = terminalColumns >= 70 ? 9 : 7;
-    const tokenColumns = terminalColumns >= 160
-      ? [
-        { title: "输入Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.input) },
-        { title: "输出Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.output) },
-        { title: "总Token", width: 11, value: (item) => formatTokenCount(item.tokenUsage.total) },
-      ]
-      : terminalColumns >= 120
-        ? [{ title: "Token(入/出/总)", width: 22, value: (item) => tokenText(item.tokenUsage) }]
-        : terminalColumns >= 100
-          ? [{ title: "总Token", width: 10, value: (item) => formatTokenCount(item.tokenUsage.total) }]
-          : [];
-    const compileColumns = terminalColumns >= 160
-      ? [{ title: "\u7f16\u8bd1", width: 18, value: (item) => compileText(item.compileUsage) }]
-      : [];
-    const fixedWidth = caseWidth + agentStatusWidth + ohosTestStatusWidth + cloudTestStatusWidth + elapsedWidth
-      + tokenColumns.reduce((sum, column) => sum + column.width, 0)
-      + compileColumns.reduce((sum, column) => sum + column.width, 0);
-    // 固定列为：用例、生成状态、测试状态、云测试、耗时、当前操作，
-    // 因此基础分隔符有 5 个；每增加一个可选列再增加一个分隔符。
-    const separatorWidth = 2 * (5 + tokenColumns.length + compileColumns.length);
-    const activityWidth = Math.max(10, terminalWidth - fixedWidth - separatorWidth);
-    const columns = [
-      { title: "用例", width: caseWidth, value: (item) => item.name },
-      { title: "生成状态", width: agentStatusWidth, value: (item) => statusText(item.agentStatus) },
-      { title: "测试状态", width: ohosTestStatusWidth, value: (item) => statusText(item.ohosTestStatus) },
-      { title: "云测试", width: cloudTestStatusWidth, value: (item) => statusText(item.cloudTestStatus) },
-      { title: "耗时", width: elapsedWidth, value: (item) => elapsed(item.startedAt, item.finishedAt || Date.now()) },
-      ...tokenColumns,
-      ...compileColumns,
-      { title: "当前操作", width: activityWidth, value: (item) => item.activity },
-    ];
+  render(force = false, { allowNarrow = false } = {}) {
+    if (this.finished || this.mode !== "dashboard" || this.dashboardPaused) return;
+    const terminalColumns = streamColumns(this.stream);
+    if (terminalColumns < MIN_DYNAMIC_COLUMNS && !allowNarrow) {
+      if (this.timer) {
+        clearInterval(this.timer);
+        this.timer = null;
+      }
+      this.clearDashboard();
+      this.mode = "static";
+      return;
+    }
+    // 始终保留最后一个物理列，避免 Windows Console 在写满整行时自动换行。
+    // 窄终端按优先级隐藏云测试、耗时和 Token 等列。
+    const terminalWidth = terminalColumns - 1;
+    const columns = dashboardColumns(terminalColumns);
     const values = [...this.cases.values()];
     const lines = [
       columns.map((column) => cell(column.title, column.width)).join("  "),
@@ -403,25 +444,25 @@ export class ConsoleReporter {
     if (canUpdateChangedLines) {
       let cursorLine = lines.length;
       for (const lineIndex of changedLineIndexes) {
-        process.stdout.moveCursor(0, lineIndex - cursorLine);
-        process.stdout.cursorTo(0);
-        if (typeof process.stdout.clearLine === "function") {
-          process.stdout.clearLine(0);
+        this.stream.moveCursor(0, lineIndex - cursorLine);
+        this.stream.cursorTo(0);
+        if (typeof this.stream.clearLine === "function") {
+          this.stream.clearLine(0);
         } else {
-          process.stdout.write(" ".repeat(Math.max(1, terminalWidth)));
-          process.stdout.cursorTo(0);
+          this.stream.write(" ".repeat(Math.max(1, terminalWidth)));
+          this.stream.cursorTo(0);
         }
-        process.stdout.write(lines[lineIndex]);
+        this.stream.write(lines[lineIndex]);
         cursorLine = lineIndex;
       }
-      process.stdout.moveCursor(0, lines.length - cursorLine);
-      process.stdout.cursorTo(0);
+      this.stream.moveCursor(0, lines.length - cursorLine);
+      this.stream.cursorTo(0);
     } else {
       this.clearDashboard();
       // Keep the cursor on the line immediately after the dashboard. The next
       // refresh moves up exactly renderedLineCount lines; without this trailing
       // newline it moves one line above the dashboard and erases earlier logs.
-      process.stdout.write(`${output}\n`);
+      this.stream.write(`${output}\n`);
       this.renderedLineCount = renderedRows(lines, terminalColumns);
     }
 
@@ -430,7 +471,8 @@ export class ConsoleReporter {
     this.lastTerminalColumns = terminalColumns;
   }
 
-  finish(summary) {
+  finish() {
+    if (this.finished) return;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -442,15 +484,15 @@ export class ConsoleReporter {
       this.render(true);
       this.renderedLineCount = 0;
       this.lastRendered = "";
+      this.finished = true;
+      return;
     }
-    this.write(`[batch:${this.batchId}] 结束：成功 ${summary.completed}/${summary.total}，失败 ${summary.failed}`);
-    const reports = summary.reports || {};
-    if (reports.htmlOverviewPath) {
-      this.write(`[batch:${this.batchId}] HTML 报告：${reports.htmlOverviewPath}`);
-    } else {
-      this.write(`[batch:${this.batchId}] 报告：生成失败${summary.reportError ? `（${summary.reportError}）` : ""}`);
-    }
-    const detailPath = reports.jsonPath || path.join(this.batchRoot, "summary.json");
-    this.write(`[batch:${this.batchId}] 详细结果：${detailPath}`);
+    // 非交互输出无法可靠重绘，只在结束时打印一次最终 dashboard 表格。
+    this.mode = "dashboard";
+    this.render(true, { allowNarrow: true });
+    this.renderedLineCount = 0;
+    this.lastRendered = "";
+    this.mode = "static";
+    this.finished = true;
   }
 }

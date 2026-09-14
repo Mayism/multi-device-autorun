@@ -39,8 +39,8 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会为�
 - Git，需要能够从命令行执行 `git`。
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
 - 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
-- `softwareEngineering` 来源的 `resources/opencode` 需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。新版 `harmonyBot` 扩展允许以 `skills.zip` 分发资源：Autorun 根据扩展内 `.bundle-hash` 自动准备并使用 `~/.harmonybot/opencode-bundle/vscode/<hash>` 中的 Plugin、Provider 和 Skills，`opencode.json` 与 OpenCode 二进制仍从扩展目录读取；旧版已展开目录继续兼容。
-- `opencode.json` 中需存在可用的模型配置和 API 凭据。Autorun 启动 Server 时会生成运行时配置副本并强制覆盖全局及 Agent 权限为 `allow`；来源配置不会被修改。不要把真实 API Key 提交到 Git。
+- `softwareEngineering` 来源的 `resources/opencode` 需包含当前平台对应的 OpenCode 二进制、`opencode.json` 和 `skills/`。`harmonyBot` 模式要求插件提供 `tools/plugin-cli/run-opencode-serve.mjs`；安装或升级插件后，需先在 VS Code 中启动一次 HarmonyBot，让插件自行完成资源初始化。
+- `opencode.json` 中需存在可用的模型配置和 API 凭据。Software Engineering 模式启动 Server 时会生成运行时配置副本并强制覆盖全局及 Agent 权限为 `allow`；HarmonyBot 模式保持插件配置不变，运行中的交互请求由 Autorun 自动处理。不要把真实 API Key 提交到 Git。
 
 ## 目录结构
 
@@ -181,7 +181,7 @@ devecocli --version
 | `execution.model` | 全局生成模型 ID。所有 Agent 共用，目标配置不能覆盖；单 Agent 未配置 `providerId` 时会从 Server 唯一匹配。 |
 | `execution.additionalPrompt` | 仅供白盒裁判按 `whiteboxEvaluation.prompt.includeAdditionalPrompt` 选择是否追加；不会发送给生成 Agent。生成 Agent 的用户消息始终是 `PROMPT.md` 原文。 |
 | `execution.concurrency` | 同时运行的 Agent 数量。任意任务结束后立即补充下一个任务。 |
-| `execution.consoleMode` | 控制台模式：`dashboard`（默认动态看板）、`summary`（仅开始/结束）或 `verbose`（逐条进度）。非交互输出会自动退化为 `summary`。 |
+| `execution.consoleMode` | 兼容旧配置；普通 Autorun 运行统一只输出环境检查、Agent/模型配置和 dashboard。非交互输出或不足 90 列的窄终端在结束时打印一次自适应最终表格。 |
 | `execution.idleTimeoutSec` | Agent 连续无活动的超时时间，默认 `600` 秒。 |
 | `execution.maxRuntimeSec` | 单个用例最大总运行时间，默认 `6000` 秒。 |
 | `execution.continueOnError` | 单个用例失败后是否继续执行剩余用例，默认 `true`。 |
@@ -223,7 +223,7 @@ devecocli --version
 }
 ```
 
-该模式会在 `root` 下查找最高版本且资源可用的 HarmonyBot 扩展。存在 `.bundle-hash` 时，Autorun 使用与扩展版本精确匹配的 `~/.harmonybot/opencode-bundle/vscode/<hash>`；缓存缺失时会从扩展的 `skills.zip` 等资源自动构建，使用临时目录、跨进程锁和完成标记防止读取半成品。Bundle 提供 Plugin、Provider 和 Skills，`opencode.json` 与 OpenCode 二进制仍从扩展目录读取，确保本机 Provider 配置不会被缓存中的旧副本覆盖。没有 `.bundle-hash` 的旧扩展继续直接使用 `resources/opencode`。
+该模式既支持把 `root` 配置为 VS Code 的 `extensions` 目录，也支持直接配置某个 HarmonyBot 插件安装目录。配置为 `extensions` 目录时会选择版本最高且启动器可用的插件。Autorun 直接调用所选插件自带的 `tools/plugin-cli/run-opencode-serve.mjs`，Bundle 定位、完整性检查和 Skill 加载全部由插件负责；Autorun 不读取 `.bundle-hash`、不推导缓存路径，也不解压或维护 Skill 目录。环境检查以 OpenCode `/skill` 返回的名称和 `location` 为准。安装或升级插件后，必须先在 VS Code 中启动一次对应版本的 HarmonyBot；尚未初始化时 Autorun 会停止并给出提示。
 
 `softwareEngineering` 模式不会扫描 HarmonyBot 扩展，而是直接使用 `root/resources/opencode`，加载其中的模型配置和 Skills，并使用 OpenCode 内置 `build` Agent。正式执行时 Autorun 会把所选来源的 `plugin`、`skills`、`provider` 复制到当前目标的私有 runtime 配置快照，不会合并或回退到另一来源，也不会复用启动前已有的 OpenCode Server。`softwareEngineering` 还会关闭 `~/.agents/skills` 和 `~/.claude/skills` 扫描，并通过精确权限白名单阻止 OpenCode 内置 Skill，只向 Agent 暴露来源 `resources/opencode/skills` 下的 Skill。
 
@@ -559,7 +559,7 @@ Get-Content "D:\autorun\output\<batchId>\<caseName>\generate\agent-console.log" 
 Get-Content "D:\autorun\output\<batchId>\<caseName>\generate\agent-output.log" -Encoding UTF8 -Raw
 ```
 
-动态看板只在固定区域原地更新每个用例的状态、耗时、Token 和当前操作，不持续追加整张表。宽终端显示输入、输出、总 Token 三列，中等宽度合并显示，窄终端只显示总量或自动隐藏 Token 列。批次结束后保留最终表格，并为每个用例打印 `agent-output.log` 路径。
+动态看板只在固定区域原地更新每个用例的状态、耗时、Token 和当前操作，不持续追加整张表。宽终端显示输入、输出、总 Token 三列，中等宽度合并显示；不足 90 列时关闭动态重绘，在结束时按可用宽度隐藏次要列并只打印一张最终表格。运行中若终端缩窄到该阈值以下，也会停止动态刷新。批次结束后保留最终表格；详细日志和报告路径只写入批次产物，不再逐条打印到控制台。
 
 状态大致按以下阶段变化：
 
@@ -576,7 +576,7 @@ pending -> running/preparing -> session_creating -> agent_running
 检查：
 
 - `server.opencodeSource.mode` 是否为 `harmonyBot` 或 `softwareEngineering`；
-- `server.opencodeSource.root` 是否正确；新版 HarmonyBot 扩展的 `.bundle-hash`、`skills.zip` 或对应 `~/.harmonybot/opencode-bundle/vscode/<hash>` 是否可用；
+- `server.opencodeSource.root` 是否指向 VS Code `extensions` 目录或某个 HarmonyBot 插件安装目录；升级插件后是否已在 VS Code 中启动并初始化过该版本；
 - 当前平台对应的 OpenCode 二进制是否存在；
 - `server.devecoHome` 或 `DEVECO_HOME` 是否正确；
 - 配置端口是否被其他程序占用；

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { detectDevEcoCli, formatDevEcoCliFailure } from "../platform/deveco-cli.mjs";
 
 const execute = promisify(execFile);
@@ -54,6 +55,50 @@ export async function discoverRuntimeSkills(skillsRoot, registeredSkills) {
   return skills;
 }
 
+function registeredSkillName(item) {
+  return String(item?.name || item?.id || item || "").trim();
+}
+
+function registeredSkillLocation(item) {
+  const value = String(item?.location || "").trim();
+  if (!value || /^<[^>]+>$/.test(value)) return "";
+  if (value.startsWith("file:")) return fileURLToPath(value);
+  return path.resolve(value);
+}
+
+// HarmonyBot owns its Bundle and may change the extraction layout at any time.
+// OpenCode's /skill response is the source of truth, so Autorun follows each
+// registered SKILL.md location instead of reconstructing a cache directory.
+export async function discoverLoadedSkills(registeredSkills) {
+  const skills = [];
+  for (const item of Array.isArray(registeredSkills) ? registeredSkills : []) {
+    const name = registeredSkillName(item);
+    const location = registeredSkillLocation(item);
+    if (!name || !location) continue;
+    let skillFile;
+    try {
+      skillFile = await fs.realpath(location);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    const stat = await fs.stat(skillFile);
+    if (stat.isDirectory()) skillFile = await fs.realpath(path.join(skillFile, "SKILL.md"));
+    else if (!stat.isFile() || path.basename(skillFile) !== "SKILL.md") continue;
+    const content = await fs.readFile(skillFile, "utf8");
+    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content)?.[1] || "";
+    const declaredName = /^name:\s*["']?([^\r\n"']+)["']?\s*$/m.exec(frontmatter)?.[1]?.trim();
+    if (declaredName !== name) {
+      throw new Error(`OpenCode 注册 Skill ${name} 的 location 与文件声明不一致: ${skillFile}`);
+    }
+    skills.push({ name, root: path.dirname(skillFile) });
+  }
+  skills.sort((left, right) => left.name.localeCompare(right.name));
+  const duplicate = skills.find((skill, index) => skills.findIndex((item) => item.name === skill.name) !== index);
+  if (duplicate) throw new Error(`OpenCode 返回重复 Skill: ${duplicate.name}`);
+  return skills;
+}
+
 async function runPython(python, args, { env, cwd, signal, timeout = 30_000 } = {}) {
   return execute(python.command, [...python.args, "-B", ...args], {
     env: { ...env, PYTHONDONTWRITEBYTECODE: "1" }, cwd, signal, timeout,
@@ -79,24 +124,26 @@ export async function findSkillPython(env, signal) {
 }
 
 export async function prepareAgentSkillRuntime({ resources, registeredSkills, agent, sourceMode, signal }) {
-  if (!resources?.skillsRoot || !resources?.env?.PATH) {
-    throw new Error("Server 未返回 Skill 快照路径和工具环境，无法建立精确工具授权；请重启 Autorun Server");
-  }
-  const skills = await discoverRuntimeSkills(resources.skillsRoot, registeredSkills);
-  const runtime = { skills, toolReadRoots: resources.toolReadRoots || [], env: { ...process.env, ...resources.env } };
+  const env = { ...process.env, ...(resources?.env || {}) };
+  if (!env.PATH) throw new Error("运行环境缺少 PATH，无法准备 Skill 工具");
+  const skills = resources?.skillsRoot
+    ? await discoverRuntimeSkills(resources.skillsRoot, registeredSkills)
+    : await discoverLoadedSkills(registeredSkills);
+  const runtime = { skills, toolReadRoots: resources?.toolReadRoots || [], env };
   if (sourceMode !== "harmonyBot" || agent !== "harmonyos-multi-device") return runtime;
   const skill = skills.find((item) => item.name === ONE_MULTI_NAME);
-  if (!skill) throw new Error(`${ONE_MULTI_NAME} 未在当前来源快照中注册，拒绝借用其他 Agent 的 Skill`);
-  // Autorun 只依赖稳定的安装入口；其余脚本属于 Skill 内部实现，不按名称或数量耦合。
-  let installer;
+  if (!skill) throw new Error(`${ONE_MULTI_NAME} 未出现在当前 OpenCode 已加载的 Skill 中`);
+  // 老版本 Skill 通过安装器把工作流材料预装到工程；新版本是纯知识
+  // Skill，由 HarmonyBot 直接加载，不再承诺任何内部脚本布局。
+  let installer = null;
   try {
     installer = await regularPathInside(skill.root, path.join(skill.root, ONE_MULTI_INSTALLER));
   } catch (error) {
-    if (error.code === "ENOENT") throw new Error(`${ONE_MULTI_NAME} 缺少安装入口: ${ONE_MULTI_INSTALLER}`);
-    throw error;
+    if (error.code === "ENOENT") installer = null;
+    else throw error;
   }
-  if (!(await fs.stat(installer)).isFile()) throw new Error(`Skill 安装入口不是文件: ${installer}`);
-  const python = await findSkillPython(runtime.env, signal);
+  if (installer && !(await fs.stat(installer)).isFile()) throw new Error(`Skill 安装入口不是文件: ${installer}`);
+  const python = installer ? await findSkillPython(runtime.env, signal) : undefined;
   // 与 Agent 使用相同 PATH；先验证 CLI，避免付出模型调用成本后才降级工作流。
   const cli = await detectDevEcoCli({ env: runtime.env });
   signal?.throwIfAborted();
@@ -111,7 +158,7 @@ export async function prepareAgentSkillRuntime({ resources, registeredSkills, ag
       warning: formatDevEcoCliFailure(reportedCli, resources.devecoCliRuntime),
     };
   runtime.oneMulti = {
-    root: skill.root, python, devecoCli,
+    root: skill.root, installer, ...(python ? { python } : {}), devecoCli,
     ...(cli.installed ? { devecoCliVersion: cli.version } : {}),
     ...(resources.devecoCliRuntime ? { devecoCliRuntime: resources.devecoCliRuntime } : {}),
   };
@@ -129,6 +176,8 @@ export function summarizeAgentSkillRuntime(runtime) {
 // 安装器可以初始化工具数据，但不能把 .gitignore/AGENTS.md 变成业务差异。
 export async function installProjectSkill({ runtime, projectDir, signal }) {
   if (!runtime.oneMulti) return null;
+  if (runtime.oneMulti.installer === null) return null;
+  const installer = runtime.oneMulti.installer || path.join(runtime.oneMulti.root, ONE_MULTI_INSTALLER);
   const projectRoot = await fs.realpath(projectDir);
   const omRoot = path.join(projectRoot, ".onemulti");
   async function rejectLinks(directory) {
@@ -151,7 +200,7 @@ export async function installProjectSkill({ runtime, projectDir, signal }) {
   const originalIgnore = ignoreStat ? await fs.readFile(ignorePath) : null;
   let installed;
   try {
-    installed = await runPython(runtime.oneMulti.python, [path.join(runtime.oneMulti.root, ONE_MULTI_INSTALLER), projectRoot], {
+    installed = await runPython(runtime.oneMulti.python, [installer, projectRoot], {
       env: runtime.env, cwd: projectRoot, signal, timeout: 60_000,
     });
   } finally {
@@ -169,6 +218,7 @@ export async function installProjectSkill({ runtime, projectDir, signal }) {
 
 export async function inspectSkillWorkflow({ runtime, projectDir, signal }) {
   if (!runtime.oneMulti) return undefined;
+  if (runtime.oneMulti.installer === null) return undefined;
   const checks = [];
   signal?.throwIfAborted();
   const ledgerPath = path.join(projectDir, ".onemulti/decisions.json");

@@ -20,6 +20,7 @@ import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/opencode/ope
 import { mergeOverview } from "./src/report/merge-overview.mjs";
 import { serverAllowsEverything, serverAllowsExecution } from "./src/agent/permission-policy.mjs";
 import { detectDevEcoCli, formatDevEcoCliFailure } from "./src/platform/deveco-cli.mjs";
+import { writeAutorunStartupSummary } from "./src/platform/autorun-console-output.mjs";
 import {
   prepareAgentSkillRuntime,
   summarizeAgentSkillRuntime,
@@ -31,6 +32,7 @@ import {
   hasAgentSessionPolicy,
 } from "./src/agent/session-policy.mjs";
 import { normalizeAgentTargets, normalizeGenerationModel } from "./src/agent/agent-targets.mjs";
+import { resolveConfiguredModel } from "./src/agent/model-validation.mjs";
 import { writeAgentComparisonReport } from "./src/report/agent-comparison-report.mjs";
 import {
   filterGeneratedArtifactPatch,
@@ -51,6 +53,7 @@ const SKILL_READY_TIMEOUT_SEC = 180;
 const SKILL_RETRY_INTERVAL_MS = 2_000;
 const SESSION_CREATE_TIMEOUT_SEC = 120;
 let activeReporter = null;
+const silentLog = () => {};
 
 function parseArgs(argv) {
   const result = {
@@ -365,11 +368,9 @@ async function waitForSkills(client, directory, {
 } = {}) {
   const deadline = Date.now() + timeoutSec * 1000;
   let lastError = null;
-  let attempts = 0;
 
   while (Date.now() < deadline) {
     throwIfInterrupted(signal);
-    attempts += 1;
     const remainingSec = Math.max(1, Math.ceil((deadline - Date.now()) / 1000));
     try {
       return await client.listSkills(directory, Math.min(requestTimeoutSec, remainingSec), signal);
@@ -381,8 +382,6 @@ async function waitForSkills(client, directory, {
     }
 
     if (Date.now() < deadline) {
-      const waitedSec = Math.min(timeoutSec, Math.round((timeoutSec * 1000 - (deadline - Date.now())) / 1000));
-      console.warn(`[server] Skill 列表加载未完成，${retryIntervalMs / 1000} 秒后重试（第 ${attempts} 次，已等待 ${waitedSec}/${timeoutSec} 秒）`);
       await delay(Math.min(retryIntervalMs, deadline - Date.now()));
     }
   }
@@ -391,15 +390,14 @@ async function waitForSkills(client, directory, {
   throw new Error(`OpenCode Server Skill 加载超时（${timeoutSec} 秒）${detail}`, { cause: lastError });
 }
 
-async function ensureOpenCodeServer(config, {
-  log = console.log,
+async function ensureOpenCodeServerFromSource(config, source, {
+  log = silentLog,
   signal,
   reuseExisting = true,
   workspace = AUTORUN_ROOT,
   isolateConfig = false,
 } = {}) {
   if (signal?.aborted) throw interruptionError(signal.reason);
-  const source = await resolveOpenCodeSource(config.server.opencodeSource);
   log(`[server] OpenCode 来源模式: ${source.mode}`);
   const configuredServerUrl = String(config.server.url || "").trim();
   if (!configuredServerUrl) throw new Error("未配置 server.url");
@@ -411,11 +409,14 @@ async function ensureOpenCodeServer(config, {
     const expectedAgent = source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
       ? "build"
       : String(config.execution?.agent || "").trim();
-    if (serverAllowsEverything(serverConfig, expectedAgent) && hasAgentSessionPolicy(serverConfig, expectedAgent)) {
-      log(`[server] 复用已运行且已启用全权限允许的 OpenCode Server: ${serverUrl}`);
-      return { client, serverConfig, owned: false, child: null, logPath: "" };
+    const reusable = source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
+      ? Object.hasOwn(serverConfig?.agent || {}, expectedAgent)
+      : serverAllowsEverything(serverConfig, expectedAgent) && hasAgentSessionPolicy(serverConfig, expectedAgent);
+    if (reusable) {
+      log(`[server] 复用已运行的 OpenCode Server: ${serverUrl}`);
+      return { client, serverConfig, owned: false, child: null, logPath: "", source };
     }
-    log(`[server] 已运行的 OpenCode Server 未启用全权限或无人值守会话策略，改为启动 Autorun 专用 Server`);
+    log(`[server] 已运行的 OpenCode Server 与当前 Agent 来源不匹配，改为启动独立 Server`);
   } else if (!reuseExisting && await client.health()) {
     log("[server] 隔离执行不复用已有 OpenCode Server，将自动选择独立端口");
   }
@@ -426,43 +427,49 @@ async function ensureOpenCodeServer(config, {
     client = new OpenCodeClient(serverUrl);
   }
 
-  const serveScript = fileURLToPath(new URL("./src/opencode/run-opencode-serve.mjs", import.meta.url));
-  if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
   const runtimeRoot = config.server.runtimeRoot;
-  const sessionPolicyPath = path.join(runtimeRoot, "session-policy.md");
   await fs.mkdir(runtimeRoot, { recursive: true });
-  await fs.writeFile(sessionPolicyPath, `${AGENT_AUTO_APPROVAL_POLICY}\n`, "utf8");
   const port = new URL(serverUrl).port || "61417";
   const runId = `${new Date().toISOString().replace(/[-:.]/g, "").slice(0, 15)}-autorun-serve`;
   const logDir = path.join(runtimeRoot, "logs", "runs", runId);
   const logPath = path.join(logDir, "opencode-server.log");
   await fs.mkdir(logDir, { recursive: true });
   const logFile = await fs.open(logPath, "a");
-  const args = [
-    serveScript,
-    "--source", source.resourcesDir,
-    "--assets-source", source.assetsDir,
-    "--opencode-bin", source.opencodeBinPath,
-    "--runtime-root", runtimeRoot,
-    "--workspace", workspace,
-    "--port", port,
-    "--session-agent", String(config.execution.agent || "").trim(),
-    "--session-policy-file", sessionPolicyPath,
-  ];
-  if (isolateConfig) args.push("--isolate-config");
-  if (source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
+  let args;
+  if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    args = [
+      source.serverLauncherPath,
+      "--root", source.installation.extensionDir,
+      "--workspace", workspace,
+      "--port", port,
+    ];
+  } else {
+    const serveScript = fileURLToPath(new URL("./src/opencode/run-opencode-serve.mjs", import.meta.url));
+    if (!await exists(serveScript)) throw new Error(`启动脚本不存在: ${serveScript}`);
+    const sessionPolicyPath = path.join(runtimeRoot, "session-policy.md");
+    await fs.writeFile(sessionPolicyPath, `${AGENT_AUTO_APPROVAL_POLICY}\n`, "utf8");
+    args = [
+      serveScript,
+      "--source", source.resourcesDir,
+      "--assets-source", source.assetsDir,
+      "--opencode-bin", source.opencodeBinPath,
+      "--runtime-root", runtimeRoot,
+      "--workspace", workspace,
+      "--port", port,
+      "--session-agent", String(config.execution.agent || "").trim(),
+      "--session-policy-file", sessionPolicyPath,
+    ];
+    if (isolateConfig) args.push("--isolate-config");
     args.push("--strict-source-skills");
-  }
-  if (config.server.providerOverlayPath) {
-    args.push("--provider-overlay", config.server.providerOverlayPath);
+    if (config.server.providerOverlayPath) {
+      args.push("--provider-overlay", config.server.providerOverlayPath);
+    }
   }
   if (config.server.devecoHome) args.push("--deveco-home", config.server.devecoHome);
 
   if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
     log(`[server] 使用 HarmonyBot 扩展 ${source.installation.version}: ${source.installation.extensionDir}`);
-    if (source.installation.bundleHash) {
-      log(`[server] 使用 HarmonyBot Bundle ${source.installation.bundleHash} (${source.installation.bundleStatus}): ${source.assetsDir}`);
-    }
+    log(`[server] Bundle 解析和 Skill 加载委托给插件启动器: ${source.serverLauncherPath}`);
   } else {
     log(`[server] 使用 Software Engineering 资源: ${source.root}`);
   }
@@ -470,6 +477,13 @@ async function ensureOpenCodeServer(config, {
   try {
     child = spawn(process.execPath, args, {
       cwd: config.__baseDir,
+      env: source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
+        ? {
+          ...process.env,
+          OPENCODE_DISABLE_EXTERNAL_SKILLS: "1",
+          OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: "1",
+        }
+        : process.env,
       stdio: ["ignore", logFile.fd, logFile.fd, "ipc"],
       windowsHide: true,
     });
@@ -502,7 +516,12 @@ async function ensureOpenCodeServer(config, {
   if (!healthy) {
     await stopServerProcessTree(child);
     if (child.exitCode !== null) {
-      throw new Error(`OpenCode Server 启动后提前退出（code=${child.exitCode}），日志: ${logPath}`);
+      const initializationHint = source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
+        ? `；请先在 VS Code 中启动并初始化 HarmonyBot ${source.installation.version}`
+        : "";
+      const error = new Error(`OpenCode Server 启动后提前退出（code=${child.exitCode}），日志: ${logPath}${initializationHint}`);
+      error.code = "OPENCODE_SERVER_EARLY_EXIT";
+      throw error;
     }
     throw new Error(`OpenCode Server 健康检查超时，日志: ${logPath}`);
   }
@@ -517,10 +536,21 @@ async function ensureOpenCodeServer(config, {
   }
   child.unref();
   log(`[server] OpenCode Server 已就绪: ${serverUrl}`);
-  return { client, serverConfig, owned: true, child, logPath, serverUrl, toolResources };
+  if (source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    toolResources = {
+      env: { PATH: process.env.PATH || "" },
+      toolReadRoots: [],
+    };
+  }
+  return { client, serverConfig, owned: true, child, logPath, serverUrl, toolResources, source };
 }
 
-async function stopOwnedServer(server, { log = console.log } = {}) {
+async function ensureOpenCodeServer(config, options = {}) {
+  const source = await resolveOpenCodeSource(config.server.opencodeSource);
+  return ensureOpenCodeServerFromSource(config, source, options);
+}
+
+async function stopOwnedServer(server, { log = silentLog } = {}) {
   if (!server?.owned || !server.child) return;
   if (server.child.exitCode === null && server.child.signalCode === null) {
     log("[server] 正在优雅关闭本次自动启动的 OpenCode Server");
@@ -531,7 +561,7 @@ async function stopOwnedServer(server, { log = console.log } = {}) {
   if (released) {
     log(`[server] OpenCode Server 端口已释放: ${new URL(server.serverUrl).port}`);
   } else {
-    console.warn(`[warn] OpenCode Server 已结束，但端口仍未释放: ${server.serverUrl}`);
+    log(`[warn] OpenCode Server 已结束，但端口仍未释放: ${server.serverUrl}`);
   }
 }
 
@@ -654,18 +684,16 @@ async function prepareSharedGenerationProvider(config, runId) {
     break;
   }
   if (!selected) {
-    throw new Error(`所有 Agent 来源都未配置统一生成模型 ${providerId}/${modelId}`);
+    return "";
   }
   const overlayPath = path.join(config.server.runtimeRoot, runId, "shared", "generation-provider.json");
   await atomicWriteJson(overlayPath, { providerId, provider: selected.provider });
   await fs.chmod(overlayPath, 0o600).catch(() => {});
-  console.log(`[isolation] 统一模型 Provider 已从 ${selected.targetId} 冻结并注入全部 Agent: ${providerId}/${modelId}`);
   return overlayPath;
 }
 
 async function createSharedCasesSnapshot(config, runId, runRoot) {
   const snapshotRoot = path.join(config.server.runtimeRoot, runId, "shared", "cases");
-  console.log(`[isolation] 正在冻结本次对比的用例输入: ${snapshotRoot}`);
   await copyProject(config.execution.casesRoot, snapshotRoot);
   const fingerprint = await fingerprintDirectory(snapshotRoot);
   await atomicWriteJson(path.join(runRoot, "input-snapshot.json"), {
@@ -675,7 +703,6 @@ async function createSharedCasesSnapshot(config, runId, runRoot) {
     ...fingerprint,
     createdAt: new Date().toISOString(),
   });
-  console.log(`[isolation] 用例输入已冻结：${fingerprint.fileCount} 个文件，sha256=${fingerprint.sha256.slice(0, 12)}…`);
   return snapshotRoot;
 }
 
@@ -689,8 +716,25 @@ function sanitizedConfigFingerprint(value) {
   return createHash("sha256").update(JSON.stringify(clean(value))).digest("hex");
 }
 
-async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig, source, server, model, signal }) {
+async function writeTargetEnvironmentManifest({
+  targetRoot,
+  target,
+  targetConfig,
+  source,
+  server,
+  model,
+  signal,
+  environmentFailures = [],
+}) {
   const skills = await waitForSkills(server.client, targetConfig.execution.casesRoot, { signal });
+  const registeredSkills = (Array.isArray(skills) ? skills : [])
+    .map((item) => String(item?.name || item?.id || "").trim())
+    .filter(Boolean)
+    .sort();
+  if (target.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT) {
+    server.toolResources ||= { env: { PATH: process.env.PATH || "" }, toolReadRoots: [] };
+    server.toolResources.skillNames = registeredSkills;
+  }
   server.skillRuntime = await prepareAgentSkillRuntime({
     resources: server.toolResources,
     registeredSkills: Array.isArray(skills) ? skills : [],
@@ -699,16 +743,16 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     signal,
   });
   if (server.skillRuntime.oneMulti?.devecoCli?.status === "unavailable") {
-    console.warn(`[warn] Agent ${target.id}: devecocli 预检未通过，将继续评测；${server.skillRuntime.oneMulti.devecoCli.warning}`);
+    environmentFailures.push(
+      `${target.label || target.id} devecocli：${server.skillRuntime.oneMulti.devecoCli.warning}`,
+    );
   }
-  const registeredSkills = (Array.isArray(skills) ? skills : [])
-    .map((item) => String(item?.name || item?.id || "").trim())
-    .filter(Boolean)
-    .sort();
-  const sourceSkillEntries = await fs.readdir(path.join(source.assetsDir, "skills"), { withFileTypes: true }).catch(() => []);
-  const sourceSkills = sourceSkillEntries
-    .map((item) => item.name)
-    .filter((name) => name && !name.startsWith("."))
+  if (!Array.isArray(server.toolResources?.skillNames)) {
+    throw new Error(`Agent ${target.id} Server 未返回私有 Skill 快照清单`);
+  }
+  const sourceSkills = [...new Set(server.toolResources.skillNames
+    .map((name) => String(name || "").trim())
+    .filter(Boolean))]
     .sort();
   let loadedSkills = registeredSkills;
   let blockedSkills = [];
@@ -735,7 +779,6 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     throw new Error(`Agent ${target.id} 来源 skills 为空，但 Server 实际加载了 Skill: ${loadedSkills.join(", ")}`);
   }
   const provider = server.serverConfig?.provider?.[model.providerId] || {};
-  const providerIdentity = Object.fromEntries(Object.entries(provider).filter(([key]) => key !== "models"));
   const manifest = {
     schemaVersion: "autorun-agent-environment-v1",
     targetId: target.id,
@@ -744,17 +787,17 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     agent: targetConfig.execution.agent,
     generationModel: {
       ...model,
-      configFingerprint: sanitizedConfigFingerprint({
-        provider: providerIdentity,
-        model: provider?.models?.[model.modelId],
-      }),
+      // HarmonyBot 新版通过 /config/providers 动态提供模型目录，静态
+      // provider.models 可能为空；统一模型校验以实际选择的 ID 为准。
+      configFingerprint: sanitizedConfigFingerprint(model),
     },
     source: {
       root: source.root,
       resourcesDir: source.resourcesDir,
-      assetsDir: source.assetsDir,
       opencodeBinPath: source.opencodeBinPath,
-      bundleHash: source.installation?.bundleHash || "",
+      ...(source.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? { assetsDir: source.assetsDir }
+        : { serverLauncherPath: source.serverLauncherPath }),
       version: source.installation?.version || "",
       configFingerprint: sanitizedConfigFingerprint({
         opencode: server.serverConfig,
@@ -764,12 +807,16 @@ async function writeTargetEnvironmentManifest({ targetRoot, target, targetConfig
     },
     isolation: {
       dedicatedServer: true,
-      runtimeRoot: targetConfig.server.runtimeRoot,
+      runtimeRoot: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? targetConfig.server.runtimeRoot
+        : "plugin-managed",
       workspace: path.join(path.dirname(targetConfig.server.runtimeRoot), "workspace"),
-      configAssets: "copied_snapshot",
+      configAssets: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+        ? "copied_snapshot"
+        : "plugin_managed",
       skillPolicy: target.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
         ? "strict_source_allowlist"
-        : "source_snapshot",
+        : "plugin_loaded_locations",
     },
     skills: {
       sourceDirectories: sourceSkills,
@@ -1080,10 +1127,14 @@ async function recoverInterruptedRuns(outputRoot) {
       error: "检测到上次 Autorun 未正常完成，已收尾遗留用例状态",
     });
     try {
-      summary.reports = await writeBatchReport({ batchRoot, summary, uploadConfig: config.upload });
+      summary.reports = await writeBatchReport({
+        batchRoot,
+        summary,
+        uploadConfig: config.upload,
+        onLog: silentLog,
+      });
     } catch (error) {
       summary.reportError = error.message;
-      console.warn(`[warn] 批次报告生成失败: ${error.message}`);
     }
     await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
     await atomicWriteJson(batchPath, batch);
@@ -1366,7 +1417,11 @@ async function cleanupCaseArtifacts({
     await attempt("清理工程构建缓存", () => pruneGeneratedProjectDirs(projectDir));
   }
   if (failures.length) {
-    console.warn(`[warn] ${caseName} 输出清理未完全完成：${failures.join("；")}`);
+    await fs.appendFile(
+      path.join(generateDir || projectDir || AUTORUN_ROOT, "cleanup-errors.log"),
+      `${caseName}: ${failures.join("；")}\n`,
+      "utf8",
+    ).catch(() => {});
   }
 }
 
@@ -1926,14 +1981,17 @@ async function finalizeCloudTestCase({ caseInfo, caseResult, cloudResult, store,
 
 async function validateServerConfig(client, execution, loadedConfig, sourceMode, signal) {
   const config = loadedConfig || await client.getConfig(120);
-  if (!serverAllowsExecution(config, execution.agent)) {
+  const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
+  if (usesBuiltInAgent && !serverAllowsExecution(config, execution.agent)) {
     throw new Error(`OpenCode Server 未对 Agent ${execution.agent} 启用运行权限（Skill 来源白名单除外）`);
   }
-  const usesBuiltInAgent = sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING;
   if (!usesBuiltInAgent && !Object.hasOwn(config?.agent || {}, execution.agent)) {
     throw new Error(`Server 未配置 Agent: ${execution.agent}`);
   }
-  if (!hasAgentSessionPolicy(config, execution.agent)) {
+  // Software Engineering 使用 Autorun 配置副本，必须在启动前注入无人值守
+  // 权限。HarmonyBot 配置完全由插件管理，运行中的 question/permission
+  // 请求由 session monitor 自动回复，不修改插件配置或 Bundle。
+  if (usesBuiltInAgent && !hasAgentSessionPolicy(config, execution.agent)) {
     throw new Error(`OpenCode Server 未为 Agent ${execution.agent} 注入无人值守会话策略`);
   }
   if (execution.agent === "harmonyos-multi-device") {
@@ -1949,27 +2007,14 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode,
       }
     }
   }
-  const requestedProviderId = String(execution.providerId || "").trim();
-  if (requestedProviderId) {
-    const provider = config?.provider?.[requestedProviderId];
-    if (!provider) {
-      throw new Error(`Server 未配置指定 Provider: ${requestedProviderId}`);
-    }
-    if (!Object.hasOwn(provider?.models || {}, execution.model)) {
-      throw new Error(`Server Provider ${requestedProviderId} 未配置模型: ${execution.model}`);
-    }
-    return { providerId: requestedProviderId, modelId: execution.model };
-  }
-  const matches = Object.entries(config?.provider || {})
-    .filter(([, provider]) => Object.hasOwn(provider?.models || {}, execution.model))
-    .map(([providerId]) => providerId);
-  if (matches.length === 1) {
-    return { providerId: matches[0], modelId: execution.model };
-  }
-  if (matches.length > 1) {
-    throw new Error(`模型 ${execution.model} 同时存在于多个 Provider（${matches.join(", ")}），请配置 execution.providerId`);
-  }
-  throw new Error(`Server 未配置模型: ${execution.model}`);
+  return resolveConfiguredModel({
+    client,
+    config,
+    providerId: String(execution.providerId || "").trim(),
+    modelId: execution.model,
+    directory: execution.casesRoot,
+    signal,
+  });
 }
 
 async function runBatch(config, client, serverConfig, checkOnly = false, {
@@ -1979,6 +2024,8 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   runId = "",
   targetRoot = "",
   targetId = "",
+  environmentFailures = [],
+  onEnvironmentReady,
 } = {}) {
   throwIfInterrupted(signal);
   const sourceMode = config.server.opencodeSource.mode;
@@ -2001,7 +2048,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     cloudTest = { enabled: cloudSettings.enabled, settings: cloudSettings };
   } catch (error) {
     if (config.cloudTest?.enabled !== false) {
-      console.warn(`[warn] 云测试不可用，本批次跳过该阶段: ${error.message}`);
+      environmentFailures.push(`云测试：${error.message}`);
     }
   }
   const discovered = await discoverCases(execution.casesRoot, { requireOhosTest: ohosTest.enabled });
@@ -2042,33 +2089,15 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     });
   }
   throwIfInterrupted(signal);
-  const ohosTestLabel = ohosTest.enabled
-    ? "已启用（串行，内置 Runner）"
-    : "未启用";
-  const cloudTestLabel = cloudTest.enabled
-    ? `已启用（与 ohosTest 并行，提交串行/轮询并行，任务时长 ${cloudTest.settings.testCategories.map((c) => `${c.timeSpan}分钟/类别${c.category}`).join("，")}）`
-    : "未启用";
-  if (
-    sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
-    && configuredAgent
-    && configuredAgent !== execution.agent
-  ) {
-    console.log(`[check] softwareEngineering 仅加载 Skills，使用 OpenCode 内置 Agent=${execution.agent}（忽略 execution.agent=${configuredAgent}）`);
-  }
-  console.log(`[check] 发现 ${displayCases.length} 个用例（可执行 ${cases.length}，跳过 ${skippedCases.length}）；Agent=${execution.agent}；模型=${model.providerId}/${model.modelId}；ohosTest=${ohosTestLabel}；cloudTest=${cloudTestLabel}`);
-  if (whiteboxOrchestrator) {
-    console.log(`[check] 白盒评价已启用；运行时=HarmonyBot OpenCode；裁判=${whiteboxOrchestrator.judge.providerId}/${whiteboxOrchestrator.judge.modelId}；并发=${whiteboxConfig.concurrency}`);
-  }
-  if (retryPlan) {
-    console.log(`[retry] 来源批次 ${retryPlan.sourceBatchId}；重试用例: ${retryPlan.selectedCaseNames.join(", ")}`);
-  }
+  onEnvironmentReady?.({
+    agent: execution.agent,
+    providerId: model.providerId,
+    modelId: model.modelId,
+  });
   if (checkOnly) return { checked: true, caseCount: cases.length, skippedCases, ohosTest, whiteboxEvaluation: whiteboxConfig };
 
   // Agent 来源分类仍用于报告展示；目录层级由一次运行的共享 runId 和 targetId 决定。
   const modeDirectoryName = await resolveBatchModeDirectoryName(config.server.opencodeSource);
-  if (sourceMode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING) {
-    console.log(`[check] softwareEngineering 来源 skills 目录${modeDirectoryName === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING ? "有内容" : "为空"}，批次目录分层: ${modeDirectoryName}`);
-  }
   const id = runId || batchId();
   const resolvedTargetId = safeName(targetId || config.server.opencodeSource.id || modeDirectoryName);
   const batchRoot = targetRoot || path.join(execution.outputRoot, id, resolvedTargetId);
@@ -2465,10 +2494,14 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     } : {}),
   };
   try {
-    summary.reports = await writeBatchReport({ batchRoot, summary, uploadConfig: config.upload });
+    summary.reports = await writeBatchReport({
+      batchRoot,
+      summary,
+      uploadConfig: config.upload,
+      onLog: silentLog,
+    });
   } catch (error) {
     summary.reportError = error.message;
-    console.warn(`[warn] 批次报告生成失败: ${error.message}`);
   }
   await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
   await store.setBatch({ status: summary.status, finishedAt: summary.finishedAt });
@@ -2581,6 +2614,29 @@ let batchSettled = false;
 let serverStopPromise;
 let shutdownFallbackTimer;
 let forceStopOwnedServer = false;
+const environmentFailures = [];
+const printedStartupTargets = new Set();
+let currentTarget;
+
+function targetRunConfiguration(target, override = {}) {
+  return {
+    agent: override.agent || (target?.mode === OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING
+      ? "build"
+      : target?.agent || config.execution.agent),
+    providerId: override.providerId || config.execution.generationModel.providerId,
+    modelId: override.modelId || config.execution.generationModel.modelId,
+  };
+}
+
+function printTargetStartup(target, override = {}) {
+  const targetKey = target?.id || "default";
+  if (printedStartupTargets.has(targetKey)) return;
+  writeAutorunStartupSummary({
+    failures: environmentFailures,
+    ...targetRunConfiguration(target, override),
+  });
+  printedStartupTargets.add(targetKey);
+}
 
 function beginOwnedServerStop() {
   if (!server?.owned || (config.server.stopWhenFinished === false && !forceStopOwnedServer)) {
@@ -2599,21 +2655,15 @@ function requestShutdown(reason, cause) {
   } else if (!(cause instanceof Error)) {
     error.message = String(reason);
   }
-  activeReporter?.pauseDashboard();
-  console.error(`[interrupt] ${error.message}；正在收尾运行中的用例`);
   shutdownController.abort(error);
   shutdownFallbackTimer = setTimeout(() => {
-    console.warn("[interrupt] 用例收尾超过 10 秒，开始关闭 OpenCode Server");
     void beginOwnedServerStop();
   }, 10_000);
   exitCode = 1;
 }
 
 const onSigint = () => {
-  if (shutdownController.signal.aborted) {
-    console.warn("[interrupt] 正在清理进程和端口，请等待收尾完成");
-    return;
-  }
+  if (shutdownController.signal.aborted) return;
   requestShutdown("收到 SIGINT（Ctrl+C）");
 };
 const onSigterm = () => {
@@ -2632,15 +2682,10 @@ process.once("unhandledRejection", onUnhandledRejection);
 
 try {
   const devecoCli = await detectDevEcoCli();
-  if (devecoCli.installed) {
-    console.log(`[check] DevEco CLI 可用: ${devecoCli.command} ${devecoCli.version}`);
-  } else {
-    console.warn(`[warn] DevEco CLI 不可用: ${formatDevEcoCliFailure(devecoCli)}`);
+  if (!devecoCli.installed) {
+    environmentFailures.push(`DevEco CLI：${formatDevEcoCliFailure(devecoCli)}`);
   }
-  const recovered = await recoverInterruptedRuns(config.execution.outputRoot);
-  for (const item of recovered) {
-    console.warn(`[recovery] 已收尾上次未正常完成的批次: ${item.batchId}`);
-  }
+  await recoverInterruptedRuns(config.execution.outputRoot);
   if (args.retryBatchId) {
     if (config.server.opencodeTargets.multiple) {
       throw new Error("多 Agent 对比暂不支持 --retry；请使用单 Agent 配置重试指定目标");
@@ -2664,9 +2709,9 @@ try {
   // Provider/模型配置。预检严格串行且每次立即关闭 Server，避免后一个目标
   // 到运行阶段才暴露模型缺失，导致前一个目标已经消耗配额却无法形成有效对比。
   if (targetPlan.multiple && !args.checkOnly) {
-    console.log(`[preflight] 开始校验 ${targetPlan.targets.length} 个 Agent 的隔离环境和统一模型`);
     const fingerprints = [];
     for (const target of targetPlan.targets) {
+      currentTarget = target;
       const targetRoot = path.join(allocated.runRoot, safeName(target.id));
       await fs.mkdir(targetRoot, { recursive: true });
       const prepared = configForTarget(config, target, allocated.runId, casesRoot, "preflight");
@@ -2674,7 +2719,6 @@ try {
       await fs.mkdir(workspace, { recursive: true });
       let preflightServer;
       try {
-        const source = await resolveOpenCodeSource(prepared.config.server.opencodeSource);
         preflightServer = await ensureOpenCodeServer(prepared.config, {
           signal: shutdownController.signal,
           reuseExisting: false,
@@ -2693,13 +2737,13 @@ try {
           targetRoot,
           target,
           targetConfig: prepared.config,
-          source,
+          source: preflightServer.source,
           server: preflightServer,
           model,
           signal: shutdownController.signal,
+          environmentFailures,
         });
         fingerprints.push(environment.generationModel.configFingerprint);
-        console.log(`[preflight] ${target.label} 校验通过`);
       } catch (error) {
         await atomicWriteJson(path.join(targetRoot, "target-error.json"), {
           targetId: target.id,
@@ -2707,22 +2751,22 @@ try {
           error: error.message,
           finishedAt: new Date().toISOString(),
         });
+        environmentFailures.push(`${target.label || target.id}：${error.message}`);
+        printTargetStartup(target);
         throw new Error(`Agent ${target.label} 预检失败: ${error.message}`, { cause: error });
       } finally {
-        await stopOwnedServer(preflightServer).catch((error) => {
-          console.warn(`[warn] 预检 Server 关闭失败: ${error.message}`);
-        });
+        await stopOwnedServer(preflightServer).catch(silentLog);
         server = null;
       }
     }
     if (new Set(fingerprints).size !== 1) {
       throw new Error("多 Agent 的 Provider/模型配置指纹不一致，禁止开始对比执行");
     }
-    console.log("[preflight] 所有 Agent 的 Provider/模型配置一致，开始串行执行");
   }
 
   for (let index = 0; index < targetPlan.targets.length; index += 1) {
     const target = targetPlan.targets[index];
+    currentTarget = target;
     if (shutdownController.signal.aborted) break;
     const targetRoot = args.checkOnly
       ? path.join(targetRuntimeRoot(config, allocated.runId, target.id), "check")
@@ -2731,13 +2775,11 @@ try {
     const prepared = configForTarget(config, target, allocated.runId, casesRoot);
     const workspace = path.join(prepared.runtimeRoot, "workspace");
     await fs.mkdir(workspace, { recursive: true });
-    console.log(`[target] ${index + 1}/${targetPlan.targets.length} 开始执行 ${target.label}（${target.id}）`);
     server = null;
     serverStopping = false;
     serverStopPromise = undefined;
     batchSettled = false;
     try {
-      const source = await resolveOpenCodeSource(prepared.config.server.opencodeSource);
       server = await ensureOpenCodeServer(prepared.config, {
         signal: shutdownController.signal,
         reuseExisting: false,
@@ -2768,10 +2810,11 @@ try {
         targetRoot,
         target,
         targetConfig: prepared.config,
-        source,
+        source: server.source,
         server,
         model: validatedModel,
         signal: shutdownController.signal,
+        environmentFailures,
       });
       const summary = await runBatch(prepared.config, server.client, server.serverConfig, args.checkOnly, {
         signal: shutdownController.signal,
@@ -2780,16 +2823,20 @@ try {
         runId: allocated.runId,
         targetRoot,
         targetId: target.id,
+        environmentFailures,
+        onEnvironmentReady: (runConfiguration) => printTargetStartup(target, runConfiguration),
       });
       batchSettled = true;
       targetResults.push({ ...target, targetRoot, summary });
       if (!args.checkOnly && summary.failed) exitCode = 1;
-      console.log(`[target] ${target.label} 执行结束：${summary.status || "checked"}`);
     } catch (error) {
       batchSettled = true;
-      activeReporter?.pauseDashboard();
+      activeReporter?.finishWithError(error.message);
       activeReporter = null;
-      console.error(`[target:${target.id}] ${error.stack || error.message}`);
+      if (!printedStartupTargets.has(target.id)) {
+        environmentFailures.push(`${target.label || target.id}：${error.message}`);
+        printTargetStartup(target);
+      }
       targetResults.push({ ...target, targetRoot, error: error.message });
       if (!args.checkOnly) {
         await atomicWriteJson(path.join(targetRoot, "target-error.json"), {
@@ -2830,16 +2877,18 @@ try {
       generationModel,
       targets: targetResults,
     });
-    console.log(`[report] 执行总览: ${report.overviewPath}`);
-    if (report.comparisonPath) console.log(`[report] Agent 对比数据: ${report.comparisonPath}`);
     if (targetPlan.multiple && !report.comparison.sameModelValidated) {
-      console.error("[error] 多 Agent 实际使用的 Provider/模型不一致，对比结果无效");
       exitCode = 1;
     }
   }
 } catch (error) {
-  activeReporter?.pauseDashboard();
-  console.error(`[error] ${error.stack || error.message}`);
+  activeReporter?.finishWithError(error.message);
+  activeReporter = null;
+  const fallbackTarget = currentTarget || config.server.opencodeTargets.targets[0];
+  if (!printedStartupTargets.has(fallbackTarget?.id || "default")) {
+    environmentFailures.push(`Autorun：${error.message}`);
+    printTargetStartup(fallbackTarget);
+  }
   exitCode = 1;
 } finally {
   clearTimeout(shutdownFallbackTimer);

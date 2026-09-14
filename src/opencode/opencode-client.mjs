@@ -96,6 +96,14 @@ export class OpenCodeClient {
     return this.request("/config", { timeoutSec, signal });
   }
 
+  getProviders(directory, timeoutSec = 30, signal) {
+    return this.request("/config/providers", {
+      directory,
+      timeoutSec,
+      signal,
+    });
+  }
+
   async resolveModel(modelId, timeoutSec = 30) {
     const config = await this.getConfig(timeoutSec);
     for (const [providerId, provider] of Object.entries(config?.provider || {})) {
