@@ -43,6 +43,7 @@ import {
   createWhiteboxOrchestrator,
   normalizeWhiteboxConfig,
   prepareWhiteboxInput,
+  resolveWhiteboxJudgeRuntime,
 } from "./src/lib/whitebox-orchestrator.mjs";
 
 const AUTORUN_ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -563,6 +564,52 @@ async function stopOwnedServer(server, { log = console.log } = {}) {
     log(`[server] OpenCode Server 端口已释放: ${new URL(server.serverUrl).port}`);
   } else {
     console.warn(`[warn] OpenCode Server 已结束，但端口仍未释放: ${server.serverUrl}`);
+  }
+}
+
+async function prepareWhiteboxJudgeRuntime(config, { workspace, signal } = {}) {
+  const whiteboxConfig = config.whiteboxEvaluation;
+  const source = await resolveOpenCodeSource({
+    mode: whiteboxConfig.runtime.source,
+    root: whiteboxConfig.runtime.root,
+  });
+  const discoveryConfig = structuredClone(config);
+  discoveryConfig.server.opencodeSource = {
+    mode: OPENCODE_SOURCE_MODES.HARMONY_BOT,
+    // 固定为刚解析出的具体扩展版本，保证 Provider 与裁判二进制同源。
+    root: source.installation.extensionDir,
+  };
+  discoveryConfig.server.runtimeRoot = path.join(
+    whiteboxConfig.runtimeRoot,
+    "provider-discovery",
+    String(process.pid),
+  );
+  discoveryConfig.server.providerOverlayPath = "";
+  discoveryConfig.execution.agent = "harmonyos-multi-device";
+  let discoveryServer;
+  try {
+    discoveryServer = await ensureOpenCodeServer(discoveryConfig, {
+      log: () => {},
+      signal,
+      reuseExisting: false,
+      workspace,
+      isolateConfig: false,
+    });
+    const judgeRuntime = await resolveWhiteboxJudgeRuntime({
+      client: discoveryServer.client,
+      serverConfig: discoveryServer.serverConfig,
+      judge: whiteboxConfig.judge,
+      generationModel: config.execution.generationModel,
+      directory: workspace,
+      signal,
+    });
+    return {
+      ...judgeRuntime,
+      opencodeBinPath: source.opencodeBinPath,
+      harmonyBotVersion: source.installation?.version || "",
+    };
+  } finally {
+    await stopOwnedServer(discoveryServer, { log: () => {} });
   }
 }
 
@@ -2007,6 +2054,7 @@ async function validateServerConfig(client, execution, loadedConfig, sourceMode,
 async function runBatch(config, client, serverConfig, checkOnly = false, {
   signal,
   skillRuntime,
+  whiteboxJudgeRuntime,
   retryPlan,
   runId = "",
   targetRoot = "",
@@ -2060,15 +2108,13 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   const whiteboxConfig = config.whiteboxEvaluation;
   let whiteboxOrchestrator;
   if (whiteboxConfig.enabled) {
-    const whiteboxSource = await resolveOpenCodeSource({
-      mode: whiteboxConfig.runtime.source,
-      root: whiteboxConfig.runtime.root,
-    });
+    if (!whiteboxJudgeRuntime) {
+      throw new Error("白盒裁判 HarmonyBot Provider 运行时尚未准备完成");
+    }
     whiteboxOrchestrator = await createWhiteboxOrchestrator({
       config: whiteboxConfig,
-      serverConfig,
-      generationModel: model,
-      opencodeBinPath: whiteboxSource.opencodeBinPath,
+      judgeRuntime: whiteboxJudgeRuntime,
+      opencodeBinPath: whiteboxJudgeRuntime.opencodeBinPath,
       repoRoot: AUTORUN_ROOT,
       signal,
     });
@@ -2689,6 +2735,12 @@ try {
   const casesRoot = targetPlan.multiple && !args.checkOnly
     ? await createSharedCasesSnapshot(config, allocated.runId, allocated.runRoot)
     : config.execution.casesRoot;
+  const whiteboxJudgeRuntime = config.whiteboxEvaluation.enabled
+    ? await prepareWhiteboxJudgeRuntime(config, {
+      workspace: casesRoot,
+      signal: shutdownController.signal,
+    })
+    : null;
   const targetResults = [];
   forceStopOwnedServer = true;
 
@@ -2808,6 +2860,7 @@ try {
       const summary = await runBatch(prepared.config, server.client, server.serverConfig, args.checkOnly, {
         signal: shutdownController.signal,
         skillRuntime: server.skillRuntime,
+        whiteboxJudgeRuntime,
         retryPlan,
         runId: allocated.runId,
         targetRoot,

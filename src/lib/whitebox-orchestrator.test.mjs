@@ -7,6 +7,7 @@ import {
   bindHarmonyBotWhiteboxRuntime,
   normalizeWhiteboxConfig,
   prepareWhiteboxInput,
+  resolveWhiteboxJudgeRuntime,
 } from "./whitebox-orchestrator.mjs";
 
 test("whitebox runtime always binds to the HarmonyBot OpenCode source", () => {
@@ -26,6 +27,72 @@ test("whitebox runtime requires a HarmonyBot source when enabled", () => {
       { id: "software-engineering", mode: "softwareEngineering", root: "/software" },
     ]),
     /未配置 HarmonyBot 来源/,
+  );
+});
+
+test("whitebox judge resolves its Provider, dynamic model and credential from HarmonyBot", async () => {
+  const runtime = await resolveWhiteboxJudgeRuntime({
+    client: {
+      getProviders: async () => ({
+        providers: [{
+          id: "zhipuai-coding-plan",
+          key: "test-runtime-key",
+          options: { baseURL: "https://runtime.example.test" },
+          models: { "glm-5.2": { id: "glm-5.2", name: "GLM 5.2" } },
+        }],
+      }),
+    },
+    serverConfig: {
+      provider: {
+        "zhipuai-coding-plan": {
+          options: { baseURL: "https://configured.example.test" },
+        },
+      },
+    },
+    judge: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2" },
+    generationModel: { providerId: "other", modelId: "other-model" },
+    directory: "/whitebox-workspace",
+  });
+
+  assert.equal(runtime.providerId, "zhipuai-coding-plan");
+  assert.equal(runtime.modelId, "glm-5.2");
+  assert.equal(runtime.providerConfig.options.apiKey, "test-runtime-key");
+  assert.equal(runtime.providerConfig.options.baseURL, "https://configured.example.test");
+  assert.deepEqual(Object.keys(runtime.providerConfig.models), ["glm-5.2"]);
+});
+
+test("whitebox judge remains compatible with a static HarmonyBot Provider", async () => {
+  const runtime = await resolveWhiteboxJudgeRuntime({
+    client: { getProviders: async () => { throw new Error("unsupported"); } },
+    serverConfig: {
+      provider: {
+        deepseek: {
+          options: { apiKey: "test-static-key" },
+          models: { "deepseek-v4": { name: "DeepSeek V4" } },
+        },
+      },
+    },
+    judge: { providerId: "deepseek", modelId: "deepseek-v4" },
+    directory: "/whitebox-workspace",
+  });
+
+  assert.equal(runtime.providerConfig.options.apiKey, "test-static-key");
+  assert.deepEqual(Object.keys(runtime.providerConfig.models), ["deepseek-v4"]);
+});
+
+test("whitebox judge reports a missing model from its HarmonyBot runtime", async () => {
+  await assert.rejects(
+    resolveWhiteboxJudgeRuntime({
+      client: {
+        getProviders: async () => ({
+          providers: [{ id: "zhipuai-coding-plan", models: { "glm-5.3": {} } }],
+        }),
+      },
+      serverConfig: { provider: {} },
+      judge: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2" },
+      directory: "/whitebox-workspace",
+    }),
+    /HarmonyBot Provider zhipuai-coding-plan 未配置白盒裁判模型: glm-5\.2/,
   );
 });
 
