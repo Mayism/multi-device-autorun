@@ -11,6 +11,10 @@ import { OpenCodeClient } from "./src/opencode/opencode-client.mjs";
 import { runMonitoredSession, isQuotaExceededMessage } from "./src/agent/session-monitor.mjs";
 import { copyProject } from "./src/runtime/sandbox-copy.mjs";
 import { ConsoleReporter } from "./src/runtime/console-reporter.mjs";
+import {
+  registerOwnedProcessTree,
+  signalOwnedProcessTree,
+} from "./src/runtime/owned-process-tree.mjs";
 import { addTokenUsage, aggregateSessionMessages, emptyTokenUsage } from "./src/agent/token-usage.mjs";
 import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./src/agent/compile-usage.mjs";
 import { loadOhosTestConfig, runOhosTest } from "./src/ohostest/autorun/orchestrator.mjs";
@@ -220,25 +224,28 @@ function waitForChildExit(child, timeoutMs) {
 }
 
 async function requestGracefulServerStop(child) {
+  let delivery = Promise.resolve(false);
   if (child.connected && typeof child.send === "function") {
     try {
-      const delivered = await new Promise((resolve) => {
+      delivery = new Promise((resolve) => {
         child.send({ type: "autorun:shutdown" }, (error) => resolve(!error));
       });
-      if (delivered) return;
     } catch {
-      // IPC 可能在状态检查后关闭，继续尝试发送普通终止信号。
+      // IPC 可能在状态检查后关闭，继续向进程树发送普通终止信号。
     }
   }
   try {
-    child.kill("SIGTERM");
+    // 即使 IPC 已送达，也向独立进程组发信号。某些插件启动器收到消息后会
+    // 先退出，若只盯启动器 PID，它派生的 OpenCode Server 会残留。
+    signalOwnedProcessTree(child, "SIGTERM");
   } catch {
     // 强制结束阶段会处理已失效或拒绝信号的进程。
   }
+  return delivery;
 }
 
 async function forceStopServerProcessTree(child) {
-  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child?.pid) return;
   if (process.platform === "win32") {
     await new Promise((resolve) => {
       const killer = spawn("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], {
@@ -251,7 +258,7 @@ async function forceStopServerProcessTree(child) {
     return;
   }
   try {
-    child.kill("SIGKILL");
+    signalOwnedProcessTree(child, "SIGKILL");
   } catch {
     // 进程可能在强制信号发出前已经退出。
   }
@@ -475,7 +482,8 @@ async function ensureOpenCodeServerFromSource(config, source, {
   }
   let child;
   try {
-    child = spawn(process.execPath, args, {
+    const detached = process.platform !== "win32";
+    child = registerOwnedProcessTree(spawn(process.execPath, args, {
       cwd: config.__baseDir,
       env: source.mode === OPENCODE_SOURCE_MODES.HARMONY_BOT
         ? {
@@ -486,7 +494,8 @@ async function ensureOpenCodeServerFromSource(config, source, {
         : process.env,
       stdio: ["ignore", logFile.fd, logFile.fd, "ipc"],
       windowsHide: true,
-    });
+      detached,
+    }), { detached });
   } finally {
     await logFile.close();
   }
@@ -557,7 +566,13 @@ async function stopOwnedServer(server, { log = silentLog } = {}) {
     const { forced } = await stopServerProcessTree(server.child);
     if (forced) log("[server] OpenCode Server 未在 5 秒内退出，已强制结束进程树");
   }
-  const released = await waitForServerPortReleased(server.serverUrl, 5000);
+  let released = await waitForServerPortReleased(server.serverUrl, 5000);
+  if (!released) {
+    // 启动器可能已经退出，但它派生的 Server 仍占用端口；POSIX 下仍可按
+    // 独立进程组清理，避免下一次运行不断递增端口并遗留后台进程。
+    await forceStopServerProcessTree(server.child);
+    released = await waitForServerPortReleased(server.serverUrl, 5000);
+  }
   if (released) {
     log(`[server] OpenCode Server 端口已释放: ${new URL(server.serverUrl).port}`);
   } else {
@@ -2613,6 +2628,9 @@ let serverStopping = false;
 let batchSettled = false;
 let serverStopPromise;
 let shutdownFallbackTimer;
+let hardExitTimer;
+let forceShutdownStarted = false;
+let interruptedBySignal = false;
 let forceStopOwnedServer = false;
 const environmentFailures = [];
 const printedStartupTargets = new Set();
@@ -2647,6 +2665,19 @@ function beginOwnedServerStop() {
   return serverStopPromise;
 }
 
+function forceShutdown(reason) {
+  if (forceShutdownStarted) return;
+  forceShutdownStarted = true;
+  const forcedExitCode = interruptedBySignal ? 130 : 1;
+  clearTimeout(shutdownFallbackTimer);
+  activeReporter?.pauseDashboard();
+  console.error(`${interruptedBySignal ? "执行中断" : "运行失败"}：${reason}，正在强制结束子进程`);
+  hardExitTimer = setTimeout(() => process.exit(forcedExitCode), 2_000);
+  void forceStopServerProcessTree(server?.child)
+    .catch(silentLog)
+    .finally(() => process.exit(forcedExitCode));
+}
+
 function requestShutdown(reason, cause) {
   if (shutdownController.signal.aborted) return;
   const error = interruptionError(cause || reason);
@@ -2655,19 +2686,33 @@ function requestShutdown(reason, cause) {
   } else if (!(cause instanceof Error)) {
     error.message = String(reason);
   }
+  if (interruptedBySignal) {
+    activeReporter?.pauseDashboard();
+    console.error(`执行中断：${error.message}`);
+  }
   shutdownController.abort(error);
+  // 第一时间停止本次专属 Server，促使正在等待的 HTTP/SSE 请求立即返回。
+  void beginOwnedServerStop().catch(silentLog);
   shutdownFallbackTimer = setTimeout(() => {
-    void beginOwnedServerStop();
-  }, 10_000);
+    forceShutdown("等待清理超过 8 秒");
+  }, 8_000);
   exitCode = 1;
 }
 
 const onSigint = () => {
-  if (shutdownController.signal.aborted) return;
+  if (shutdownController.signal.aborted) {
+    forceShutdown("再次收到 SIGINT（Ctrl+C）");
+    return;
+  }
+  interruptedBySignal = true;
   requestShutdown("收到 SIGINT（Ctrl+C）");
 };
 const onSigterm = () => {
-  if (shutdownController.signal.aborted) return;
+  if (shutdownController.signal.aborted) {
+    forceShutdown("再次收到 SIGTERM");
+    return;
+  }
+  interruptedBySignal = true;
   requestShutdown("收到 SIGTERM");
 };
 const onUncaughtException = (error) => requestShutdown("Autorun 出现未捕获异常", error);
@@ -2892,10 +2937,11 @@ try {
   exitCode = 1;
 } finally {
   clearTimeout(shutdownFallbackTimer);
+  clearTimeout(hardExitTimer);
   await beginOwnedServerStop();
   process.removeListener("SIGINT", onSigint);
   process.removeListener("SIGTERM", onSigterm);
   process.removeListener("uncaughtException", onUncaughtException);
   process.removeListener("unhandledRejection", onUnhandledRejection);
 }
-process.exitCode = exitCode;
+process.exitCode = interruptedBySignal ? 130 : exitCode;
