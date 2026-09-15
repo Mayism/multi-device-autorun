@@ -70,6 +70,11 @@ npm run ohostest:case -- \
 `metadata.enabled_devices`，两者都没有时使用 `machine.json.devices`。没有 `device_test_suites` 时每台设备执行
 全量测试，不继承 `machine.json.devices[].testSuites`。默认报告输出到 `<case>/.ohostest-runs/<timestamp>/`。
 
+`device_test_suites` 中的 `pc`、`2in1`（兼容大小写、连字符和下划线写法）当前会被自动跳过，
+因为一多适配 Agent 尚不支持 PC 形态。混合设备用例仍执行其他设备；仅配置 PC 的用例直接生成
+成功的零设备跳过结果，不执行补丁、构建或设备命令。该规则只作用于 `device_test_suites`，
+不改变 matrix 模式或 `enabled_devices` 的 PC 执行能力。
+
 多 HAP case 可通过 `metadata.device_hap_modules` 将 `phone`、`tablet`、`pc` 部署类型映射到
 HAP 模块；`wide_fold` 和 `foldable` 自动使用 `phone` 映射，但仍分别执行自己的测试套件。
 

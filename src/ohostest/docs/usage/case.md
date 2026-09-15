@@ -139,6 +139,12 @@ case 基线工程的模块发现规则与 matrix 模式一致：runner 通过模
 }
 ```
 
+Case 模式会忽略 `device_test_suites` 中设备键为 `pc` 或 `2in1` 的测试套件（同时兼容大小写、
+连字符和下划线写法），因为当前一多适配 Agent 不支持 PC 形态。其他设备仍按原顺序执行，
+跳过项记录在结果的 `metadata.skippedDevices` 中，并在摘要里标记为 `skipped`。如果该字段仅包含
+PC 套件，runner 会返回成功的零设备结果，且不会应用补丁、加载机器配置、构建或启动设备。
+此规则不影响 matrix 模式，也不影响通过 `enabled_devices` 或机器配置显式执行 PC 测试。
+
 `enabled_devices` 示例：
 
 ```json

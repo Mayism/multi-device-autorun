@@ -155,29 +155,9 @@ export function buildCaseDeviceSelection(
   );
 
   if (metadata.deviceTestSuites) {
-    const metadataDeviceIds = Object.keys(metadata.deviceTestSuites);
-    const overrides: Record<string, string[]> = {};
-
-    for (const deviceId of metadataDeviceIds) {
-      if (!machineDeviceIds.has(deviceId)) {
-        throw new Error(
-          `metadata device ${deviceId} is missing in machine config.`,
-        );
-      }
-      const suites = metadata.deviceTestSuites[deviceId] ?? [];
-      const deduped = dedupe(suites.map((suite) => suite.suite));
-      if (deduped.length === 0) {
-        throw new Error(`metadata device ${deviceId} has no suites.`);
-      }
-      overrides[deviceId] = deduped;
-    }
-
-    return filterCaseDeviceSelection(
-      {
-        devices: metadataDeviceIds,
-        deviceSuiteOverrides: overrides,
-        runAllTests: false,
-      },
+    return buildSuiteDeviceSelection(
+      metadata.deviceTestSuites,
+      machineDeviceIds,
       requestedDevices,
     );
   }
@@ -201,6 +181,42 @@ export function buildCaseDeviceSelection(
   );
 }
 
+function buildSuiteDeviceSelection(
+  deviceTestSuites: Record<string, CaseDeviceSuite[]>,
+  machineDeviceIds: Set<string>,
+  requestedDevices?: string[],
+): CaseDeviceSelection {
+  const configuredDeviceIds = Object.keys(deviceTestSuites);
+  const skippedDevices = configuredDeviceIds.filter(isPcDeviceId);
+  const devices = configuredDeviceIds.filter(
+    (deviceId) => !isPcDeviceId(deviceId),
+  );
+  const overrides: Record<string, string[]> = {};
+  for (const deviceId of devices) {
+    if (!machineDeviceIds.has(deviceId)) {
+      throw new Error(
+        `metadata device ${deviceId} is missing in machine config.`,
+      );
+    }
+    const suites = dedupe(
+      (deviceTestSuites[deviceId] ?? []).map((suite) => suite.suite),
+    );
+    if (suites.length === 0) {
+      throw new Error(`metadata device ${deviceId} has no suites.`);
+    }
+    overrides[deviceId] = suites;
+  }
+  return filterCaseDeviceSelection(
+    {
+      devices,
+      deviceSuiteOverrides: overrides,
+      ...(skippedDevices.length > 0 ? { skippedDevices } : {}),
+      runAllTests: false,
+    },
+    requestedDevices,
+  );
+}
+
 function filterCaseDeviceSelection(
   selection: CaseDeviceSelection,
   requestedDevices?: string[],
@@ -210,7 +226,11 @@ function filterCaseDeviceSelection(
   }
 
   const allowedDevices = new Set(selection.devices);
-  const devices = dedupe(requestedDevices);
+  const requested = dedupe(requestedDevices);
+  const shouldSkipPc = (selection.skippedDevices?.length ?? 0) > 0;
+  const devices = shouldSkipPc
+    ? requested.filter((deviceId) => !isPcDeviceId(deviceId))
+    : requested;
   for (const deviceId of devices) {
     if (!allowedDevices.has(deviceId)) {
       throw new Error(
@@ -231,6 +251,20 @@ function filterCaseDeviceSelection(
       devices.map((deviceId) => [deviceId, overrides[deviceId] ?? []]),
     ),
   };
+}
+
+export function isPcDeviceId(deviceId: string): boolean {
+  const normalized = deviceId
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, "");
+  return normalized === "pc" || normalized === "2in1";
+}
+
+export function skippedPcDeviceIds(metadata: CaseMetadata): string[] {
+  return metadata.deviceTestSuites
+    ? Object.keys(metadata.deviceTestSuites).filter(isPcDeviceId)
+    : [];
 }
 
 async function resolveBaseProject(

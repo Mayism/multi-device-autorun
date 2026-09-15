@@ -5,6 +5,12 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.5.0] - 2026-09-15
+
+### 新增
+
+- Case 模式读取 `metadata.device_test_suites` 时自动跳过 `pc`、`2in1` 及大小写、连字符等等价写法对应的测试套件，避免为当前一多适配 Agent 尚不支持的 PC 形态执行无意义的构建和测试。混合设备用例继续执行手机、折叠屏和平板套件；仅包含 PC 套件的用例生成成功的零设备跳过结果，不要求机器配置 PC，也不会应用补丁、构建或启动设备。结果元数据通过 `skippedDevices` 保留跳过设备，摘要中的对应设备标记为 `skipped`。
+
 ## [0.4.0] - 2026-09-14
 
 ### 变更

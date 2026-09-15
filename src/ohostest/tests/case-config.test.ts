@@ -224,6 +224,43 @@ test("buildCaseDeviceSelection uses metadata device suites when present", () => 
   );
 });
 
+test("buildCaseDeviceSelection skips PC suites before validating machine devices", () => {
+  const matrixConfig = {
+    devices: [
+      { id: "phone", target: "127.0.0.1:15001", startEmulator: false },
+      { id: "tablet", target: "127.0.0.1:15003", startEmulator: false },
+    ],
+  } as MatrixConfig;
+  const metadata = {
+    caseId: "case",
+    caseDir: "/tmp/case",
+    baseProject: "/tmp/base",
+    testPatch: "/tmp/case/test_patch.patch",
+    goldenPatch: "/tmp/case/golden_patch.patch",
+    testCaseTimeoutMs: AA_TEST_CASE_TIMEOUT_MS,
+    failToPass: [],
+    passToPass: [],
+    deviceTestSuites: {
+      phone: [{ suite: "PhoneSuite" }],
+      PC: [{ suite: "PcSuite" }],
+      "2-in-1": [{ suite: "TwoInOneSuite" }],
+    },
+  };
+
+  assert.deepEqual(buildCaseDeviceSelection(metadata, matrixConfig), {
+    devices: ["phone"],
+    deviceSuiteOverrides: { phone: ["PhoneSuite"] },
+    skippedDevices: ["PC", "2-in-1"],
+    runAllTests: false,
+  });
+  assert.deepEqual(buildCaseDeviceSelection(metadata, matrixConfig, ["pc"]), {
+    devices: [],
+    deviceSuiteOverrides: {},
+    skippedDevices: ["PC", "2-in-1"],
+    runAllTests: false,
+  });
+});
+
 test("loadCaseMetadata accepts enabled devices without device test suites", async (t) => {
   const caseDir = await makeTempCase(t);
   await fs.mkdir(path.join(caseDir, "..", "base"), { recursive: true });

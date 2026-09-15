@@ -366,7 +366,7 @@ async function writeMultiHapCase(root: string): Promise<string> {
   return caseDir;
 }
 
-test("runOhosTestCase groups five devices into two HAP module runs", async (t) => {
+test("runOhosTestCase skips PC suites and runs supported devices only", async (t) => {
   const root = await fs.mkdtemp(
     path.join(os.tmpdir(), "ohostest-case-runner-multi-hap-"),
   );
@@ -420,21 +420,13 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
   assert.equal(result.status, "completed");
   assert.deepEqual(
     result.runs.swe?.devices.map((device) => device.id),
-    ["phone", "wide_fold", "foldable", "tablet", "pc"],
+    ["phone", "wide_fold", "foldable", "tablet"],
   );
-  assert.deepEqual(
-    result.runs.swe?.module_runs?.map((moduleRun) => ({
-      module: moduleRun.module,
-      devices: moduleRun.devices.map((device) => device.id),
-    })),
-    [
-      {
-        module: "multisettingdefaultsample",
-        devices: ["phone", "wide_fold", "foldable", "tablet"],
-      },
-      { module: "multisettingpcsample", devices: ["pc"] },
-    ],
-  );
+  assert.equal(result.runs.swe?.module_runs, undefined);
+  assert.deepEqual(result.metadata.skippedDevices, ["pc"]);
+  assert.deepEqual(result.runs.swe?.diagnostics, [
+    "unsupported_pc_device_skipped: pc",
+  ]);
   assert.deepEqual(result.metadata.deviceHapModules, {
     phone: "multisettingdefaultsample",
     tablet: "multisettingdefaultsample",
@@ -444,10 +436,6 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
     {
       module: "products/default",
       deviceTypes: ["phone", "tablet"],
-    },
-    {
-      module: "products/pc",
-      deviceTypes: ["phone", "2in1"],
     },
   ]);
   assert.equal(
@@ -460,7 +448,7 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
     commands.filter((command) =>
       command.includes("module=multisettingpcsample@ohosTest"),
     ).length,
-    1,
+    0,
   );
   assert.ok(
     commands.some(
@@ -470,39 +458,16 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
     ),
   );
   assert.ok(
-    commands.some(
+    commands.every(
       (command) =>
-        command.includes("aa test") &&
-        command.includes("-m multisettingpcsample_test"),
+        !command.includes("aa test") ||
+        !command.includes("-m multisettingpcsample_test"),
     ),
   );
-  assert.ok(
-    await fs.readFile(
-      path.join(
-        out,
-        "swe",
-        "modules",
-        "multisettingdefaultsample",
-        "result.json",
-      ),
-      "utf-8",
-    ),
-  );
-  assert.ok(
-    await fs.readFile(
-      path.join(
-        out,
-        "swe",
-        "modules",
-        "multisettingpcsample",
-        "result.json",
-      ),
-      "utf-8",
-    ),
-  );
+  assert.ok(await fs.readFile(path.join(out, "swe", "result.json"), "utf-8"));
+  await assert.rejects(fs.access(path.join(out, "swe", "modules")));
   const summary = await fs.readFile(path.join(out, "summary.md"), "utf-8");
-  assert.match(summary, /multisettingdefaultsample/);
-  assert.match(summary, /multisettingpcsample/);
+  assert.match(summary, /pc \(skipped\)/);
   for (const module of ["products/default", "products/pc"]) {
     const config = parseJson5ish(
       await fs.readFile(
@@ -512,6 +477,59 @@ test("runOhosTestCase groups five devices into two HAP module runs", async (t) =
     ) as { module: { deviceTypes: string[] } };
     assert.deepEqual(config.module.deviceTypes, ["phone"]);
   }
+});
+
+test("runOhosTestCase completes without commands when metadata contains only PC suites", async (t) => {
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "ohostest-case-runner-pc-only-"),
+  );
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+  await makeMultiHapProject(root);
+  const caseDir = await writeMultiHapCase(root);
+  await fs.writeFile(
+    path.join(caseDir, "metadata.json"),
+    JSON.stringify({
+      case_id: "case-navigation-settings-pc-only",
+      base_project: "base",
+      test_patch: "test_patch.patch",
+      golden_patch: "golden_patch.patch",
+      device_hap_modules: { pc: "multisettingpcsample" },
+      device_test_suites: { pc: [{ suite: "pc_suite" }] },
+    }),
+    "utf-8",
+  );
+  const out = path.join(root, "runs");
+
+  const result = await runOhosTestCase({
+    caseDir,
+    machineConfigPath: path.join(root, "missing-machine.json"),
+    out,
+    runMode: "all",
+    commandExecutor: async () => {
+      throw new Error("PC-only skip must not execute commands");
+    },
+    patchCommandExecutor: async () => {
+      throw new Error("PC-only skip must not apply patches");
+    },
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(result.metadata.skippedDevices, ["pc"]);
+  assert.deepEqual(result.runs.swe?.devices, []);
+  assert.deepEqual(result.runs.answer?.devices, []);
+  assert.deepEqual(result.runs.swe?.diagnostics, [
+    "unsupported_pc_device_skipped: pc",
+  ]);
+  assert.deepEqual(result.runs.answer?.diagnostics, [
+    "unsupported_pc_device_skipped: pc",
+  ]);
+  assert.match(
+    await fs.readFile(path.join(out, "summary.md"), "utf-8"),
+    /pc \(skipped\)/,
+  );
+  await assert.rejects(fs.access(path.join(out, "work")));
 });
 
 test("runOhosTestCase applies test and golden patches, runs swe and answer, and writes a case report", async (t) => {

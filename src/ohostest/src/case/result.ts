@@ -10,6 +10,7 @@ import type {
   TestCaseRunResult,
 } from "../execution/types/index.js";
 import { MODULE_DEVICE_TYPE_CHECK_SUITE } from "./deviceCompatibility.js";
+import { isPcDeviceId, skippedPcDeviceIds } from "./config.js";
 
 export function deriveCaseStatus(
   runs: { swe?: CaseRunResult; answer?: CaseRunResult },
@@ -98,12 +99,14 @@ function moduleRunSection(result: CaseResult): string[] {
 export function metadataForResult(
   metadata: CaseMetadata,
 ): CaseResult["metadata"] {
+  const skippedDevices = skippedPcDeviceIds(metadata);
   return {
     ...(metadata.platform ? { platform: metadata.platform } : {}),
     testCaseTimeoutMs: metadata.testCaseTimeoutMs,
     failToPass: metadata.failToPass,
     passToPass: metadata.passToPass,
     deviceTestSuites: metadata.deviceTestSuites ?? {},
+    ...(skippedDevices.length > 0 ? { skippedDevices } : {}),
     ...(metadata.enabledDevices
       ? { enabledDevices: metadata.enabledDevices }
       : {}),
@@ -153,8 +156,9 @@ function deviceSuiteLines(
 ): string[] {
   const lines = ["| Device | Suites |", "| --- | --- |"];
   for (const [deviceId, suites] of Object.entries(deviceTestSuites)) {
+    const skipped = isPcDeviceId(deviceId) ? " (skipped)" : "";
     lines.push(
-      `| ${deviceId} | ${suites.map((suite) => suite.suite).join(", ")} |`,
+      `| ${deviceId}${skipped} | ${suites.map((suite) => suite.suite).join(", ")} |`,
     );
   }
   return lines;

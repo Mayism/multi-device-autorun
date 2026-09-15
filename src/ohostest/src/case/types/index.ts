@@ -50,6 +50,7 @@ export interface CaseMetadata {
 export interface CaseDeviceSelection {
   devices: string[];
   deviceSuiteOverrides?: Record<string, string[]>;
+  skippedDevices?: string[];
   runAllTests: boolean;
 }
 
@@ -93,6 +94,7 @@ export interface CaseResult {
     failToPass: string[];
     passToPass: string[];
     deviceTestSuites: Record<string, CaseDeviceSuite[]>;
+    skippedDevices?: string[];
     enabledDevices?: string[];
     deviceHapModules?: DeviceHapModules;
   };

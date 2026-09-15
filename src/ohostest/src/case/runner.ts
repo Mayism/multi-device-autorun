@@ -27,6 +27,8 @@ import type {
 import {
   buildCaseDeviceSelection,
   buildCaseExecutionGroups,
+  isPcDeviceId,
+  skippedPcDeviceIds,
   loadCaseMetadata,
 } from "./config.js";
 import { applyPatch } from "./patch.js";
@@ -54,6 +56,7 @@ import type {
   CaseModuleRunResult,
   CaseMetadata,
   CaseResult,
+  CaseRunResult,
   RunCaseInput,
 } from "./types/index.js";
 import {
@@ -156,6 +159,7 @@ async function runCaseComparisons(
   context: CaseRunContext,
 ): Promise<void> {
   const runMode = input.runMode ?? "answer";
+  if (await skipPcOnlyCase(context, runMode)) return;
   const runPatchCommand = loggedPatchCommand(input, context);
   await prepareCaseWorkspace(context.metadata, context);
   await prepareFlutterWorkProject(input, context);
@@ -219,6 +223,59 @@ async function runCaseComparisons(
       prepared.deviceSelection,
       "answer",
     );
+  }
+}
+
+async function skipPcOnlyCase(
+  context: CaseRunContext,
+  runMode: "answer" | "swe" | "all",
+): Promise<boolean> {
+  const skippedDevices = skippedPcDeviceIds(context.metadata);
+  if (
+    !context.metadata.deviceTestSuites ||
+    skippedDevices.length !==
+      Object.keys(context.metadata.deviceTestSuites).length
+  ) {
+    return false;
+  }
+  await writePcOnlySkippedRuns(context, runMode, skippedDevices);
+  return true;
+}
+
+async function writePcOnlySkippedRuns(
+  context: CaseRunContext,
+  runMode: "answer" | "swe" | "all",
+  skippedDevices: string[],
+): Promise<void> {
+  const phases: Array<"swe" | "answer"> =
+    runMode === "all" ? ["swe", "answer"] : [runMode];
+  for (const phase of phases) {
+    const outDir = path.join(context.outDir, phase);
+    await fs.mkdir(outDir, { recursive: true });
+    const now = new Date().toISOString();
+    const result: CaseRunResult = {
+      schemaVersion: "ohostest-matrix-v1",
+      project: context.metadata.baseProject,
+      status: "completed",
+      startedAt: now,
+      finishedAt: now,
+      durationMs: 0,
+      build: {
+        status: "passed",
+        appHap: "",
+        testHap: "",
+        durationMs: 0,
+      },
+      devices: [],
+      diagnostics: [
+        `unsupported_pc_device_skipped: ${skippedDevices.join(", ")}`,
+      ],
+      artifacts: {
+        commandLog: "../commands.jsonl",
+        summary: "summary.md",
+      },
+    };
+    context.runs[phase] = await writeCaseRunResult(outDir, result);
   }
 }
 
@@ -295,9 +352,14 @@ async function prepareCaseExecution(
 }
 
 function firstMappedModule(metadata: CaseMetadata): string | undefined {
-  return metadata.deviceHapModules
-    ? Object.values(metadata.deviceHapModules)[0]
-    : undefined;
+  if (!metadata.deviceHapModules) return undefined;
+  for (const deviceId of Object.keys(metadata.deviceTestSuites ?? {})) {
+    if (isPcDeviceId(deviceId)) continue;
+    const deploymentType = deviceId === "tablet" ? "tablet" : "phone";
+    const module = metadata.deviceHapModules[deploymentType];
+    if (module) return module;
+  }
+  return Object.values(metadata.deviceHapModules)[0];
 }
 
 // 平台执行选项：rn/flutter 壳工程重定位的平台标记 + rn 的 bundle 命令覆盖。
@@ -509,7 +571,13 @@ async function runCaseExecution(
       outDir,
       phase,
     );
-    return writeCaseRunResult(outDir, execution);
+    return writeCaseRunResult(outDir, {
+      ...execution,
+      diagnostics: withSkippedDeviceDiagnostics(
+        execution.diagnostics,
+        deviceSelection,
+      ),
+    });
   }
 
   const startedTime = Date.now();
@@ -552,10 +620,13 @@ async function runCaseExecution(
     durationMs: finishedTime - startedTime,
     build: aggregateModuleBuilds(moduleRuns),
     devices,
-    diagnostics: moduleRuns.flatMap((moduleRun) =>
-      moduleRun.diagnostics.map(
-        (diagnostic) => `[${moduleRun.module}] ${diagnostic}`,
+    diagnostics: withSkippedDeviceDiagnostics(
+      moduleRuns.flatMap((moduleRun) =>
+        moduleRun.diagnostics.map(
+          (diagnostic) => `[${moduleRun.module}] ${diagnostic}`,
+        ),
       ),
+      deviceSelection,
     ),
     module_runs: moduleRuns,
     artifacts: {
@@ -565,6 +636,18 @@ async function runCaseExecution(
   };
   await writeCaseRunResult(outDir, result);
   return result;
+}
+
+function withSkippedDeviceDiagnostics(
+  diagnostics: string[],
+  selection: CaseDeviceSelection,
+): string[] {
+  return selection.skippedDevices?.length
+    ? [
+        `unsupported_pc_device_skipped: ${selection.skippedDevices.join(", ")}`,
+        ...diagnostics,
+      ]
+    : diagnostics;
 }
 
 async function runPreparedExecutionGroup(
