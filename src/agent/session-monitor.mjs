@@ -7,6 +7,7 @@ import { handlePendingInteractions } from "./interaction-policy.mjs";
 
 const TERMINAL_FINISH_EXCLUSIONS = new Set(["", "tool-calls", "unknown"]);
 const ACTIVE_TODO_STATES = new Set(["pending", "in_progress", "in-progress", "running", "active", "doing", "todo"]);
+const BASIC_TESTS_REPLY = "仅基础测试";
 
 function walk(value, visitor) {
   if (!value || typeof value !== "object") return;
@@ -97,6 +98,20 @@ function extractText(message) {
     .map((part) => part.text)
     .join("\n")
     .trim();
+}
+
+export function requestsBasicTestsReply(message) {
+  const text = extractText(message);
+  return text.includes("当前模型未通过图片理解探测")
+    && text.includes("仅基础测试")
+    && /请回复[“\"']?仅基础测试[”\"']?/.test(text);
+}
+
+function followUpPayload(payload, text) {
+  return {
+    ...(payload && typeof payload === "object" ? payload : {}),
+    parts: [{ type: "text", text }],
+  };
 }
 
 function messageProgress(message) {
@@ -400,6 +415,7 @@ export async function runMonitoredSession({
   let interactionRequested = true;
   let fatalSessionError = null;
   let quotaLimited = false;
+  let basicTestsReplyInjected = false;
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
   const sse = startSseCapture({
@@ -584,6 +600,37 @@ export async function runMonitoredSession({
         });
         if (finalInteractions.pending || finalInteractions.errors.length) {
           await delay(500);
+          continue;
+        }
+        if (!basicTestsReplyInjected && requestsBasicTestsReply(latestMessage)) {
+          await waitWithInterruption(
+            client.promptAsync(
+              sessionId,
+              followUpPayload(payload, BASIC_TESTS_REPLY),
+              projectDir,
+              300,
+            ),
+            signal,
+          );
+          basicTestsReplyInjected = true;
+          idleSessions.delete(sessionId);
+          latestMessage = null;
+          stableTerminalCount = 0;
+          unchangedMessageCount = 0;
+          messagePollMs = 2000;
+          lastMessagePollAt = 0;
+          onActivity();
+          await appendJsonl(pollingPath, {
+            timestamp: new Date().toISOString(),
+            kind: "automatic_text_reply",
+            sessionId,
+            text: BASIC_TESTS_REPLY,
+          });
+          onProgress?.("text_replied", {
+            sessionId,
+            text: BASIC_TESTS_REPLY,
+            reason: "multimodal_unavailable",
+          });
           continue;
         }
         return {

@@ -4,7 +4,10 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { runMonitoredSession } from "./session-monitor.mjs";
+import {
+  requestsBasicTestsReply,
+  runMonitoredSession,
+} from "./session-monitor.mjs";
 
 async function createTestWorkspace(t) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "autorun-session-monitor-"));
@@ -168,4 +171,93 @@ test("transient rate-limit retry keeps waiting and still marks quotaLimited", as
   assert.equal(aborted, true);
   assert.deepEqual(notifications, [{ message: "rate limit exceeded, retrying in 4s", hard: false }]);
   assert.ok(Date.now() - startedAt < 6000);
+});
+
+test("requestsBasicTestsReply matches only the multimodal fallback guidance", () => {
+  const message = (text) => ({
+    info: { role: "assistant" },
+    parts: [{ type: "text", text }],
+  });
+  assert.equal(
+    requestsBasicTestsReply(
+      message("当前模型未通过图片理解探测，请选择后续测试方式：请回复“仅基础测试”。"),
+    ),
+    true,
+  );
+  assert.equal(requestsBasicTestsReply(message("仅基础测试已经执行完成。")), false);
+  assert.equal(
+    requestsBasicTestsReply(message("当前模型未通过图片理解探测，但无需用户回复。")),
+    false,
+  );
+});
+
+test("multimodal fallback text receives one basic-tests reply in the same session", async (t) => {
+  const { tempDir, projectDir } = await createTestWorkspace(t);
+  const sessionId = "session-multimodal-fallback";
+  const fake = await startFakeEventServer(projectDir, [{
+    type: "session.idle",
+    properties: { sessionID: sessionId },
+  }]);
+  t.after(() => fake.close());
+
+  const prompts = [];
+  const progress = [];
+  const terminalMessage = (id, text) => ({
+    info: { id, role: "assistant", finish: "stop" },
+    parts: [
+      { type: "text", text },
+      { type: "step-finish" },
+    ],
+  });
+  fake.client.promptAsync = async (_sessionId, payload) => {
+    prompts.push(payload);
+  };
+  fake.client.listMessages = async () => [
+    prompts.length === 1
+      ? terminalMessage(
+          "first",
+          "当前模型未通过图片理解探测，请选择后续测试方式：\n1. 仅基础测试（默认方案）。请回复“仅基础测试”。\n2. 继续多模态测试。",
+        )
+      : terminalMessage("second", "基础测试已完成。"),
+  ];
+  fake.client.listChildren = async () => [];
+  fake.client.listTodos = async () => [];
+  fake.client.listQuestions = async () => [];
+  fake.client.listPermissions = async () => [];
+  fake.client.abortSession = async () => {};
+
+  const initialPayload = {
+    parts: [{ type: "text", text: "执行一多适配" }],
+    agent: "harmonyos-multi-device",
+    model: { providerID: "provider", modelID: "model" },
+  };
+  const result = await runMonitoredSession({
+    client: fake.client,
+    sessionId,
+    projectDir,
+    payload: initialPayload,
+    eventsPath: path.join(tempDir, "events.jsonl"),
+    pollingPath: path.join(tempDir, "polling.jsonl"),
+    idleTimeoutSec: 10,
+    maxRuntimeSec: 15,
+    onProgress: (event, data) => progress.push({ event, data }),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.output, "基础测试已完成。");
+  assert.equal(prompts.length, 2);
+  assert.deepEqual(prompts[1], {
+    ...initialPayload,
+    parts: [{ type: "text", text: "仅基础测试" }],
+  });
+  assert.deepEqual(
+    progress.filter(({ event }) => event === "text_replied").map(({ data }) => data),
+    [{
+      sessionId,
+      text: "仅基础测试",
+      reason: "multimodal_unavailable",
+    }],
+  );
+  const polling = await fs.readFile(path.join(tempDir, "polling.jsonl"), "utf8");
+  assert.equal((polling.match(/"kind":"automatic_text_reply"/g) ?? []).length, 1);
 });

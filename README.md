@@ -544,6 +544,12 @@ Agent 结束后，Autorun 会在业务 Patch 和白盒 Sandbox 边界排除 `.on
 
 ohosTest 执行期间会先创建 `<caseName>/work/` 作为实际编译工程；执行结束后统一重命名并保留为
 `<caseName>/ohostest-workdir/`。用例 `result.json` 的 `ohosTest.workDir` 会记录其绝对路径。
+
+当 UITest 出现失败或错误测试项时，Autorun 会在生成 Agent 之外创建独立的只分析会话，综合原始
+`PROMPT.md`、`metadata.json`、`diff/changes.patch`、`test_patch.patch`、最终修改源码以及关联的
+ohosTest 日志生成结构化根因。证据和结果保存在 `<caseName>/failure-analysis/`，详情报告中的
+“查看原因”优先展示该分析；原始失败描述与调用栈保留在折叠的技术详情中。诊断失败不会改变
+用例状态，报告会自动回退到原始错误。golden patch 不会提供给诊断会话。
 该目录包含完整工程和构建缓存，便于定位问题，但会明显增加批次结果占用的磁盘空间，可在排查结束后手动删除。
 
 Agent 成功生成 `changes.patch` 后会删除临时 `original/`；Agent 成功时还会删除 SSE、轮询日志。ohosTest 结束后会从最终 `base/` 或 `task/` 工程中清理 `.git`、`.hvigor`、`build` 和 `node_modules` 等可再生成目录，但始终保留 `all-messages.json` 以及 `work/` 或 `ohostest-workdir/`。`golden_patch.patch` 仅在 SWE 启动校验期间临时复制，Runner 结束后删除。

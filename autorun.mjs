@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { OpenCodeClient } from "./src/opencode/opencode-client.mjs";
 import { runMonitoredSession, isQuotaExceededMessage } from "./src/agent/session-monitor.mjs";
+import { analyzeUitestFailures } from "./src/agent/uitest-failure-analysis.mjs";
 import { copyProject } from "./src/runtime/sandbox-copy.mjs";
 import { ConsoleReporter } from "./src/runtime/console-reporter.mjs";
 import {
@@ -1638,6 +1639,10 @@ async function runCase({
           writeAgentConsole("interaction", `已自动允许 permission；permission=${data.permission || "unknown"}；requestId=${data.requestId}`).catch(() => {});
         } else if (event === "question_replied") {
           writeAgentConsole("interaction", `已自动回答 question；requestId=${data.requestId}；answers=${JSON.stringify(data.answers || [])}`).catch(() => {});
+        } else if (event === "text_replied") {
+          const detail = `检测到图片能力降级提示，已自动回复“${data.text || "仅基础测试"}”并继续会话`;
+          reporter.caseProgress(caseName, detail);
+          writeAgentConsole("interaction", detail).catch(() => {});
         } else if (event === "interaction_error" && Date.now() - lastInteractionErrorAt > 5000) {
           lastInteractionErrorAt = Date.now();
           writeAgentConsole("interaction-error", `${data.kind || "interaction"} 自动处理失败，将继续重试：${data.error || "unknown error"}`).catch(() => {});
@@ -2264,6 +2269,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   const postValidationJobs = [];
   const whiteboxJobsByCase = new Map();
   let ohosTestTail = Promise.resolve();
+  let failureAnalysisTail = Promise.resolve();
   let cloudSubmitTail = Promise.resolve();
   let stopQueue = false;
 
@@ -2354,7 +2360,28 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     // 只有这一条 Promise 链会进入 Runner，确保模拟器启动和设备执行始终串行。
     ohosTestTail = scheduled.catch(() => {});
     return scheduled.then(
-      (finalResult) => finalResult,
+      async (finalResult) => {
+        if (signal?.aborted || !finalResult?.ohosTest?.resultPath) return finalResult;
+        reporter.caseProgress(caseInfo.name, "正在分析 UITest 失败原因");
+        const analysisJob = failureAnalysisTail.then(() => analyzeUitestFailures({
+          client,
+          model,
+          caseInfo,
+          agentResult: finalResult,
+          ohosTest: finalResult.ohosTest,
+          signal,
+        }));
+        failureAnalysisTail = analysisJob.catch(() => {});
+        const failureAnalysis = await analysisJob;
+        if (!failureAnalysis) return finalResult;
+        const enriched = {
+          ...finalResult,
+          ohosTest: { ...finalResult.ohosTest, failureAnalysis },
+        };
+        await atomicWriteJson(agentResult.resultPath, enriched).catch(() => {});
+        await store.setCase(caseInfo.name, { ohosTest: enriched.ohosTest }).catch(() => {});
+        return enriched;
+      },
       async (error) => {
         const failed = {
           ...agentResult,

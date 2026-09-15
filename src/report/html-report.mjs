@@ -12,6 +12,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { failureIdentity } from "../agent/uitest-failure-analysis.mjs";
 
 async function readJson(filePath) {
   if (!filePath) return null;
@@ -307,6 +308,9 @@ export function pageShell({ title, body, extraHead = "" }) {
   .modal-body section { margin-bottom: 16px; }
   .modal-body h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
   .reason-msg { white-space: pre-wrap; word-break: break-word; background: var(--fail-soft); color: #8a262a; padding: 10px 12px; border-radius: 8px; }
+  .modal-body details { border-top: 1px solid var(--border); padding-top: 12px; }
+  .modal-body summary { color: var(--muted); cursor: pointer; margin-bottom: 12px; }
+  .modal-body ul { margin: 0; padding-left: 20px; }
   pre.stack { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e5e7eb; padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.5; }
   .legend { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; }
   .empty { color: var(--muted); padding: 20px; text-align: center; }
@@ -326,14 +330,31 @@ function modalScript() {
     const mask = document.getElementById('reasonMask');
     const titleEl = document.getElementById('reasonTitle');
     const msgEl = document.getElementById('reasonMsg');
+    const rawMessageEl = document.getElementById('reasonRawMessage');
+    const categoryEl = document.getElementById('reasonCategory');
+    const evidenceEl = document.getElementById('reasonEvidence');
+    const suggestionEl = document.getElementById('reasonSuggestion');
+    const rawDetailsEl = document.getElementById('reasonRawDetails');
     const stackEl = document.getElementById('reasonStack');
     function open(id) {
       const r = reasons[id];
       if (!r) return;
       titleEl.textContent = r.title;
-      msgEl.textContent = r.message || '（无失败描述）';
+      msgEl.textContent = r.analysis || r.message || '（无失败描述）';
+      rawMessageEl.textContent = r.message || '（无原始失败描述）';
+      categoryEl.textContent = r.analysis
+        ? ((r.categoryLabel || '原因待确认') + ' · 置信度 ' + (r.confidenceLabel || '低'))
+        : '自动分析不可用，以下为原始失败信息';
+      evidenceEl.innerHTML = '';
+      (r.evidence || []).forEach(function (value) {
+        const li = document.createElement('li'); li.textContent = value; evidenceEl.appendChild(li);
+      });
+      evidenceEl.parentElement.style.display = r.evidence && r.evidence.length ? 'block' : 'none';
+      suggestionEl.textContent = r.suggestion || '';
+      suggestionEl.parentElement.style.display = r.suggestion ? 'block' : 'none';
       stackEl.textContent = r.stack || '';
       stackEl.style.display = r.stack ? 'block' : 'none';
+      rawDetailsEl.open = !r.analysis;
       mask.classList.add('open');
     }
     function close() { mask.classList.remove('open'); }
@@ -350,8 +371,13 @@ function reasonModalMarkup() {
     <div class="modal">
       <div class="modal-head"><span class="t" id="reasonTitle">失败原因</span><button class="btn" onclick="window.__closeReason()">关闭</button></div>
       <div class="modal-body">
-        <section><h4>失败描述</h4><div class="reason-msg" id="reasonMsg"></div></section>
-        <section><h4>调用栈</h4><pre class="stack" id="reasonStack"></pre></section>
+        <section><h4 id="reasonCategory">失败原因</h4><div class="reason-msg" id="reasonMsg"></div></section>
+        <section><h4>分析依据</h4><ul id="reasonEvidence"></ul></section>
+        <section><h4>建议</h4><div id="reasonSuggestion"></div></section>
+        <details id="reasonRawDetails"><summary>原始错误与调用栈（技术详情）</summary>
+          <section><h4>原始失败描述</h4><div class="reason-msg" id="reasonRawMessage"></div></section>
+          <section><h4>调用栈</h4><pre class="stack" id="reasonStack"></pre></section>
+        </details>
       </div>
     </div>
   </div>`;
@@ -673,7 +699,7 @@ export function buildOverview({
 
 // ============ 详情页 ============
 
-function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testRows, executionInfo }) {
+function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testRows, executionInfo, failureAnalysis }) {
   const r = caseResult || {};
   const am = agentMetrics || {};
   const agentType = text(r.agent || executionInfo?.agent);
@@ -727,15 +753,33 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
   // 表 2：明细
   let reasonIndex = 0;
   const reasons = {};
+  const analysisById = new Map(
+    failureAnalysis?.status === "completed"
+      ? (failureAnalysis.analyses || []).map((item) => [item.failureId, item])
+      : [],
+  );
+  const categoryLabels = {
+    implementation_defect: "实现缺陷",
+    test_defect: "测试缺陷",
+    environment: "环境问题",
+    inconclusive: "证据不足",
+  };
+  const confidenceLabels = { high: "高", medium: "中", low: "低" };
   const detailBody = testRows.length
     ? testRows.map((row) => {
         const isFail = row.status === "failed" || row.status === "error";
-        const reasonId = isFail && (row.message || row.stack) ? `r${reasonIndex++}` : null;
+        const analysis = isFail ? analysisById.get(failureIdentity(row)) : null;
+        const reasonId = isFail && (analysis || row.message || row.stack) ? `r${reasonIndex++}` : null;
         if (reasonId) {
           reasons[reasonId] = {
             title: `${row.deviceProfile || row.deviceId} · ${row.name}`,
             message: row.message,
             stack: row.stack,
+            analysis: analysis?.summary || "",
+            categoryLabel: categoryLabels[analysis?.category] || "",
+            confidenceLabel: confidenceLabels[analysis?.confidence] || "",
+            evidence: analysis?.evidence || [],
+            suggestion: analysis?.suggestion || "",
           };
         }
         const statusHtml = testStatusHtml(row.status);
@@ -861,6 +905,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
     const caseName = text(result.case);
     const am = agentByCase.get(caseName) || {};
     const runnerResult = await readJson(result?.ohosTest?.resultPath || "");
+    const failureAnalysis = await readJson(result?.ohosTest?.failureAnalysis?.resultPath || "");
     const testRows = flattenRunnerTests(runnerResult);
     const html = buildCasePage({
       caseName,
@@ -869,6 +914,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       runnerResult,
       testRows,
       executionInfo,
+      failureAnalysis,
     });
     const filePath = path.join(subpageDir, `${caseName}.html`);
     await fs.writeFile(filePath, html, "utf8");
