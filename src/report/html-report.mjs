@@ -341,6 +341,9 @@ function modalScript() {
     const mask = document.getElementById('reasonMask');
     const titleEl = document.getElementById('reasonTitle');
     const msgEl = document.getElementById('reasonMsg');
+    const expectedEl = document.getElementById('reasonExpected');
+    const actualEl = document.getElementById('reasonActual');
+    const technicalEl = document.getElementById('reasonTechnical');
     const rawMessageEl = document.getElementById('reasonRawMessage');
     const categoryEl = document.getElementById('reasonCategory');
     const evidenceEl = document.getElementById('reasonEvidence');
@@ -351,7 +354,13 @@ function modalScript() {
       const r = reasons[id];
       if (!r) return;
       titleEl.textContent = r.title;
-      msgEl.textContent = r.analysis || r.message || '（无失败描述）';
+      msgEl.textContent = r.analysis || '自动分析结果未与该失败项匹配，请展开技术详情查看原始信息。';
+      expectedEl.textContent = r.expectedBehavior || '';
+      expectedEl.parentElement.style.display = r.expectedBehavior ? 'block' : 'none';
+      actualEl.textContent = r.actualBehavior || '';
+      actualEl.parentElement.style.display = r.actualBehavior ? 'block' : 'none';
+      technicalEl.textContent = r.technicalCause || '';
+      technicalEl.parentElement.style.display = r.technicalCause ? 'block' : 'none';
       rawMessageEl.textContent = r.message || '（无原始失败描述）';
       categoryEl.textContent = r.analysis
         ? ((r.categoryLabel || '原因待确认') + ' · 置信度 ' + (r.confidenceLabel || '低'))
@@ -382,7 +391,10 @@ function reasonModalMarkup() {
     <div class="modal">
       <div class="modal-head"><span class="t" id="reasonTitle">失败原因</span><button class="btn" onclick="window.__closeReason()">关闭</button></div>
       <div class="modal-body">
-        <section><h4 id="reasonCategory">失败原因</h4><div class="reason-msg" id="reasonMsg"></div></section>
+        <section><h4 id="reasonCategory">具体原因</h4><div class="reason-msg" id="reasonMsg"></div></section>
+        <section><h4>预期用户体验</h4><div id="reasonExpected"></div></section>
+        <section><h4>实际用户体验</h4><div id="reasonActual"></div></section>
+        <section><h4>技术原因</h4><div id="reasonTechnical"></div></section>
         <section><h4>分析依据</h4><ul id="reasonEvidence"></ul></section>
         <section><h4>建议</h4><div id="reasonSuggestion"></div></section>
         <details id="reasonRawDetails"><summary>原始错误与调用栈（技术详情）</summary>
@@ -786,6 +798,12 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
       ? (failureAnalysis.analyses || []).map((item) => [item.failureId, item])
       : [],
   );
+  // 兼容分析协议或 failureId 算法升级：分析文件同时保存了原始失败项，
+  // 可按设备/测试类/测试名重新建立当前报告使用的 ID 映射。
+  for (const failure of failureAnalysis?.failures || []) {
+    const analysis = analysisById.get(failure.failureId);
+    if (analysis) analysisById.set(failureIdentity(failure), analysis);
+  }
   const categoryLabels = {
     implementation_defect: "实现缺陷",
     test_defect: "测试缺陷",
@@ -804,6 +822,9 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
             message: row.message,
             stack: row.stack,
             analysis: analysis?.summary || "",
+            expectedBehavior: analysis?.expectedBehavior || "",
+            actualBehavior: analysis?.actualBehavior || "",
+            technicalCause: analysis?.technicalCause || "",
             categoryLabel: categoryLabels[analysis?.category] || "",
             confidenceLabel: confidenceLabels[analysis?.confidence] || "",
             evidence: analysis?.evidence || [],
@@ -933,7 +954,11 @@ export async function writeHtmlReport({ batchRoot, summary }) {
     const caseName = text(result.case);
     const am = agentByCase.get(caseName) || {};
     const runnerResult = await readJson(result?.ohosTest?.resultPath || "");
-    const failureAnalysis = await readJson(result?.ohosTest?.failureAnalysis?.resultPath || "");
+    const inferredAnalysisPath = result?.resultPath
+      ? path.join(path.dirname(result.resultPath), "failure-analysis", "failure-analysis.json")
+      : path.join(batchRoot, caseName, "failure-analysis", "failure-analysis.json");
+    const failureAnalysis = await readJson(result?.ohosTest?.failureAnalysis?.resultPath || "")
+      || await readJson(inferredAnalysisPath);
     const testRows = flattenRunnerTests(runnerResult);
     const html = buildCasePage({
       caseName,

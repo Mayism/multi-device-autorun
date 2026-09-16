@@ -54,6 +54,10 @@ test("normalizeFailureAnalyses 忽略未知 ID 并规范枚举", () => {
     failureId: failures[0].failureId,
     category: "inconclusive",
     summary: "页面未渲染标题",
+    uxReason: "页面未渲染标题",
+    expectedBehavior: "",
+    actualBehavior: "",
+    technicalCause: "",
     evidence: [],
     confidence: "low",
     suggestion: "",
@@ -105,7 +109,10 @@ test("analyzeUitestFailures 保存独立证据和结构化分析结果", async (
       return { output: JSON.stringify({ analyses: [{
         failureId,
         category: "implementation_defect",
-        summary: "实现显示了错误标题",
+        uxReason: "用户看到错误标题，无法确认当前页面功能",
+        expectedBehavior: "页面显示新标题",
+        actualBehavior: "页面仍显示旧标题",
+        technicalCause: "实现显示了错误标题",
         evidence: ["Page.ets 使用 Wrong"],
         confidence: "high",
         suggestion: "修正标题",
@@ -117,5 +124,6 @@ test("analyzeUitestFailures 保存独立证据和结构化分析结果", async (
   assert.match(submittedPrompt, /Text\('Wrong'\)/);
   const saved = JSON.parse(await fs.readFile(result.resultPath, "utf8"));
   assert.equal(saved.analyses[0].failureId, failureId);
-  assert.equal(saved.analyses[0].summary, "实现显示了错误标题");
+  assert.equal(saved.analyses[0].summary, "用户看到错误标题，无法确认当前页面功能");
+  assert.equal(saved.analyses[0].technicalCause, "实现显示了错误标题");
 });

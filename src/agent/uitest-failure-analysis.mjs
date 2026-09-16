@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { runMonitoredSession } from "./session-monitor.mjs";
 
-const ANALYSIS_SCHEMA_VERSION = "autorun-uitest-failure-analysis-v1";
+const ANALYSIS_SCHEMA_VERSION = "autorun-uitest-failure-analysis-v2";
 const ALLOWED_CATEGORIES = new Set([
   "implementation_defect",
   "test_defect",
@@ -195,13 +195,18 @@ export function normalizeFailureAnalyses(raw, failures) {
   for (const item of Array.isArray(raw?.analyses) ? raw.analyses : []) {
     const failureId = cleanString(item?.failureId, 64);
     if (!expected.has(failureId) || seen.has(failureId)) continue;
-    const summary = cleanString(item?.summary, 2_000);
-    if (!summary) continue;
+    const uxReason = cleanString(item?.uxReason || item?.summary, 2_000);
+    if (!uxReason) continue;
     seen.add(failureId);
     analyses.push({
       failureId,
       category: ALLOWED_CATEGORIES.has(item?.category) ? item.category : "inconclusive",
-      summary,
+      // summary 保留给旧版报告兼容；新版报告优先使用 UX 结构化字段。
+      summary: uxReason,
+      uxReason,
+      expectedBehavior: cleanString(item?.expectedBehavior, 1_500),
+      actualBehavior: cleanString(item?.actualBehavior, 1_500),
+      technicalCause: cleanString(item?.technicalCause, 2_000),
       evidence: (Array.isArray(item?.evidence) ? item.evidence : [])
         .map((value) => cleanString(value, 1_000))
         .filter(Boolean)
@@ -215,7 +220,7 @@ export function normalizeFailureAnalyses(raw, failures) {
 }
 
 function diagnosticPrompt(evidence) {
-  return `你是 UITest 失败诊断器，只负责分析，不负责修改代码。不得调用工具，不得访问工作目录之外的信息，不得生成或应用补丁。\n\n请基于下方证据判断每条失败的真正原因。断言文本和调用栈通常只是症状；需要把 PROMPT、Agent 修改、测试补丁、最终源码和 ohosTest 日志串起来说明因果。证据不足时必须选择 inconclusive，禁止猜测。不要使用或推断 golden patch。\n\n只输出一个合法 JSON 对象，不要 Markdown，不要额外说明，结构必须是：\n{"analyses":[{"failureId":"输入中的 ID","category":"implementation_defect|test_defect|environment|inconclusive","summary":"面向开发者的中文根因说明","evidence":["证据1","证据2"],"confidence":"high|medium|low","suggestion":"建议核查或修复的位置"}]}\n\n要求：每个 failureId 最多一项；summary 不要复述堆栈，要说明为什么失败；evidence 必须引用输入中的具体文件、日志或行为。\n\n${evidence}`;
+  return `你是 UITest 失败诊断器，只负责分析，不负责修改代码。不得调用工具，不得访问工作目录之外的信息，不得生成或应用补丁。\n\n请基于下方证据判断每条失败的真正原因。报告首先服务于 UX 验收：要明确用户原本应该看到什么、实际看到了什么，以及为什么这个体验没有实现。断言文本和调用栈通常只是症状，绝不能把堆栈、异常类型或“断言失败”本身当作具体原因；需要把 PROMPT、测试意图、Agent 修改、最终源码和 ohosTest 日志串起来说明因果。证据不足时必须选择 inconclusive，禁止猜测。不要使用或推断 golden patch。\n\n只输出一个合法 JSON 对象，不要 Markdown，不要额外说明，结构必须是：\n{"analyses":[{"failureId":"输入中的 ID","category":"implementation_defect|test_defect|environment|inconclusive","uxReason":"面向产品和开发者的一句话具体 UX 失败原因，不包含堆栈","expectedBehavior":"用户预期看到或完成的行为","actualBehavior":"测试证据表明用户实际看到或遇到的行为","technicalCause":"造成 UX 偏差的代码、状态或环境原因；证据不足则留空","evidence":["证据1","证据2"],"confidence":"high|medium|low","suggestion":"建议核查或修复的位置"}]}\n\n要求：每个 failureId 最多一项；uxReason 必须描述具体体验偏差，不能只写测试名、断言失败、找不到控件或调用栈；expectedBehavior 和 actualBehavior 应优先使用产品行为语言；technicalCause 才放实现细节；evidence 必须引用输入中的具体需求、测试、代码或日志。\n\n${evidence}`;
 }
 
 export async function analyzeUitestFailures({
