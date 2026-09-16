@@ -24,10 +24,13 @@ function getTasks(command) {
     .map((match) => match[0]);
 }
 
-// 只统计真正触发 HarmonyOS 构建任务的 hvigor 调用；tasks、clean 和目录探查不算编译尝试。
+// 只统计真正触发 HarmonyOS 构建的 devecocli/hvigor 调用；Web 工程的
+// npm/pnpm/yarn build、tasks、clean 和目录探查都不算鸿蒙编译尝试。
 function isHarmonyBuildCommand(command) {
-  return /\bhvigorw(?:\.(?:bat|cmd|js))?\b/i.test(command)
+  const devecoBuild = /\bdevecocli(?:\.(?:bat|cmd|js))?\s+build\b(?!\s+clean\b)/i.test(command);
+  const hvigorBuild = /\bhvigorw(?:\.(?:bat|cmd|js))?\b/i.test(command)
     && getTasks(command).length > 0;
+  return devecoBuild || hvigorBuild;
 }
 
 function classifyAttempt(state) {
