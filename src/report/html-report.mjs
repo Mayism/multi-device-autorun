@@ -299,6 +299,17 @@ export function pageShell({ title, body, extraHead = "" }) {
   .kv .row .k { color: var(--muted); flex: 0 1 112px; min-width: 0; text-align: right; white-space: normal; word-break: keep-all; overflow-wrap: break-word; }
   .kv .row .k::after { content: "："; }
   .kv .row > span:last-child { white-space: nowrap; }
+  .compile-card { display: flex; align-items: center; gap: 28px; padding: 16px 18px; }
+  .compile-total { min-width: 130px; padding-right: 28px; border-right: 1px solid var(--border); }
+  .compile-total .k, .compile-item .k { color: var(--muted); font-size: 12px; }
+  .compile-total .v { margin-top: 2px; font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .compile-breakdown { display: grid; grid-template-columns: repeat(4, minmax(72px, 1fr)); gap: 16px 28px; flex: 1; }
+  .compile-item .v { margin-top: 2px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  @media (max-width: 640px) {
+    .compile-card { align-items: stretch; flex-direction: column; gap: 14px; }
+    .compile-total { padding: 0 0 14px; border-right: 0; border-bottom: 1px solid var(--border); }
+    .compile-breakdown { grid-template-columns: repeat(2, minmax(72px, 1fr)); }
+  }
   .modal-mask { display: none; position: fixed; inset: 0; background: rgba(16,24,40,.45); z-index: 100; padding: 30px 16px; overflow: auto; }
   .modal-mask.open { display: flex; align-items: flex-start; justify-content: center; }
   .modal { background: #fff; border-radius: 12px; max-width: 920px; width: 100%; box-shadow: 0 12px 40px rgba(0,0,0,.2); }
@@ -707,6 +718,8 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
   const modelId = text(r.modelId || executionInfo?.modelId);
   const model = [providerId, modelId].filter(Boolean).join("/");
   const overview = summarizeTestRows(testRows);
+  const compile = am.compile || r.agentCompile || {};
+  const compileAttempts = num(compile.attempts);
 
   const back = `<div class="back"><a class="link" href="../overview.html">← 返回总览</a></div>`;
   const head = `
@@ -729,6 +742,21 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
         <div class="row"><span class="k">缓存读取</span><span>${fmtToken(r.tokenUsage?.cacheRead)}</span></div>
         <div class="row"><span class="k">合计 Token</span><span title="合计 = 输入 + 输出 + 推理 + 缓存读取 + 缓存写入"><b>${fmtToken(r.tokenUsage?.total)}</b></span></div>
         ${r.agentError ? `<div class="row" style="grid-column:1/-1"><span class="k">Agent 错误</span><span class="error">${esc(r.agentError)}</span></div>` : ""}
+      </div>
+    </div>`;
+
+  const compileCard = `
+    <h2>Agent 编译</h2>
+    <div class="card compile-card">
+      <div class="compile-total">
+        <div class="k">编译尝试次数</div>
+        <div class="v">${compileAttempts}</div>
+      </div>
+      <div class="compile-breakdown">
+        <div class="compile-item"><div class="k">成功</div><div class="v pass">${num(compile.succeeded)}</div></div>
+        <div class="compile-item"><div class="k">失败</div><div class="v fail">${num(compile.failed)}</div></div>
+        <div class="compile-item"><div class="k">中断</div><div class="v muted">${num(compile.interrupted)}</div></div>
+        <div class="compile-item"><div class="k">运行中</div><div class="v">${num(compile.running)}</div></div>
       </div>
     </div>`;
 
@@ -811,7 +839,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
     </div>`;
 
   const extraHead = `<script>window.__REASONS__ = ${JSON.stringify(reasons)};</script>`;
-  const body = back + head + agentCard + overviewTable + detailTable + reasonModalMarkup();
+  const body = back + head + agentCard + compileCard + overviewTable + detailTable + reasonModalMarkup();
   return pageShell({ title: `${caseName} · 详情`, body, extraHead }) + modalScript();
 }
 

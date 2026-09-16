@@ -43,6 +43,14 @@ test("详情页优先展示分析根因并折叠原始调用栈", async (t) => {
       suggestion: "修改标题资源",
     }],
   }), "utf8");
+  await fs.writeFile(path.join(root, "report.json"), JSON.stringify({
+    agent: {
+      cases: [{
+        case: "CaseA",
+        compile: { attempts: 4, succeeded: 1, failed: 2, interrupted: 1, running: 0 },
+      }],
+    },
+  }), "utf8");
   const summary = {
     batchId: "batch-1",
     results: [{
@@ -62,4 +70,9 @@ test("详情页优先展示分析根因并折叠原始调用栈", async (t) => {
   assert.match(html, /实现缺陷/);
   assert.match(html, /原始错误与调用栈（技术详情）/);
   assert.match(html, /EntryAbilityTest\.ets:42/);
+  assert.match(html, /<h2>Agent 编译<\/h2>/);
+  assert.match(html, /编译尝试次数<\/div>\s*<div class="v">4<\/div>/);
+  assert.match(html, /成功<\/div><div class="v pass">1<\/div>/);
+  assert.match(html, /失败<\/div><div class="v fail">2<\/div>/);
+  assert.match(html, /中断<\/div><div class="v muted">1<\/div>/);
 });
