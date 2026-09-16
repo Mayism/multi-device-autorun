@@ -118,7 +118,15 @@ function basicTestsReplyRequest(message, sourceSessionId) {
     sourceSessionId,
     sourceMessageId: messageId,
     key: `${sourceSessionId}:${messageId || messageActivitySignature(message)}`,
+    ready: terminalMessage(message),
   };
+}
+
+function mergeBasicTestsReplyRequest(current, incoming) {
+  if (!incoming) return current;
+  if (current?.ready) return current;
+  if (!current || current.key !== incoming.key) return incoming;
+  return { ...current, ready: current.ready || incoming.ready };
 }
 
 function followUpPayload(payload, text) {
@@ -431,7 +439,6 @@ export async function runMonitoredSession({
   let quotaLimited = false;
   let basicTestsReplyInjected = false;
   let pendingBasicTestsReply = null;
-  const seenBasicTestsReplyRequests = new Set();
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
   const sse = startSseCapture({
@@ -481,11 +488,11 @@ export async function runMonitoredSession({
           const raw = await client.listMessages(sessionId, 1);
           latestMessage = latestAssistantMessage(raw) || latestMessage;
           const rootBasicTestsRequest = basicTestsReplyRequest(latestMessage, sessionId);
-          if (rootBasicTestsRequest
-            && !basicTestsReplyInjected
-            && !seenBasicTestsReplyRequests.has(rootBasicTestsRequest.key)) {
-            seenBasicTestsReplyRequests.add(rootBasicTestsRequest.key);
-            pendingBasicTestsReply = rootBasicTestsRequest;
+          if (rootBasicTestsRequest && !basicTestsReplyInjected) {
+            pendingBasicTestsReply = mergeBasicTestsReplyRequest(
+              pendingBasicTestsReply,
+              rootBasicTestsRequest,
+            );
           }
           const tokenUsageChanged = tokenUsageTracker.update(sessionId, latestMessage);
           const compileUsageChanged = compileUsageTracker.update(sessionId, latestMessage);
@@ -543,11 +550,11 @@ export async function runMonitoredSession({
               const childMessages = await client.listMessages(childId, 1);
               const childMessage = latestAssistantMessage(childMessages);
               const childBasicTestsRequest = basicTestsReplyRequest(childMessage, childId);
-              if (childBasicTestsRequest
-                && !basicTestsReplyInjected
-                && !seenBasicTestsReplyRequests.has(childBasicTestsRequest.key)) {
-                seenBasicTestsReplyRequests.add(childBasicTestsRequest.key);
-                pendingBasicTestsReply = childBasicTestsRequest;
+              if (childBasicTestsRequest && !basicTestsReplyInjected) {
+                pendingBasicTestsReply = mergeBasicTestsReplyRequest(
+                  pendingBasicTestsReply,
+                  childBasicTestsRequest,
+                );
               }
               const tokenUsageChanged = tokenUsageTracker.update(childId, childMessage);
               const compileUsageChanged = compileUsageTracker.update(childId, childMessage);
@@ -611,6 +618,63 @@ export async function runMonitoredSession({
         });
       }
 
+      // 「仅基础测试」是对 Agent 等待用户输入状态的续话，不是会话完成后的
+      // 收尾操作。只要该条提示消息已完整结束，且没有待处理的权限/Question，
+      // 就续发到根会话；不等待 Todo 清空、子 Agent 结束或整个会话进入 complete。
+      if (!basicTestsReplyInjected && pendingBasicTestsReply?.ready) {
+        const pendingInteractions = await handlePendingInteractions({
+          client,
+          projectDir,
+          repliedQuestions,
+          repliedPermissions,
+          onActivity,
+          onProgress,
+        });
+        if (pendingInteractions.pending || pendingInteractions.errors.length) {
+          await delay(500);
+          continue;
+        }
+        const replyRequest = pendingBasicTestsReply;
+        await waitWithInterruption(
+          client.promptAsync(
+            sessionId,
+            followUpPayload(payload, BASIC_TESTS_REPLY),
+            projectDir,
+            300,
+          ),
+          signal,
+        );
+        basicTestsReplyInjected = true;
+        pendingBasicTestsReply = null;
+        idleSessions.delete(sessionId);
+        latestMessage = null;
+        latestTodoActive = false;
+        childActive = false;
+        stableTerminalCount = 0;
+        unchangedMessageCount = 0;
+        messagePollMs = 2000;
+        lastMessagePollAt = 0;
+        lastChildrenPollAt = 0;
+        lastTodoPollAt = 0;
+        onActivity();
+        await appendJsonl(pollingPath, {
+          timestamp: new Date().toISOString(),
+          kind: "automatic_text_reply",
+          sessionId,
+          text: BASIC_TESTS_REPLY,
+          sourceSessionId: replyRequest.sourceSessionId,
+          sourceMessageId: replyRequest.sourceMessageId,
+        });
+        onProgress?.("text_replied", {
+          sessionId,
+          text: BASIC_TESTS_REPLY,
+          reason: "multimodal_unavailable",
+          sourceSessionId: replyRequest.sourceSessionId,
+          sourceMessageId: replyRequest.sourceMessageId,
+        });
+        continue;
+      }
+
       const complete = terminalMessage(latestMessage)
         && !latestTodoActive
         && !childActive
@@ -630,43 +694,6 @@ export async function runMonitoredSession({
         });
         if (finalInteractions.pending || finalInteractions.errors.length) {
           await delay(500);
-          continue;
-        }
-        if (!basicTestsReplyInjected && pendingBasicTestsReply) {
-          const replyRequest = pendingBasicTestsReply;
-          await waitWithInterruption(
-            client.promptAsync(
-              sessionId,
-              followUpPayload(payload, BASIC_TESTS_REPLY),
-              projectDir,
-              300,
-            ),
-            signal,
-          );
-          basicTestsReplyInjected = true;
-          pendingBasicTestsReply = null;
-          idleSessions.delete(sessionId);
-          latestMessage = null;
-          stableTerminalCount = 0;
-          unchangedMessageCount = 0;
-          messagePollMs = 2000;
-          lastMessagePollAt = 0;
-          onActivity();
-          await appendJsonl(pollingPath, {
-            timestamp: new Date().toISOString(),
-            kind: "automatic_text_reply",
-            sessionId,
-            text: BASIC_TESTS_REPLY,
-            sourceSessionId: replyRequest.sourceSessionId,
-            sourceMessageId: replyRequest.sourceMessageId,
-          });
-          onProgress?.("text_replied", {
-            sessionId,
-            text: BASIC_TESTS_REPLY,
-            reason: "multimodal_unavailable",
-            sourceSessionId: replyRequest.sourceSessionId,
-            sourceMessageId: replyRequest.sourceMessageId,
-          });
           continue;
         }
         return {

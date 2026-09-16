@@ -208,6 +208,8 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
 
   const prompts = [];
   const progress = [];
+  let messagePolls = 0;
+  let replySubmittedAtPoll = 0;
   const terminalMessage = (id, text) => ({
     info: { id, role: "assistant", finish: "stop" },
     parts: [
@@ -216,18 +218,24 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
     ],
   });
   fake.client.promptAsync = async (_sessionId, payload) => {
+    if (prompts.length === 1) replySubmittedAtPoll = messagePolls;
     prompts.push(payload);
   };
-  fake.client.listMessages = async () => [
-    prompts.length === 1
-      ? terminalMessage(
-          "first",
-          "当前模型未通过图片理解探测，请选择后续测试方式：\n1. 仅基础测试（默认方案）。请回复“仅基础测试”。\n2. 继续多模态测试。",
-        )
-      : terminalMessage("second", "基础测试已完成。"),
-  ];
+  fake.client.listMessages = async () => {
+    messagePolls += 1;
+    if (prompts.length !== 1) return [terminalMessage("second", "基础测试已完成。")];
+    const text = "当前模型未通过图片理解探测，请选择后续测试方式：\n1. 仅基础测试（默认方案）。请回复“仅基础测试”。\n2. 继续多模态测试。";
+    if (messagePolls === 1) {
+      return [{
+        info: { id: "first", role: "assistant", finish: "tool-calls" },
+        parts: [{ type: "text", text }],
+      }];
+    }
+    return [terminalMessage("first", text)];
+  };
   fake.client.listChildren = async () => [];
-  fake.client.listTodos = async () => [];
+  // 真实工作流在等待这条用户回复时仍会保留活动 Todo，自动续话不应被它阻塞。
+  fake.client.listTodos = async () => prompts.length === 1 ? [{ status: "in_progress" }] : [];
   fake.client.listQuestions = async () => [];
   fake.client.listPermissions = async () => [];
   fake.client.abortSession = async () => {};
@@ -252,6 +260,7 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
   assert.equal(result.status, "completed");
   assert.equal(result.output, "基础测试已完成。");
   assert.equal(prompts.length, 2);
+  assert.ok(replySubmittedAtPoll >= 2, "must wait until the matching assistant message is terminal");
   assert.deepEqual(prompts[1], {
     ...initialPayload,
     parts: [{ type: "text", text: "仅基础测试" }],
@@ -274,6 +283,7 @@ test("multimodal fallback emitted by a child is replied through the root session
   const { tempDir, projectDir } = await createTestWorkspace(t);
   const sessionId = "session-with-child-fallback";
   const childSessionId = "child-with-fallback";
+  const workingChildSessionId = "child-still-working";
   const fake = await startFakeEventServer(projectDir, [{
     type: "session.idle",
     properties: { sessionID: sessionId },
@@ -299,11 +309,19 @@ test("multimodal fallback emitted by a child is replied through the root session
         "当前模型未通过图片理解探测，请选择后续测试方式：请回复“**仅基础测试**”。",
       )];
     }
+    if (targetSessionId === workingChildSessionId) {
+      return [promptCalls.length === 1
+        ? {
+            info: { id: "child-working", role: "assistant", finish: "tool-calls" },
+            parts: [{ type: "reasoning", text: "其他子任务仍在执行。" }],
+          }
+        : terminalMessage("child-finished", "其他子任务已完成。")];
+    }
     return [promptCalls.length === 1
       ? terminalMessage("root-waiting", "子任务已返回，等待用户选择测试范围。")
       : terminalMessage("root-finished", "已按基础测试完成报告。")];
   };
-  fake.client.listChildren = async () => [{ id: childSessionId }];
+  fake.client.listChildren = async () => [{ id: childSessionId }, { id: workingChildSessionId }];
   fake.client.listTodos = async () => [];
   fake.client.listQuestions = async () => [];
   fake.client.listPermissions = async () => [];
