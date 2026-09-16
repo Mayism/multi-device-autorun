@@ -184,6 +184,12 @@ test("requestsBasicTestsReply matches only the multimodal fallback guidance", ()
     ),
     true,
   );
+  assert.equal(
+    requestsBasicTestsReply(
+      message("当前模型未通过图片理解探测（无法读取图片附件），请选择后续测试方式：请回复“**仅基础测试**”。"),
+    ),
+    true,
+  );
   assert.equal(requestsBasicTestsReply(message("仅基础测试已经执行完成。")), false);
   assert.equal(
     requestsBasicTestsReply(message("当前模型未通过图片理解探测，但无需用户回复。")),
@@ -256,6 +262,86 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
       sessionId,
       text: "仅基础测试",
       reason: "multimodal_unavailable",
+      sourceSessionId: sessionId,
+      sourceMessageId: "first",
+    }],
+  );
+  const polling = await fs.readFile(path.join(tempDir, "polling.jsonl"), "utf8");
+  assert.equal((polling.match(/"kind":"automatic_text_reply"/g) ?? []).length, 1);
+});
+
+test("multimodal fallback emitted by a child is replied through the root session once", async (t) => {
+  const { tempDir, projectDir } = await createTestWorkspace(t);
+  const sessionId = "session-with-child-fallback";
+  const childSessionId = "child-with-fallback";
+  const fake = await startFakeEventServer(projectDir, [{
+    type: "session.idle",
+    properties: { sessionID: sessionId },
+  }]);
+  t.after(() => fake.close());
+
+  const promptCalls = [];
+  const progress = [];
+  const terminalMessage = (id, text) => ({
+    info: { id, role: "assistant", finish: "stop" },
+    parts: [
+      { type: "text", text },
+      { type: "step-finish" },
+    ],
+  });
+  fake.client.promptAsync = async (targetSessionId, promptPayload) => {
+    promptCalls.push({ targetSessionId, payload: promptPayload });
+  };
+  fake.client.listMessages = async (targetSessionId) => {
+    if (targetSessionId === childSessionId) {
+      return [terminalMessage(
+        "child-request",
+        "当前模型未通过图片理解探测，请选择后续测试方式：请回复“**仅基础测试**”。",
+      )];
+    }
+    return [promptCalls.length === 1
+      ? terminalMessage("root-waiting", "子任务已返回，等待用户选择测试范围。")
+      : terminalMessage("root-finished", "已按基础测试完成报告。")];
+  };
+  fake.client.listChildren = async () => [{ id: childSessionId }];
+  fake.client.listTodos = async () => [];
+  fake.client.listQuestions = async () => [];
+  fake.client.listPermissions = async () => [];
+  fake.client.abortSession = async () => {};
+
+  const initialPayload = {
+    parts: [{ type: "text", text: "执行一多适配" }],
+    agent: "harmonyos-multi-device",
+    model: { providerID: "provider", modelID: "model" },
+  };
+  const result = await runMonitoredSession({
+    client: fake.client,
+    sessionId,
+    projectDir,
+    payload: initialPayload,
+    eventsPath: path.join(tempDir, "events.jsonl"),
+    pollingPath: path.join(tempDir, "polling.jsonl"),
+    idleTimeoutSec: 10,
+    maxRuntimeSec: 15,
+    onProgress: (event, data) => progress.push({ event, data }),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.output, "已按基础测试完成报告。");
+  assert.equal(promptCalls.length, 2);
+  assert.equal(promptCalls[1].targetSessionId, sessionId);
+  assert.deepEqual(promptCalls[1].payload, {
+    ...initialPayload,
+    parts: [{ type: "text", text: "仅基础测试" }],
+  });
+  assert.deepEqual(
+    progress.filter(({ event }) => event === "text_replied").map(({ data }) => data),
+    [{
+      sessionId,
+      text: "仅基础测试",
+      reason: "multimodal_unavailable",
+      sourceSessionId: childSessionId,
+      sourceMessageId: "child-request",
     }],
   );
   const polling = await fs.readFile(path.join(tempDir, "polling.jsonl"), "utf8");

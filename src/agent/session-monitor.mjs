@@ -101,10 +101,24 @@ function extractText(message) {
 }
 
 export function requestsBasicTestsReply(message) {
-  const text = extractText(message);
+  const text = extractText(message)
+    .normalize("NFKC")
+    // Skill 文档可能用 Markdown 强调回复词，例如“**仅基础测试**”。
+    .replace(/\*\*|__|`/g, "")
+    .replace(/[ \t]+/g, " ");
   return text.includes("当前模型未通过图片理解探测")
     && text.includes("仅基础测试")
-    && /请回复[“\"']?仅基础测试[”\"']?/.test(text);
+    && /请回复\s*[“\"'‘]?\s*仅基础测试\s*[”\"'’]?/.test(text);
+}
+
+function basicTestsReplyRequest(message, sourceSessionId) {
+  if (!requestsBasicTestsReply(message)) return null;
+  const messageId = String(message?.info?.id || message?.id || "");
+  return {
+    sourceSessionId,
+    sourceMessageId: messageId,
+    key: `${sourceSessionId}:${messageId || messageActivitySignature(message)}`,
+  };
 }
 
 function followUpPayload(payload, text) {
@@ -416,6 +430,8 @@ export async function runMonitoredSession({
   let fatalSessionError = null;
   let quotaLimited = false;
   let basicTestsReplyInjected = false;
+  let pendingBasicTestsReply = null;
+  const seenBasicTestsReplyRequests = new Set();
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
   const sse = startSseCapture({
@@ -464,6 +480,13 @@ export async function runMonitoredSession({
         try {
           const raw = await client.listMessages(sessionId, 1);
           latestMessage = latestAssistantMessage(raw) || latestMessage;
+          const rootBasicTestsRequest = basicTestsReplyRequest(latestMessage, sessionId);
+          if (rootBasicTestsRequest
+            && !basicTestsReplyInjected
+            && !seenBasicTestsReplyRequests.has(rootBasicTestsRequest.key)) {
+            seenBasicTestsReplyRequests.add(rootBasicTestsRequest.key);
+            pendingBasicTestsReply = rootBasicTestsRequest;
+          }
           const tokenUsageChanged = tokenUsageTracker.update(sessionId, latestMessage);
           const compileUsageChanged = compileUsageTracker.update(sessionId, latestMessage);
           if (tokenUsageChanged || compileUsageChanged) onActivity();
@@ -519,6 +542,13 @@ export async function runMonitoredSession({
             try {
               const childMessages = await client.listMessages(childId, 1);
               const childMessage = latestAssistantMessage(childMessages);
+              const childBasicTestsRequest = basicTestsReplyRequest(childMessage, childId);
+              if (childBasicTestsRequest
+                && !basicTestsReplyInjected
+                && !seenBasicTestsReplyRequests.has(childBasicTestsRequest.key)) {
+                seenBasicTestsReplyRequests.add(childBasicTestsRequest.key);
+                pendingBasicTestsReply = childBasicTestsRequest;
+              }
               const tokenUsageChanged = tokenUsageTracker.update(childId, childMessage);
               const compileUsageChanged = compileUsageTracker.update(childId, childMessage);
               if (tokenUsageChanged || compileUsageChanged) {
@@ -602,7 +632,8 @@ export async function runMonitoredSession({
           await delay(500);
           continue;
         }
-        if (!basicTestsReplyInjected && requestsBasicTestsReply(latestMessage)) {
+        if (!basicTestsReplyInjected && pendingBasicTestsReply) {
+          const replyRequest = pendingBasicTestsReply;
           await waitWithInterruption(
             client.promptAsync(
               sessionId,
@@ -613,6 +644,7 @@ export async function runMonitoredSession({
             signal,
           );
           basicTestsReplyInjected = true;
+          pendingBasicTestsReply = null;
           idleSessions.delete(sessionId);
           latestMessage = null;
           stableTerminalCount = 0;
@@ -625,11 +657,15 @@ export async function runMonitoredSession({
             kind: "automatic_text_reply",
             sessionId,
             text: BASIC_TESTS_REPLY,
+            sourceSessionId: replyRequest.sourceSessionId,
+            sourceMessageId: replyRequest.sourceMessageId,
           });
           onProgress?.("text_replied", {
             sessionId,
             text: BASIC_TESTS_REPLY,
             reason: "multimodal_unavailable",
+            sourceSessionId: replyRequest.sourceSessionId,
+            sourceMessageId: replyRequest.sourceMessageId,
           });
           continue;
         }
