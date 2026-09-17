@@ -10,6 +10,7 @@ import { PassThrough } from "node:stream";
 import type { ChildProcess } from "node:child_process";
 import { foldTriggerTemplate } from "../src/fold/foldTriggerTemplate.js";
 import { deployFoldTrigger, healthCheck } from "../src/fold/server.js";
+import { ReversePortKeeper } from "../src/fold/resourceManager.js";
 import * as foldServer from "../src/fold/server.js";
 import * as foldPorts from "../src/fold/utils/ports.js";
 
@@ -166,6 +167,134 @@ describe("fold forwarding commands", () => {
       ),
       '"D:\\DevEco Studio\\hdc.exe" -t 127.0.0.1:15003 fport rm tcp:8765 tcp:8766',
     );
+  });
+});
+
+describe("reverse port keeper", () => {
+  it("recreates a missing targeted reverse-port mapping", async () => {
+    let mapped = false;
+    const commands: string[] = [];
+    const keeper = new ReversePortKeeper({
+      hdc: "hdc",
+      target: "127.0.0.1:15003",
+      devicePort: 8765,
+      port: 8766,
+      platform: "win32",
+      runCommand: async (command) => {
+        commands.push(command);
+        if (command.endsWith("fport ls")) {
+          return {
+            stdout: mapped
+              ? "127.0.0.1:15003 tcp:8765 tcp:8766 [Reverse]"
+              : "[Empty]",
+            stderr: "",
+            exitCode: 0,
+            durationMs: 1,
+          };
+        }
+        mapped = true;
+        return {
+          stdout: "Forwardport result:OK.",
+          stderr: "",
+          exitCode: 0,
+          durationMs: 1,
+        };
+      },
+    });
+
+    await keeper.checkAndRecover();
+
+    assert.equal(mapped, true);
+    assert.deepEqual(commands, [
+      "hdc -t 127.0.0.1:15003 fport ls",
+      "hdc -t 127.0.0.1:15003 rport tcp:8765 tcp:8766",
+    ]);
+    assert.equal(await keeper.isForwardingActive(), true);
+    await keeper.stop();
+  });
+
+  it("serializes concurrent checks and contains transient HDC exceptions", async () => {
+    let releaseFirstCommand!: () => void;
+    const firstCommand = new Promise<void>((resolve) => {
+      releaseFirstCommand = resolve;
+    });
+    let commandCalls = 0;
+    let concurrentCommands = 0;
+    let maxConcurrentCommands = 0;
+    const keeper = new ReversePortKeeper(
+      {
+        hdc: "hdc",
+        target: "127.0.0.1:15003",
+        devicePort: 8765,
+        port: 8766,
+        platform: "win32",
+        runCommand: async () => {
+          commandCalls += 1;
+          concurrentCommands += 1;
+          maxConcurrentCommands = Math.max(
+            maxConcurrentCommands,
+            concurrentCommands,
+          );
+          if (commandCalls === 1) await firstCommand;
+          concurrentCommands -= 1;
+          throw new Error("hdc reconnecting");
+        },
+      },
+      async () => undefined,
+    );
+
+    const first = keeper.checkAndRecover();
+    const second = keeper.checkAndRecover();
+    assert.strictEqual(second, first);
+    releaseFirstCommand();
+    await first;
+
+    assert.equal(commandCalls, 4);
+    assert.equal(maxConcurrentCommands, 1);
+    await keeper.stop();
+  });
+
+  it("waits for an active check and never recreates forwarding after stop", async () => {
+    let releaseList!: () => void;
+    let markListStarted!: () => void;
+    const listStarted = new Promise<void>((resolve) => {
+      markListStarted = resolve;
+    });
+    const listResult = new Promise<void>((resolve) => {
+      releaseList = resolve;
+    });
+    const commands: string[] = [];
+    const keeper = new ReversePortKeeper({
+      hdc: "hdc",
+      target: "127.0.0.1:15003",
+      devicePort: 8765,
+      port: 8766,
+      platform: "win32",
+      runCommand: async (command) => {
+        commands.push(command);
+        if (command.endsWith("fport ls")) {
+          markListStarted();
+          await listResult;
+          return { stdout: "[Empty]", stderr: "", exitCode: 0, durationMs: 1 };
+        }
+        return { stdout: "OK", stderr: "", exitCode: 0, durationMs: 1 };
+      },
+    });
+
+    const checking = keeper.checkAndRecover();
+    await listStarted;
+    let stopped = false;
+    const stopping = keeper.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    assert.equal(stopped, false);
+
+    releaseList();
+    await Promise.all([checking, stopping]);
+    assert.deepEqual(commands, [
+      "hdc -t 127.0.0.1:15003 fport ls",
+    ]);
   });
 });
 

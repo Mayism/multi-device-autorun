@@ -45,4 +45,5 @@ export async function deployFoldTrigger(
 }
 
 export { healthCheck };
+export type { ReversePortKeeper } from "./resourceManager.js";
 export type { ManagedFoldServerInstance as FoldServerInstance } from "./resourceManager.js";

@@ -28,12 +28,134 @@ const HEALTH_TIMEOUT_MS = 10000;
 const PORT_RELEASE_ATTEMPTS = 50;
 const PORT_RELEASE_INTERVAL_MS = 100;
 const MAX_STARTUP_OUTPUT_LENGTH = 4000;
+const RPORT_CHECK_INTERVAL_MS = 5000;
+const RPORT_RETRY_INTERVAL_MS = 1000;
+const RPORT_MAX_RETRIES = 3;
 
 class FoldServerPortConflictError extends Error {}
+
+interface ReversePortKeeperInput {
+  hdc: string;
+  target: string;
+  devicePort: number;
+  port: number;
+  runCommand: (command: string) => Promise<CommandResult>;
+  platform: NodeJS.Platform;
+}
+
+/**
+ * 折叠操作可能重建模拟器网络栈，使已建立的 hdc rport 丢失。
+ * 保持器串行检查转发是否存在，丢失时自动重建。
+ */
+export class ReversePortKeeper {
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private inFlight: Promise<void> | null = null;
+  private started = false;
+  private stopping = false;
+
+  constructor(
+    private readonly input: ReversePortKeeperInput,
+    private readonly sleep: (ms: number) => Promise<void> = (ms) =>
+      new Promise((resolve) => setTimeout(resolve, ms)),
+  ) {}
+
+  start(): void {
+    if (this.started) return;
+    this.started = true;
+    this.stopping = false;
+    this.scheduleNext();
+  }
+
+  async stop(): Promise<void> {
+    this.stopping = true;
+    this.started = false;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+    const active = this.inFlight;
+    if (active) await active;
+  }
+
+  checkAndRecover(): Promise<void> {
+    if (this.inFlight) return this.inFlight;
+    const task = this.performCheckAndRecover()
+      // 后台保持器不能用未处理的 HDC 异常终止 Runner。
+      .catch(() => undefined)
+      .finally(() => {
+        if (this.inFlight === task) this.inFlight = null;
+      });
+    this.inFlight = task;
+    return task;
+  }
+
+  async isForwardingActive(): Promise<boolean> {
+    try {
+      const listed = await this.input.runCommand(
+        buildListForwardCommand(
+          this.input.hdc,
+          this.input.target,
+          this.input.platform,
+        ),
+      );
+      if (listed.exitCode !== 0) return false;
+      const expectedSource = `tcp:${this.input.devicePort}`;
+      const expectedDestination = `tcp:${this.input.port}`;
+      return `${listed.stdout}\n${listed.stderr}`
+        .split(/\r?\n/)
+        .some((line) => {
+          const match = line
+            .trim()
+            .match(/^(?:(\S+)\s+)?(\S+)\s+(\S+)\s+\[Reverse\]$/i);
+          return Boolean(
+            match &&
+            (!match[1] || match[1] === this.input.target) &&
+            match[2] === expectedSource &&
+            match[3] === expectedDestination,
+          );
+        });
+    } catch {
+      return false;
+    }
+  }
+
+  private scheduleNext(): void {
+    if (!this.started || this.stopping || this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.checkAndRecover().then(() => this.scheduleNext());
+    }, RPORT_CHECK_INTERVAL_MS);
+    this.timer.unref?.();
+  }
+
+  private async performCheckAndRecover(): Promise<void> {
+    if (this.stopping || (await this.isForwardingActive())) return;
+    for (let attempt = 0; attempt < RPORT_MAX_RETRIES; attempt += 1) {
+      if (this.stopping) return;
+      try {
+        const result = await this.input.runCommand(
+          buildReversePortCommand(
+            this.input.hdc,
+            this.input.target,
+            this.input.devicePort,
+            this.input.port,
+            this.input.platform,
+          ),
+        );
+        if (reversePortSucceeded(result)) return;
+      } catch {
+        // HDC 重连期间命令可能直接抛错，按同一重试策略处理。
+      }
+      if (this.stopping || attempt + 1 >= RPORT_MAX_RETRIES) return;
+      await this.sleep(RPORT_RETRY_INTERVAL_MS);
+    }
+  }
+}
 
 export interface ManagedFoldServerInstance extends FoldServerState {
   process: ChildProcess;
   stateFile: string;
+  forwardKeeper?: ReversePortKeeper;
 }
 
 export interface FoldServerRuntime {
@@ -110,7 +232,10 @@ export async function startManagedFoldServer(
     } catch {
       // Treat an HDC invocation failure like a rejected forwarding attempt.
     }
-    if (forwarded && reversePortSucceeded(forwarded)) return instance;
+    if (forwarded && reversePortSucceeded(forwarded)) {
+      attachReversePortKeeper(input, runtime, instance);
+      return instance;
+    }
     if (!(await rollbackCandidate(input, runtime, instance))) {
       throw new Error("fold_cleanup_failed");
     }
@@ -118,11 +243,35 @@ export async function startManagedFoldServer(
   throw new Error("fold_server_port_unavailable");
 }
 
+function attachReversePortKeeper(
+  input: StartManagedFoldServerInput,
+  runtime: FoldServerRuntime,
+  instance: ManagedFoldServerInstance,
+): void {
+  const keeper = new ReversePortKeeper(
+    {
+      hdc: input.hdc,
+      target: input.device.target,
+      devicePort: instance.devicePort,
+      port: instance.port,
+      runCommand: input.runCommand,
+      platform: runtime.platform,
+    },
+    runtime.sleep,
+  );
+  instance.forwardKeeper = keeper;
+  instance.process.once("close", () => {
+    void keeper.stop();
+  });
+  keeper.start();
+}
+
 export async function stopManagedFoldServer(
   input: StopManagedFoldServerInput,
 ): Promise<FoldServerCleanupResult> {
   const runtime = buildRuntime(input.runtime);
   const diagnostics: string[] = [];
+  await input.instance.forwardKeeper?.stop();
   try {
     const removed = await removeAndVerifyForward(
       input.hdc,
