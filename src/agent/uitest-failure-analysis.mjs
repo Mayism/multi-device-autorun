@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { runMonitoredSession } from "./session-monitor.mjs";
+import { buildFailureInteractionContext } from "./uitest-interaction-context.mjs";
 
-const ANALYSIS_SCHEMA_VERSION = "autorun-uitest-failure-analysis-v2";
+const ANALYSIS_SCHEMA_VERSION = "autorun-uitest-failure-analysis-v3";
 const ALLOWED_CATEGORIES = new Set([
+  "interaction_failure",
   "implementation_defect",
   "test_defect",
   "environment",
@@ -198,7 +200,7 @@ export function normalizeFailureAnalyses(raw, failures) {
     const uxReason = cleanString(item?.uxReason || item?.summary, 2_000);
     if (!uxReason) continue;
     seen.add(failureId);
-    analyses.push({
+    const analysis = {
       failureId,
       category: ALLOWED_CATEGORIES.has(item?.category) ? item.category : "inconclusive",
       // summary 保留给旧版报告兼容；新版报告优先使用 UX 结构化字段。
@@ -213,14 +215,40 @@ export function normalizeFailureAnalyses(raw, failures) {
         .slice(0, 6),
       confidence: ALLOWED_CONFIDENCE.has(item?.confidence) ? item.confidence : "low",
       suggestion: cleanString(item?.suggestion, 2_000),
-    });
+    };
+    const interaction = expected.get(failureId)?.interaction;
+    if (interaction) analysis.interaction = interaction;
+    analyses.push(analysis);
   }
   if (!analyses.length) throw new Error("诊断 JSON 中没有可匹配的失败项");
   return analyses;
 }
 
 function diagnosticPrompt(evidence) {
-  return `你是 UITest 失败诊断器，只负责分析，不负责修改代码。不得调用工具，不得访问工作目录之外的信息，不得生成或应用补丁。\n\n请基于下方证据判断每条失败的真正原因。报告首先服务于 UX 验收：要明确用户原本应该看到什么、实际看到了什么，以及为什么这个体验没有实现。断言文本和调用栈通常只是症状，绝不能把堆栈、异常类型或“断言失败”本身当作具体原因；需要把 PROMPT、测试意图、Agent 修改、最终源码和 ohosTest 日志串起来说明因果。证据不足时必须选择 inconclusive，禁止猜测。不要使用或推断 golden patch。\n\n只输出一个合法 JSON 对象，不要 Markdown，不要额外说明，结构必须是：\n{"analyses":[{"failureId":"输入中的 ID","category":"implementation_defect|test_defect|environment|inconclusive","uxReason":"面向产品和开发者的一句话具体 UX 失败原因，不包含堆栈","expectedBehavior":"用户预期看到或完成的行为","actualBehavior":"测试证据表明用户实际看到或遇到的行为","technicalCause":"造成 UX 偏差的代码、状态或环境原因；证据不足则留空","evidence":["证据1","证据2"],"confidence":"high|medium|low","suggestion":"建议核查或修复的位置"}]}\n\n要求：每个 failureId 最多一项；uxReason 必须描述具体体验偏差，不能只写测试名、断言失败、找不到控件或调用栈；expectedBehavior 和 actualBehavior 应优先使用产品行为语言；technicalCause 才放实现细节；evidence 必须引用输入中的具体需求、测试、代码或日志。\n\n${evidence}`;
+  return `你是 UITest 失败诊断器，只负责分析，不负责修改代码。不得调用工具，不得访问工作目录之外的信息，不得生成或应用补丁。\n\n请基于下方证据判断每条失败的真正原因。报告首先服务于 UX 验收：要明确用户原本应该看到什么、实际看到了什么，以及为什么这个体验没有实现。断言文本和调用栈通常只是症状，绝不能把堆栈、异常类型或“断言失败”本身当作具体原因；需要把 PROMPT、测试意图、Agent 修改、最终源码和 ohosTest 日志串起来说明因果。失败项如果包含 interaction，必须准确说明失败阶段、定位方式、selector、目标控件文案、查找结果和业务断言是否执行，不得改写这些确定性事实。证据不足时必须选择 inconclusive，禁止猜测。不要使用或推断 golden patch。\n\n只输出一个合法 JSON 对象，不要 Markdown，不要额外说明，结构必须是：\n{"analyses":[{"failureId":"输入中的 ID","category":"interaction_failure|implementation_defect|test_defect|environment|inconclusive","uxReason":"面向产品和开发者的一句话具体 UX 失败原因，不包含堆栈","expectedBehavior":"用户预期看到或完成的行为","actualBehavior":"测试证据表明用户实际看到或遇到的行为","technicalCause":"造成 UX 偏差的代码、状态或环境原因；证据不足则留空","evidence":["证据1","证据2"],"confidence":"high|medium|low","suggestion":"建议核查或修复的位置"}]}\n\n要求：每个 failureId 最多一项；控件定位或操作失败使用 interaction_failure；uxReason 必须描述具体体验偏差，不能只写测试名、断言失败或调用栈；如果是控件定位失败，必须写清查找方式、selector 和目标文案，并说明后续断言是否执行；expectedBehavior 和 actualBehavior 应优先使用产品行为语言；technicalCause 才放实现细节；evidence 必须引用输入中的具体需求、测试、代码或日志。\n\n${evidence}`;
+}
+
+export function selectDiagnosticAgent(config, currentAgent = "") {
+  const agents = config?.agent && typeof config.agent === "object" && !Array.isArray(config.agent)
+    ? config.agent
+    : {};
+  for (const candidate of ["build", "general", currentAgent]) {
+    if (candidate && Object.hasOwn(agents, candidate)) return candidate;
+  }
+  return currentAgent || "";
+}
+
+function mergeAnalyses(modelAnalyses, fallbackAnalyses) {
+  const merged = new Map((fallbackAnalyses || []).map((item) => [item.failureId, item]));
+  for (const item of modelAnalyses || []) {
+    const fallback = merged.get(item.failureId);
+    merged.set(item.failureId, {
+      ...fallback,
+      ...item,
+      interaction: item.interaction || fallback?.interaction,
+    });
+  }
+  return [...merged.values()];
 }
 
 export async function analyzeUitestFailures({
@@ -234,8 +262,8 @@ export async function analyzeUitestFailures({
   sessionRunner = runMonitoredSession,
 }) {
   const runnerResult = await readJson(ohosTest?.resultPath);
-  const failures = collectUitestFailures(runnerResult);
-  if (!failures.length) return null;
+  const collectedFailures = collectUitestFailures(runnerResult);
+  if (!collectedFailures.length) return null;
 
   const caseRunDir = path.dirname(agentResult.resultPath);
   const outputDir = path.join(caseRunDir, "failure-analysis");
@@ -244,9 +272,22 @@ export async function analyzeUitestFailures({
   const outputPath = path.join(outputDir, "model-output.txt");
   await fs.mkdir(outputDir, { recursive: true });
 
+  let failures = collectedFailures;
+  let fallbackAnalyses = [];
+  let diagnosticAgent = "";
   try {
     const generatedPatch = await readText(agentResult.patchPath, 35_000);
     const testPatch = await readText(ohosTest?.testPatchPath, 35_000);
+    const retainedProjectDir = ohosTest?.outputDir
+      ? path.join(ohosTest.outputDir, "work", "project")
+      : "";
+    const interactionContext = await buildFailureInteractionContext(collectedFailures, {
+      projectRoots: [agentResult.projectDir, ohosTest?.workDir, retainedProjectDir],
+      testRoots: [ohosTest?.workDir, retainedProjectDir, agentResult.projectDir],
+      testPatch,
+    });
+    failures = interactionContext.failures;
+    fallbackAnalyses = interactionContext.fallbackAnalyses;
     const prompt = await readText(caseInfo?.promptPath, 14_000);
     const metadata = await readText(ohosTest?.metadataPath, 12_000);
     const commandLog = await readText(
@@ -255,7 +296,7 @@ export async function analyzeUitestFailures({
     );
     const summary = await readText(ohosTest?.summaryPath, 12_000);
     const finalSources = await collectFinalSources(
-      [ohosTest?.workDir, agentResult.projectDir],
+      [ohosTest?.workDir, retainedProjectDir, agentResult.projectDir],
       generatedPatch,
       38_000,
     );
@@ -274,15 +315,23 @@ export async function analyzeUitestFailures({
     const session = await client.createSession(outputDir, 120);
     const sessionId = stringValue(session?.id);
     if (!sessionId) throw new Error("OpenCode 创建失败诊断 session 后未返回 session id");
+    let serverConfig = null;
+    try {
+      serverConfig = await client.getConfig(30, signal, outputDir);
+    } catch {
+      // 配置读取失败时退回当前生成 Agent，避免诊断阶段直接中断。
+    }
+    diagnosticAgent = selectDiagnosticAgent(serverConfig, agentResult.agent);
+    const payload = {
+      parts: [{ type: "text", text: diagnosticPrompt(evidence) }],
+      model: { providerID: model.providerId, modelID: model.modelId },
+    };
+    if (diagnosticAgent) payload.agent = diagnosticAgent;
     const monitored = await sessionRunner({
       client,
       sessionId,
       projectDir: outputDir,
-      payload: {
-        parts: [{ type: "text", text: diagnosticPrompt(evidence) }],
-        agent: "plan",
-        model: { providerID: model.providerId, modelID: model.modelId },
-      },
+      payload,
       eventsPath: path.join(outputDir, "opencode-sse.jsonl"),
       pollingPath: path.join(outputDir, "opencode-polling.jsonl"),
       idleTimeoutSec: 180,
@@ -291,13 +340,16 @@ export async function analyzeUitestFailures({
     });
     const modelOutput = stringValue(monitored?.output);
     await fs.writeFile(outputPath, modelOutput, "utf8");
-    const analyses = normalizeFailureAnalyses(parseJsonObject(modelOutput), failures);
+    const analyses = mergeAnalyses(
+      normalizeFailureAnalyses(parseJsonObject(modelOutput), failures),
+      fallbackAnalyses,
+    );
     const result = {
       schemaVersion: ANALYSIS_SCHEMA_VERSION,
       status: "completed",
       generatedAt: new Date().toISOString(),
       case: caseInfo?.name || agentResult.case,
-      model: { providerId: model.providerId, modelId: model.modelId, agent: "plan" },
+      model: { providerId: model.providerId, modelId: model.modelId, agent: diagnosticAgent },
       sessionId,
       evidencePath,
       outputPath,
@@ -307,16 +359,18 @@ export async function analyzeUitestFailures({
     await writeJson(resultPath, result);
     return { status: "completed", resultPath, evidencePath, outputPath, sessionId };
   } catch (error) {
+    const analyses = mergeAnalyses([], fallbackAnalyses);
     const result = {
       schemaVersion: ANALYSIS_SCHEMA_VERSION,
-      status: "failed",
+      status: analyses.length ? "partial" : "failed",
       generatedAt: new Date().toISOString(),
       case: caseInfo?.name || agentResult.case,
-      model: { providerId: model?.providerId || "", modelId: model?.modelId || "", agent: "plan" },
+      model: { providerId: model?.providerId || "", modelId: model?.modelId || "", agent: diagnosticAgent },
       error: error.message,
       failures,
+      analyses,
     };
     await writeJson(resultPath, result).catch(() => {});
-    return { status: "failed", resultPath, evidencePath, outputPath, error: error.message };
+    return { status: result.status, resultPath, evidencePath, outputPath, error: error.message };
   }
 }

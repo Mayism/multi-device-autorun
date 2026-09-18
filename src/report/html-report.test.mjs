@@ -34,7 +34,7 @@ test("详情页优先展示分析根因并折叠原始调用栈", async (t) => {
     }] } },
   }), "utf8");
   await fs.writeFile(analysisPath, JSON.stringify({
-    status: "completed",
+    status: "partial",
     failures: [{ failureId: "legacy-failure-id", ...failure }],
     analyses: [{
       failureId: "legacy-failure-id",
@@ -47,6 +47,16 @@ test("详情页优先展示分析根因并折叠原始调用栈", async (t) => {
       evidence: ["Page.ets 仍显示旧标题"],
       confidence: "high",
       suggestion: "修改标题资源",
+      interaction: {
+        conclusion: "前置导航失败：未找到 FullScreen 对应的“避让区隐藏”控件，状态栏高度断言没有执行。",
+        phase: "前置导航",
+        action: "click",
+        lookupApi: "findComponent",
+        locator: { type: "id", value: "FullScreen" },
+        target: { componentType: "Text", clickable: true, displayText: "避让区隐藏" },
+        result: { status: "not_found", returnedValue: "null" },
+        assertion: { executed: false, expression: "expect(statusBarRect.height).assertEqual(0)" },
+      },
     }],
   }), "utf8");
   await fs.writeFile(path.join(root, "report.json"), JSON.stringify({
@@ -72,12 +82,17 @@ test("详情页优先展示分析根因并折叠原始调用栈", async (t) => {
 
   await writeHtmlReport({ batchRoot: root, summary });
   const html = await fs.readFile(path.join(root, "subpage", "CaseA.html"), "utf8");
-  assert.match(html, /用户进入页面后仍看到旧标题，无法确认当前功能/);
+  assert.match(html, /前置导航失败：未找到 FullScreen 对应的“避让区隐藏”控件/);
   assert.match(html, /进入页面后显示新的业务标题/);
   assert.match(html, /页面继续显示旧标题/);
   assert.match(html, /标题资源没有按需求更新/);
   assert.match(html, /实现缺陷/);
   assert.match(html, /原始错误与调用栈（技术详情）/);
+  assert.match(html, /失败交互/);
+  assert.match(html, /FullScreen/);
+  assert.match(html, /避让区隐藏/);
+  assert.match(html, /未找到/);
+  assert.match(html, /业务断言/);
   assert.match(html, /EntryAbilityTest\.ets:42/);
   assert.match(html, /<h2>Agent 编译<\/h2>/);
   assert.match(html, /编译尝试次数<\/div>\s*<div class="v">4<\/div>/);

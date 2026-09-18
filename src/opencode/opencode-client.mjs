@@ -92,8 +92,8 @@ export class OpenCodeClient {
     return false;
   }
 
-  getConfig(timeoutSec = 30, signal) {
-    return this.request("/config", { timeoutSec, signal });
+  getConfig(timeoutSec = 30, signal, directory = "") {
+    return this.request("/config", { timeoutSec, signal, directory });
   }
 
   getProviders(directory, timeoutSec = 30, signal) {

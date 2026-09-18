@@ -319,6 +319,11 @@ export function pageShell({ title, body, extraHead = "" }) {
   .modal-body section { margin-bottom: 16px; }
   .modal-body h4 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
   .reason-msg { white-space: pre-wrap; word-break: break-word; background: var(--fail-soft); color: #8a262a; padding: 10px 12px; border-radius: 8px; }
+  .interaction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; overflow: hidden; background: var(--border); border: 1px solid var(--border); border-radius: 8px; }
+  .interaction-item { min-width: 0; padding: 10px 12px; background: #fff; }
+  .interaction-item .k { margin-bottom: 3px; color: var(--muted); font-size: 12px; }
+  .interaction-item .v { word-break: break-word; font-size: 13px; }
+  @media (max-width: 640px) { .interaction-grid { grid-template-columns: 1fr; } }
   .modal-body details { border-top: 1px solid var(--border); padding-top: 12px; }
   .modal-body summary { color: var(--muted); cursor: pointer; margin-bottom: 12px; }
   .modal-body ul { margin: 0; padding-left: 20px; }
@@ -344,6 +349,8 @@ function modalScript() {
     const expectedEl = document.getElementById('reasonExpected');
     const actualEl = document.getElementById('reasonActual');
     const technicalEl = document.getElementById('reasonTechnical');
+    const interactionSectionEl = document.getElementById('reasonInteractionSection');
+    const interactionEl = document.getElementById('reasonInteraction');
     const rawMessageEl = document.getElementById('reasonRawMessage');
     const categoryEl = document.getElementById('reasonCategory');
     const evidenceEl = document.getElementById('reasonEvidence');
@@ -361,6 +368,33 @@ function modalScript() {
       actualEl.parentElement.style.display = r.actualBehavior ? 'block' : 'none';
       technicalEl.textContent = r.technicalCause || '';
       technicalEl.parentElement.style.display = r.technicalCause ? 'block' : 'none';
+      interactionEl.innerHTML = '';
+      const interaction = r.interaction;
+      if (interaction) {
+        const actionLabels = { click: '点击', longClick: '长按', inputText: '输入文本', interact: '交互' };
+        const locatorLabels = { id: 'ID', text: '文本', type: '控件类型', description: '描述', key: 'Key' };
+        const target = interaction.target || {};
+        const result = interaction.result || {};
+        const assertion = interaction.assertion || {};
+        const rows = [
+          ['失败阶段', interaction.phase],
+          ['操作', actionLabels[interaction.action] || interaction.action],
+          ['定位方式', locatorLabels[interaction.locator && interaction.locator.type] || (interaction.locator && interaction.locator.type)],
+          ['Selector', interaction.locator && interaction.locator.value],
+          ['目标控件', target.componentType ? ((target.clickable ? '可点击 ' : '') + target.componentType + ' 控件') : '未解析'],
+          ['控件文案', target.displayText || '未解析'],
+          ['查找结果', result.status === 'not_found' ? ('未找到' + (result.returnedValue ? '，返回 ' + result.returnedValue : '')) : result.status],
+          ['业务断言', assertion.executed === false ? ('未执行' + (assertion.expression ? '：' + assertion.expression : '')) : '已执行'],
+        ];
+        rows.forEach(function (row) {
+          if (!row[1]) return;
+          const item = document.createElement('div'); item.className = 'interaction-item';
+          const key = document.createElement('div'); key.className = 'k'; key.textContent = row[0];
+          const value = document.createElement('div'); value.className = 'v'; value.textContent = row[1];
+          item.appendChild(key); item.appendChild(value); interactionEl.appendChild(item);
+        });
+      }
+      interactionSectionEl.style.display = interaction ? 'block' : 'none';
       rawMessageEl.textContent = r.message || '（无原始失败描述）';
       categoryEl.textContent = r.analysis
         ? ((r.categoryLabel || '原因待确认') + ' · 置信度 ' + (r.confidenceLabel || '低'))
@@ -392,6 +426,7 @@ function reasonModalMarkup() {
       <div class="modal-head"><span class="t" id="reasonTitle">失败原因</span><button class="btn" onclick="window.__closeReason()">关闭</button></div>
       <div class="modal-body">
         <section><h4 id="reasonCategory">具体原因</h4><div class="reason-msg" id="reasonMsg"></div></section>
+        <section id="reasonInteractionSection"><h4>失败交互</h4><div class="interaction-grid" id="reasonInteraction"></div></section>
         <section><h4>预期用户体验</h4><div id="reasonExpected"></div></section>
         <section><h4>实际用户体验</h4><div id="reasonActual"></div></section>
         <section><h4>技术原因</h4><div id="reasonTechnical"></div></section>
@@ -794,9 +829,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
   let reasonIndex = 0;
   const reasons = {};
   const analysisById = new Map(
-    failureAnalysis?.status === "completed"
-      ? (failureAnalysis.analyses || []).map((item) => [item.failureId, item])
-      : [],
+    (failureAnalysis?.analyses || []).map((item) => [item.failureId, item]),
   );
   // 兼容分析协议或 failureId 算法升级：分析文件同时保存了原始失败项，
   // 可按设备/测试类/测试名重新建立当前报告使用的 ID 映射。
@@ -805,6 +838,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
     if (analysis) analysisById.set(failureIdentity(failure), analysis);
   }
   const categoryLabels = {
+    interaction_failure: "交互定位失败",
     implementation_defect: "实现缺陷",
     test_defect: "测试缺陷",
     environment: "环境问题",
@@ -821,10 +855,11 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
             title: `${row.deviceProfile || row.deviceId} · ${row.name}`,
             message: row.message,
             stack: row.stack,
-            analysis: analysis?.summary || "",
+            analysis: analysis?.interaction?.conclusion || analysis?.summary || "",
             expectedBehavior: analysis?.expectedBehavior || "",
             actualBehavior: analysis?.actualBehavior || "",
             technicalCause: analysis?.technicalCause || "",
+            interaction: analysis?.interaction || null,
             categoryLabel: categoryLabels[analysis?.category] || "",
             confidenceLabel: confidenceLabels[analysis?.confidence] || "",
             evidence: analysis?.evidence || [],
