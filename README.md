@@ -277,9 +277,9 @@ Autorun 会在 `outputRoot/<batchId>/<agentId>/<caseName>/<base|task>` 下创建
 
 修改后，批次报告和详细结果会写入 `D:/out/<batchId>/<agentId>/`，根级总览位于 `D:/out/<batchId>/overview.html`。OpenCode 运行数据默认按 `<batchId>/<agentId>` 隔离写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
 
-ohosTest 不会在 `.ohostest-runs/<runId>` 下编译工程，而是将 Agent 输出的 `base/task`
-复制到同一用例目录下的浅层临时目录，应用隐藏测试 patch 后在该目录构建。报告仍写入
-`.ohostest-runs/<runId>`。测试完成、失败、超时或中断后，Autorun 会将实际编译工程保留为
+ohosTest 将 Agent 输出工程复制到 `.ohostest-runs/<runId>/work/project/`，应用隐藏测试
+patch 后在该工作副本构建；Web 用例的工作副本同时包含 `base/` 和 `web/`。
+报告写入 `.ohostest-runs/<runId>`。测试完成、失败、超时或中断后，Autorun 会将已生成的实际测试工程保留为
 `<caseName>/ohostest-workdir/`，用于复现构建结果和定位问题，不会修改 Agent 输出工程。
 Autorun 会通过 Runner 的 `--out` 参数指定唯一输出目录并监视其中的最终 `result.json`；
 结果生成后若 npm 进程在 10 秒内仍未退出，会结束本次进程树并继续下一个 ohosTest。
@@ -542,8 +542,9 @@ Agent 结束后，Autorun 会在业务 Patch 和白盒 Sandbox 边界排除 `.on
 
 生成 Agent 的 Hvigor 编译尝试会以结构化 `agentBuild` 输入交给白盒评价，保留每次真实任务、命令、退出码和顺序。白盒以最后一次有效尝试作为最终编译结果，报告来源显示为“生成 Agent 编译结果”，与 ohosTest 状态独立。
 
-ohosTest 执行期间会先创建 `<caseName>/work/` 作为实际编译工程；执行结束后统一重命名并保留为
+ohosTest 执行期间会先创建 `<caseName>/.ohostest-runs/<runId>/work/project/` 作为测试工程根目录；执行结束后统一重命名并保留为
 `<caseName>/ohostest-workdir/`。用例 `result.json` 的 `ohosTest.workDir` 会记录其绝对路径。
+归档失败时保留原工作副本，`ohosTest.workDir` 指向仍存在的原工作目录并记录 `workPreserveError`；如果尚未生成工作副本，该路径为空。
 
 当 UITest 出现失败或错误测试项时，Autorun 会在生成 Agent 之外创建独立的只分析会话，综合原始
 `PROMPT.md`、`metadata.json`、`diff/changes.patch`、`test_patch.patch`、最终修改源码以及关联的

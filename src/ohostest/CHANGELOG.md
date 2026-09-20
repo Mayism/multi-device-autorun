@@ -5,6 +5,13 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.5.2] - 2026-09-20
+
+### 修复
+
+- AutoRun 从 Runner 当前输出目录的 `work/project` 归档实际测试工程到用例的 `ohostest-workdir`，修复仍读取旧 `Case/work` 导致工作副本未归档、`ohosTest.workDir` 为空的问题；Web 用例的 `base` 与 `web` 子工程一并保留，归档失败时返回仍存在的原工作目录。
+- Runner 初始化失败时，结果中的 `artifacts.workdir` 与正常执行统一指向输出目录的 `work/project`。
+
 ## [0.5.1] - 2026-09-17
 
 ### 修复

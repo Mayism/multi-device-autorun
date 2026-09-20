@@ -847,7 +847,9 @@ function failedCaseResult(
       result: path.relative(caseDir, path.join(outDir, "result.json")),
       summary: path.relative(caseDir, path.join(outDir, "summary.md")),
       commandLog: "commands.jsonl",
-      ...(input.keepWorkdir ? { workdir: path.join(caseDir, "work") } : {}),
+      ...(input.keepWorkdir
+        ? { workdir: path.join(outDir, "work", "project") }
+        : {}),
     },
     diagnostics: [message],
   };

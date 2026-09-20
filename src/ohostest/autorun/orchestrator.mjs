@@ -336,13 +336,14 @@ async function runProcess({
 
 async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLeasePath, signal, startedAt, stagedCase }) {
   const { inputDir } = stagedCase;
-  const runnerWorkDir = path.join(inputDir, "work");
+  const outputDir = runnerOutputDir(inputDir, startedAt);
+  // Archive the project root itself so native and Web layouts remain usable directly.
+  const runnerWorkDir = path.join(outputDir, "work", "project");
   const retainedWorkDir = path.join(inputDir, RETAINED_WORKDIR_NAME);
   await Promise.all([
     fsp.rm(runnerWorkDir, { recursive: true, force: true }),
     fsp.rm(retainedWorkDir, { recursive: true, force: true }),
   ]);
-  const outputDir = runnerOutputDir(inputDir, startedAt);
   const resultWatchPath = path.join(outputDir, "result.json");
   const machineConfigPath = path.join(outputDir, "machine.json");
   await fsp.mkdir(outputDir, { recursive: true });
