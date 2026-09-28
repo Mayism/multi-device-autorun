@@ -1118,6 +1118,7 @@ test("runOhosTestMatrix runs configured test suites separately and aggregates re
   const testCommand = events.find(
     (event) =>
       event.event === "command" &&
+      String(event.command).includes("aa test") &&
       String(event.command).includes("MdFailToPassTest"),
   );
   assert.equal(testCommand?.stdout, undefined);

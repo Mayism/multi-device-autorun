@@ -4,6 +4,8 @@ import type {
   CommandExecutionOptions,
   CommandExecutor,
   CommandResult,
+  StreamedCommandHandlers,
+  StreamingCommandExecutor,
 } from "./types/index.js";
 
 const utf8Decoder = new TextDecoder("utf-8");
@@ -25,6 +27,113 @@ export const defaultCommandExecutor: CommandExecutor = async (
   cwd,
   options,
 ) => runCommand(command, cwd, options);
+
+/**
+ * Builds a streaming executor. With a base executor (used by AutoRun and
+ * tests), execution remains buffered and stdout lines are delivered after it
+ * settles. Without one, the command is spawned and lines are delivered live.
+ */
+export function createStreamingCommandExecutor(
+  base?: CommandExecutor,
+): StreamingCommandExecutor {
+  if (base) {
+    return async (command, cwd, handlers = {}) => {
+      const result = await base(
+        command,
+        cwd,
+        handlers.timeoutMs === undefined
+          ? undefined
+          : { timeoutMs: handlers.timeoutMs },
+      );
+      deliverOutputLines(result.stdout, handlers);
+      return result;
+    };
+  }
+  return (command, cwd, handlers = {}) =>
+    runStreamedCommand(command, cwd, handlers);
+}
+
+export async function runStreamedCommand(
+  command: string,
+  cwd: string,
+  handlers: StreamedCommandHandlers = {},
+): Promise<CommandResult> {
+  const started = Date.now();
+  return new Promise<CommandResult>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let lineBuffer = "";
+    let timedOut = false;
+    let settled = false;
+    let cancelTimeout = (): void => undefined;
+    const child = spawn(command, {
+      cwd,
+      shell: true,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const finish = (result: Omit<CommandResult, "durationMs">): void => {
+      if (settled) return;
+      settled = true;
+      cancelTimeout();
+      resolve({
+        stdout,
+        stderr: timedOut
+          ? appendTextOutput(
+              stderr,
+              `\ncommand timed out after ${handlers.timeoutMs} ms`,
+            )
+          : stderr,
+        exitCode: timedOut ? timeoutExitCode : result.exitCode,
+        durationMs: Date.now() - started,
+        ...(timedOut ? { timedOut: true } : {}),
+      });
+    };
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const text = decodeCommandOutput(chunk);
+      stdout = appendTextOutput(stdout, text);
+      lineBuffer += text;
+      const lines = lineBuffer.split(/\r?\n/);
+      lineBuffer = lines.pop() ?? "";
+      for (const line of lines) handlers.onStdoutLine?.(line);
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr = appendTextOutput(stderr, decodeCommandOutput(chunk));
+    });
+    child.on("error", (error) => {
+      stderr = appendTextOutput(stderr, error.message);
+      finish({ stdout, stderr, exitCode: 1 });
+    });
+    child.on("close", (code) => {
+      if (lineBuffer.length > 0) handlers.onStdoutLine?.(lineBuffer);
+      finish({ stdout, stderr, exitCode: code ?? 0 });
+    });
+    cancelTimeout = scheduleCommandTimeout(
+      child,
+      handlers.timeoutMs,
+      () => {
+        timedOut = true;
+      },
+      () => finish({ stdout, stderr, exitCode: timeoutExitCode }),
+      () => settled,
+    );
+  });
+}
+
+function deliverOutputLines(
+  output: string,
+  handlers: StreamedCommandHandlers,
+): void {
+  if (!handlers.onStdoutLine || output.length === 0) return;
+  const lines = output.split(/\r?\n/);
+  if (lines[lines.length - 1]?.length === 0) lines.pop();
+  for (const line of lines) handlers.onStdoutLine(line);
+}
+
+function appendTextOutput(current: string, text: string): string {
+  return `${current}${text}`.slice(-1024 * 1024);
+}
 
 async function runCommand(
   command: string,

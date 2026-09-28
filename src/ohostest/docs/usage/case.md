@@ -399,9 +399,11 @@ SWE 缺少设备类型视为基线状态，不额外计为失败。Answer 会根
   swe/                 # 仅在执行 --run swe 或 --run all 时生成
     result.json        # swe 矩阵 JSON 报告，包含构建结果、设备结果、suite 结果、test case 明细
     summary.md         # swe 矩阵 Markdown 汇总，按设备和 suite 展示矩阵执行结果
+    screenshots/       # 失败用例的设备截图，按设备 ID 分目录（见下文）
   answer/              # 仅在执行 --run answer 或 --run all 时生成
     result.json        # answer 矩阵 JSON 报告，包含构建结果、设备结果、suite 结果、test case 明细
     summary.md         # answer 矩阵 Markdown 汇总，按设备和 suite 展示矩阵执行结果
+    screenshots/       # 失败用例的设备截图，按设备 ID 分目录（见下文）
 ```
 
 合成工程不放在报告时间戳目录内，而是放在 `<case>/work/`。这样报告路径可以保持完整，
@@ -411,6 +413,17 @@ Hvigor 实际编译路径仍与 `<case>/base` 或 `<case>/task` 基本等长。`
 多 HAP 轮次会在 `swe/modules/<module>/` 或 `answer/modules/<module>/` 中写入各模块的
 `result.json` 和 `summary.md`。顶层矩阵结果保持现有格式，并可选增加 `module_runs`，记录
 每个模块对应的设备、构建产物、结果路径和诊断。单 HAP 用例不生成该字段。
+
+### 设备屏幕截图
+
+只为失败用例保留截图，`aa test` 执行期间每 1 秒滚动抓取一帧设备屏幕；用例上报失败时，
+仅保留拍摄于该用例执行期间的帧，否则对失败现场尽力补拍。通过、忽略的用例与无失败的
+运行不产生截图；命令在用例上报前结束时，遗留帧可作为最后一条用例的卡死现场保留。
+
+截图保存在对应轮次的 `screenshots/<deviceId>/` 下，设备结果的 `screenshots` 字段和轮次
+`summary.md` 的设备小节会列出相对路径。用例名中的特殊字符替换为 `_`，解锁重试第二轮
+追加 `-2` 后缀。截图失败只跳过该帧，不影响测试结果判定；自定义 `commandExecutor`
+使用缓冲执行时，行事件会在命令结束后投递。
 
 `swe/result.json` 和 `answer/result.json` 的命令日志路径均指向顶层
 `commands.jsonl`。可按 `phase`、`deviceId` 和 `suiteClass` 过滤对应事件；
