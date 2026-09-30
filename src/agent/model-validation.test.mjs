@@ -54,6 +54,6 @@ test("configured model still rejects a missing dynamic model", async () => {
       modelId: "glm-5.2",
       directory: "/workspace",
     }),
-    /未配置模型: glm-5\.2/,
+    /未配置模型: glm-5\.2（可用模型: glm-5\.3）/,
   );
 });

@@ -1,91 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { runPythonWorker } from "../runtime/python-worker.mjs";
 import { badge, esc, fmtDuration, pageShell } from "./html-report.mjs";
-
-function number(value) {
-  return Number.isFinite(Number(value)) ? Number(value) : 0;
-}
-
-function percent(passes, failures, errors) {
-  const total = number(passes) + number(failures) + number(errors);
-  return total ? `${Math.round((number(passes) / total) * 100)}%` : "--";
-}
-
-async function readJson(filePath) {
-  try {
-    return JSON.parse(await fs.readFile(filePath, "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-async function loadTarget(runRoot, target) {
-  const targetRoot = target.targetRoot || path.join(runRoot, target.id);
-  const summary = target.summary || await readJson(path.join(targetRoot, "summary.json"));
-  const report = target.report || await readJson(path.join(targetRoot, "report.json"));
-  const environment = await readJson(path.join(targetRoot, "environment.json"));
-  const error = String(target.error || "");
-  const agentCases = new Map((report?.agent?.cases || []).map((item) => [String(item.case), item]));
-  const testCases = new Map((report?.ohosTest?.caseResults || []).map((item) => [String(item.case), item]));
-  const whiteboxCases = new Map((report?.whitebox?.cases || []).map((item) => [String(item.case), item]));
-  const resultCases = new Map((summary?.results || []).map((item) => [String(item.case), item]));
-  const caseNames = new Set([...agentCases.keys(), ...testCases.keys(), ...whiteboxCases.keys(), ...resultCases.keys()]);
-  const cases = {};
-  for (const caseName of caseNames) {
-    const agent = agentCases.get(caseName) || {};
-    const test = testCases.get(caseName) || {};
-    const whitebox = whiteboxCases.get(caseName) || {};
-    const result = resultCases.get(caseName) || {};
-    const run = test.run || {};
-    const deviceTotals = (run.devices || []).reduce((totals, device) => {
-      totals.passes += number(device.passes);
-      totals.failures += number(device.failures);
-      totals.errors += number(device.errors);
-      return totals;
-    }, { passes: 0, failures: 0, errors: 0 });
-    cases[caseName] = {
-      status: String(result.status || agent.status || test.status || "unknown"),
-      elapsedSec: number(result.elapsedSec || agent.elapsedSec),
-      tokenTotal: number(result?.tokenUsage?.total || agent?.tokenUsage?.total),
-      modelCalls: number(agent.modelCalls),
-      toolCalls: number(agent.toolCalls),
-      tests: {
-        status: String(test.status || ""),
-        ...deviceTotals,
-        passRate: percent(deviceTotals.passes, deviceTotals.failures, deviceTotals.errors),
-      },
-      whiteboxScore: Number.isFinite(Number(whitebox.totalScore)) ? Number(whitebox.totalScore) : null,
-      detailHref: `${encodeURIComponent(target.id)}/subpage/${encodeURIComponent(`${caseName}.html`)}`,
-    };
-  }
-  return {
-    id: target.id,
-    label: target.label || target.id,
-    mode: target.mode || summary?.opencodeSourceMode || "",
-    agent: summary?.agent || report?.agent?.type || target.agent || "",
-    status: error ? "failed" : (summary?.status || "failed"),
-    error,
-    providerId: summary?.providerId || report?.agent?.providerId || environment?.generationModel?.providerId || "",
-    modelId: summary?.modelId || report?.agent?.modelId || environment?.generationModel?.modelId || "",
-    modelConfigFingerprint: environment?.generationModel?.configFingerprint || "",
-    summary: {
-      total: number(summary?.total),
-      completed: number(summary?.completed),
-      failed: number(summary?.failed),
-      tokenTotal: number(summary?.tokenUsage?.total || report?.agent?.totalTokens),
-      modelCalls: number(report?.agent?.modelCalls),
-      toolCalls: number(report?.agent?.toolCalls),
-      testsRun: number(report?.ohosTest?.testsRun),
-      passes: number(report?.ohosTest?.passes),
-      failures: number(report?.ohosTest?.failures),
-      errors: number(report?.ohosTest?.errors),
-      passRate: percent(report?.ohosTest?.passes, report?.ohosTest?.failures, report?.ohosTest?.errors),
-      whiteboxAverageScore: Number.isFinite(Number(report?.whitebox?.averageScore)) ? Number(report.whitebox.averageScore) : null,
-    },
-    overviewHref: `${encodeURIComponent(target.id)}/overview.html`,
-    cases,
-  };
-}
 
 function targetCards(targets) {
   return `<h2>Agent 执行概览</h2><div class="stats">${targets.map((target) => `
@@ -116,21 +32,11 @@ function comparisonTable(targets) {
 }
 
 export async function writeAgentComparisonReport({ runRoot, runId, generationModel, targets }) {
-  const loaded = [];
-  for (const target of targets) loaded.push(await loadTarget(runRoot, target));
-  const modelFingerprints = [...new Set(loaded.map((target) => target.modelConfigFingerprint).filter(Boolean))];
-  const sameModelValidated = loaded.every((target) =>
-    target.providerId === generationModel.providerId && target.modelId === generationModel.modelId)
-    && modelFingerprints.length <= 1;
-  const comparison = {
-    schemaVersion: "autorun-agent-comparison-v1",
-    runId,
-    generatedAt: new Date().toISOString(),
-    generationModel,
-    sameModelValidated,
-    targetCount: loaded.length,
-    targets: loaded,
-  };
+  const comparison = JSON.parse((await runPythonWorker("comparison-report", {
+    runRoot, runId, generationModel, targets, generatedAt: new Date().toISOString(),
+  })).toString("utf8"));
+  const loaded = comparison.targets;
+  const sameModelValidated = comparison.sameModelValidated;
   let comparisonPath = "";
   if (loaded.length > 1) {
     comparisonPath = path.join(runRoot, "comparison.json");

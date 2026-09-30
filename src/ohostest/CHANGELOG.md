@@ -5,6 +5,12 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.6.0] - 2026-09-30
+
+### 变更
+
+- Autorun 外围的 ohosTest 配置归一化和执行结果定级迁至 Python，保留 Node 调用入口、设备租约及 Runner 执行方式；增加对应回归测试以核对路径、环境变量和终态口径。
+
 ## [0.5.1] - 2026-09-17
 
 ### 修复

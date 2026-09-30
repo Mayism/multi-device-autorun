@@ -18,6 +18,7 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { CloudTestClient } from "./cloudtest-client.mjs";
 import { readLooseJson5 } from "../shared/json5-lite.mjs";
+import { runPythonWorkerSync } from "../runtime/python-worker.mjs";
 
 // 任务组 status：1 待执行 / 2 执行中；3、4、5、6 均视为已完成（终态）。
 // 另外 resultStatus 非零（已出结果）也直接视为完成，不必等 status 变终态。
@@ -67,91 +68,7 @@ function timestampName(date = new Date()) {
 // ============================================================
 
 export function loadCloudTestConfig(config) {
-  const raw = config.cloudTest || {};
-  // cookie 来源优先级：显式 cookieFile > 配置目录下自动探测的 agc-cookie.txt
-  // > cloudTest.agcAuthInfo > 环境变量 AGC_AUTH_INFO。
-  // cookie 文件是纯文本单行整行 cookie（浏览器复制后原样粘贴，无需 JSON 转义）。
-  const baseDir = config.__baseDir || process.cwd();
-  const DEFAULT_COOKIE_FILE = "agc-cookie.txt";
-  let cookieFile = "";
-  const defaultCookieFile = path.join(baseDir, DEFAULT_COOKIE_FILE);
-  if (fs.existsSync(defaultCookieFile)) cookieFile = defaultCookieFile;
-  let fileCookie = "";
-  if (cookieFile) {
-    if (!fs.existsSync(cookieFile)) {
-      throw new Error(`cloudTest.cookieFile 不存在: ${cookieFile}`);
-    }
-    fileCookie = fs.readFileSync(cookieFile, "utf8").replace(/[\r\n]+/g, "").trim();
-  }
-  // 测试类别配置：每项 { category, timeSpan }，未配置时使用默认值。
-  const rawCategories = Array.isArray(raw.testCategories) && raw.testCategories.length
-    ? raw.testCategories
-    : [{ category: 24, timeSpan: 60 }];
-  const testCategories = rawCategories.map((item) => ({
-    category: Number(item?.category) || 24,
-    timeSpan: Math.max(1, Number(item?.timeSpan) || 60),
-  }));
-  const normalized = {
-    // 云测试默认属于主流程的一部分；关闭后批次不执行云测试，独立指令也不可用
-    enabled: raw.enabled !== false,
-    cookieFile,
-    teamId: String(raw.teamId || process.env.AGC_TEAM_ID || "").trim(),
-    projectId: String(raw.projectId || process.env.AGC_PROJECT_ID || "").trim(),
-    agcAuthInfo: String(fileCookie || process.env.AGC_AUTH_INFO || "").trim(),
-    // 工具路径为 server 下的扁平键（与 devecoHome 同级）：
-    // hvigorw/ohpm 为本机命令（PATH 裸命令或绝对路径，可含参数前缀如
-    // "node /…/hvigorw.js"），未配置则复用 ohosTest.paths 已有键，再退到 PATH 裸命令；
-    // sdkHome/javaHome 可选，设置后注入 DEVECO_SDK_HOME/JAVA_HOME，
-    // 未设置则继承当前进程环境。
-    paths: (() => {
-      const server = config.server && typeof config.server === "object" ? config.server : {};
-      const ohosPaths = config.ohosTest?.paths && typeof config.ohosTest.paths === "object" ? config.ohosTest.paths : {};
-      return {
-        hvigorw: String(server.hvigorw || ohosPaths.hvigorw || "hvigorw").trim(),
-        ohpm: String(server.ohpm || ohosPaths.ohpm || "ohpm").trim(),
-        sdkHome: String(server.sdkHome || "").trim(),
-        javaHome: String(server.javaHome || "").trim(),
-      };
-    })(),
-    product: String(raw.product || "default"),
-    buildMode: String(raw.buildMode || "release"),
-    buildTimeoutSec: Math.max(60, Number(raw.buildTimeoutSec) || 1800),
-    analyzeTimeoutSec: Math.max(30, Number(raw.analyzeTimeoutSec) || 900),
-    testCategories,
-    appClass: String(raw.appClass || "Tool"),
-    // 补充签名：待测工程通常不带签名信息，打包前注入。
-    // bundleName 替换 AppScope/app.json5 的 bundleName（需与签名 profile 匹配）；
-    // signingConfigs 整体替换 build-profile.json5 的 app.signingConfigs。
-    bundleName: String(raw.bundleName || "").trim(),
-    // 签名材料路径支持相对路径（相对 config 目录解析），便于证书随仓库提交
-    signingConfigs: (Array.isArray(raw.signingConfigs) ? raw.signingConfigs : []).map((item) => {
-      if (!item || typeof item !== "object") return item;
-      const material = { ...(item.material || {}) };
-      for (const key of ["storeFile", "profile", "certpath"]) {
-        const value = String(material[key] || "").trim();
-        if (value && !path.isAbsolute(value)) {
-          material[key] = path.resolve(config.__baseDir || process.cwd(), value);
-        }
-      }
-      return { ...item, material };
-    }),
-    taskType: Number(raw.taskType) || 28,
-    testItem: String(raw.testItem || "17179869185"),
-    pollIntervalSec: Math.max(5, Number(raw.pollIntervalSec) || 60),
-    taskTimeoutSec: Math.max(60, Number(raw.taskTimeoutSec) || 7200),
-    // OBS 直传代理（http://host:port），AGC 接口与 refresh 始终直连；也可用环境变量 AGC_PROXY。
-    // 配置代理时 OBS 上传默认跳过证书校验（兼容企业 MITM 自签证书），无额外配置项。
-    proxy: String(raw.proxy || process.env.AGC_PROXY || "").trim(),
-  };
-  const missing = [
-    ["teamId", normalized.teamId],
-    ["projectId", normalized.projectId],
-    ["agcAuthInfo", normalized.agcAuthInfo],
-  ].filter(([, value]) => !value).map(([key]) => key);
-  if (missing.length) {
-    throw new Error(`cloudTest 配置不完整，缺少: ${missing.join(", ")}（请在 config 中补齐或设置环境变量 AGC_TEAM_ID / AGC_PROJECT_ID / AGC_AUTH_INFO）`);
-  }
-  return normalized;
+  return JSON.parse(runPythonWorkerSync("cloudtest-config", { config }).toString("utf8"));
 }
 
 /** 读取工程的 bundleName/versionName，并检查签名配置是否就绪。 */
@@ -576,16 +493,7 @@ function warnPackageMismatch({ appInfo, bundleName = "", onLog }) {
 
 /** 设备列表排序：空闲设备在前、可排队设备在后、完全不可用垫底；同组内按等待时间升序。 */
 function rankBusinessDevices(deviceList) {
-  const groupOf = (device) => {
-    if ((Number(device.idleDeviceCount) || 0) > 0) return 0; // 有空闲机器
-    if ((Number(device.usableNumber) || 0) > 0) return 1; // 无空闲但可排队
-    return 2; // 暂不可用
-  };
-  return [...deviceList].sort((a, b) =>
-    groupOf(a) - groupOf(b)
-    || (Number(a.waitTime) || 0) - (Number(b.waitTime) || 0)
-    || (Number(b.idleDeviceCount) || 0) - (Number(a.idleDeviceCount) || 0)
-    || (Number(b.usableNumber) || 0) - (Number(a.usableNumber) || 0));
+  return JSON.parse(runPythonWorkerSync("cloudtest-rank-devices", { devices: deviceList }).toString("utf8"));
 }
 
 /**
@@ -797,15 +705,7 @@ async function pollTaskGroup({ client, taskGroupId, settings, signal, onLog, onU
 /** 根据任务组终态推导本流程的最终状态。仅在轮询到终态后调用。
  * 口径：status 3/4/5/6 或 resultStatus 已出结果（非零）均视为完成。 */
 function resolveFinalStatus(taskGroup) {
-  const finalStatus = Number(taskGroup?.status);
-  const hasResult = Number(taskGroup?.resultStatus) > 0;
-  if (TASKGROUP_FINAL_STATUSES.has(finalStatus) || hasResult) {
-    return { status: "completed", error: "" };
-  }
-  return {
-    status: "failed",
-    error: `任务组最终状态=${finalStatus}（resultStatus=${taskGroup?.resultStatus}）`,
-  };
+  return JSON.parse(runPythonWorkerSync("cloudtest-final-status", { taskGroup }).toString("utf8"));
 }
 
 /** 任务终态后拉取 AGC 报告接口并生成 HTML 结果页（失败不影响主结果）。 */

@@ -11,6 +11,7 @@
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { pageShell, esc, badge, fmtDateTime, fmtDuration } from "../report/html-report.mjs";
+import { runPythonWorkerSync } from "../runtime/python-worker.mjs";
 
 /**
  * 拉取任务报告数据。各接口独立容错（失败置 null 并记录 errors），不互相阻断。
@@ -46,16 +47,7 @@ export async function fetchTaskReport(client, { taskGroupId, category }) {
  *   rulePassed: number, ruleFailed: number, issueCount: number}}
  */
 export function summarizeTaskReport(report) {
-  const taskList = Array.isArray(report?.taskList) ? report.taskList : [];
-  const ruleInfo = report?.overview?.categoryResults?.[0]?.ruleInfo || {};
-  return {
-    deviceCount: taskList.length,
-    devicePassed: taskList.filter((t) => Number(t?.resultStatus) === 1).length,
-    deviceFailed: taskList.filter((t) => Number(t?.resultStatus) === 2).length,
-    rulePassed: Number(ruleInfo.passedErrorCount) || 0,
-    ruleFailed: Number(ruleInfo.failedErrorCount) || 0,
-    issueCount: Array.isArray(report?.problems) ? report.problems.length : 0,
-  };
+  return JSON.parse(runPythonWorkerSync("cloudtest-summary", { report }).toString("utf8"));
 }
 
 function resultCell(item) {

@@ -10,6 +10,24 @@ import {
   resolveWhiteboxJudgeRuntime,
 } from "./orchestrator.mjs";
 
+test("whitebox config normalizes ports and rejects an invalid judge range", () => {
+  const normalized = normalizeWhiteboxConfig({
+    enabled: true,
+    concurrency: "3",
+    timeoutSec: "120",
+    prompt: { includeAdditionalPrompt: false },
+    judge: { basePort: "62000" },
+  }, "/output");
+  assert.equal(normalized.concurrency, 3);
+  assert.equal(normalized.timeoutSec, 120);
+  assert.equal(normalized.judge.basePort, 62000);
+  assert.equal(normalized.prompt.includeAdditionalPrompt, false);
+  assert.throws(() => normalizeWhiteboxConfig({
+    concurrency: 3,
+    judge: { basePort: 65534 },
+  }, "/output"), /组合超出可用端口范围/);
+});
+
 test("whitebox runtime always binds to the HarmonyBot OpenCode source", () => {
   const normalized = normalizeWhiteboxConfig({ enabled: true }, "/output");
   const bound = bindHarmonyBotWhiteboxRuntime(normalized, [

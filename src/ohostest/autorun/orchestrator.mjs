@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { withDeviceLease } from "./device-lease.mjs";
+import { runPythonWorker } from "../../runtime/python-worker.mjs";
 import {
   checkConfiguredEmulatorPorts,
   formatEmulatorPortConflict,
@@ -52,44 +53,15 @@ async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs =
 }
 
 export async function loadOhosTestConfig(config) {
-  const hasOhosTestConfig = Boolean(
-    config.ohosTest
-    && typeof config.ohosTest === "object"
-    && !Array.isArray(config.ohosTest),
-  );
-  const raw = hasOhosTestConfig ? config.ohosTest : {};
-  const enabled = hasOhosTestConfig && raw.enabled !== false;
-  const timeoutSec = Math.max(1, Number(raw.timeoutSec) || 7200);
-  const runnerEnv = { ...process.env };
-  const sdkHome = String(config.server?.sdkHome || "").trim();
-  const javaHome = String(config.server?.javaHome || "").trim();
-  if (sdkHome) {
-    runnerEnv.DEVECO_SDK_HOME = sdkHome;
-    runnerEnv.HOS_SDK_HOME = sdkHome;
-    runnerEnv.OHOS_SDK_HOME = sdkHome;
-  }
-  if (javaHome) runnerEnv.JAVA_HOME = javaHome;
-  const machineConfig = { ...raw };
-  delete machineConfig.enabled;
-  delete machineConfig.timeoutSec;
-  if (machineConfig.paths && typeof machineConfig.paths === "object") {
-    machineConfig.paths = { ...machineConfig.paths };
-    const foldServerScript = String(machineConfig.paths.foldServerScript || "").trim();
-    if (foldServerScript && !path.isAbsolute(foldServerScript)) {
-      machineConfig.paths.foldServerScript = path.resolve(
-        config.__baseDir || process.cwd(),
-        foldServerScript,
-      );
-    }
-  }
-
+  const computed = JSON.parse((await runPythonWorker("ohostest-config", { config })).toString("utf8"));
+  const { enabled, timeoutSec, machineConfig, runnerEnvOverrides, runMode } = computed;
   const normalized = {
     enabled,
     runnerDir: REPO_ROOT,
     timeoutSec,
     machineConfig,
-    runnerEnv,
-    runMode: "swe",
+    runnerEnv: { ...process.env, ...runnerEnvOverrides },
+    runMode,
   };
   if (!enabled) return normalized;
 
@@ -403,15 +375,14 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     : await exists(runnerWorkDir)
       ? runnerWorkDir
       : "";
-  const timedOut = processResult.stopReason.includes("总运行时间超过");
-  const interrupted = processResult.stopReason.includes("Autorun 中断");
-  const completed = runnerResult?.status === "completed";
-  const status = completed ? "completed" : timedOut ? "timed_out" : interrupted ? "interrupted" : "failed";
-  const diagnostic = runnerResult?.diagnostics?.[0]
-    || processResult.stopReason
-    || (processResult.code !== 0
-      ? `ohostest:case 退出码 ${processResult.code}`
-      : `ohostest:case 未在 ${path.join(inputDir, ".ohostest-runs")} 生成 completed 结果`);
+  const outcome = JSON.parse((await runPythonWorker("ohostest-result", {
+    runnerStatus: runnerResult?.status,
+    firstDiagnostic: runnerResult?.diagnostics?.[0],
+    stopReason: processResult.stopReason,
+    exitCode: processResult.code,
+    inputDir,
+  })).toString("utf8"));
+  const { status, error } = outcome;
 
   return {
     status,
@@ -423,7 +394,7 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     elapsedSec: Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000),
     exitCode: processResult.code,
     signal: processResult.signal,
-    error: completed ? "" : String(diagnostic),
+    error,
     inputCaseDir: inputDir,
     metadataPath: stagedCase.metadataPath,
     machineConfigPath,

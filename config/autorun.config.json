@@ -19,7 +19,7 @@
     "casesRoot": "/Users/mayism/cases",
     "outputRoot": "output",
     "providerId": "zhipuai-coding-plan",
-    "model": "glm-5.2",
+    "model": "glm-5.3",
     "concurrency": 3
   },
   "whiteboxEvaluation": {

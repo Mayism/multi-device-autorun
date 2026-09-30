@@ -45,7 +45,12 @@ export async function resolveConfiguredModel({
       throw new Error(`Server 未配置指定 Provider: ${providerId}`);
     }
     if (!staticMatches.includes(providerId) && !runtimeMatches.includes(providerId)) {
-      throw new Error(`Server Provider ${providerId} 未配置模型: ${modelId}`);
+      const availableModels = [...new Set([
+        ...modelIds(staticProviders[providerId]),
+        ...runtimeProviders.filter((provider) => provider?.id === providerId).flatMap(modelIds),
+      ])].filter(Boolean);
+      const availableHint = availableModels.length ? `（可用模型: ${availableModels.join("、")}）` : "";
+      throw new Error(`Server Provider ${providerId} 未配置模型: ${modelId}${availableHint}`);
     }
     return { providerId, modelId };
   }

@@ -36,6 +36,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会为�
 ## 环境要求
 
 - Node.js 20 或更高版本，推荐使用当前 LTS 版本。
+- Python 3.9 或更高版本，用于批次报告数据、Agent 对比数据、失败用例 ZIP 打包、云测试决策、ohosTest 外围配置和结果定级，以及白盒配置和裁判 Provider 选择；这些模块只使用 Python 标准库。默认在 macOS/Linux 查找 `python3`、在 Windows 查找 `python`，也可用 `AUTORUN_PYTHON` 指定解释器路径。
 - Git，需要能够从命令行执行 `git`。
 - DevEco Studio 及对应 HarmonyOS SDK、Node、ohpm 和 hvigor 工具链。
 - 已准备一种 OpenCode 来源：`harmonyBot` 模式要求 VS Code 扩展目录下安装名称前缀为 `huaweideveloperserviceplatform.harmonyosdevassistantforvscode` 的扩展；`softwareEngineering` 模式要求资源包根目录下存在 `resources/opencode`。
@@ -60,13 +61,14 @@ autorun/
 │   ├── platform/               # DevEco 等平台工具适配
 │   ├── runtime/                # 工程沙箱复制和控制台运行时
 │   └── shared/                 # 无业务归属的轻量公共能力
+├── pyautorun/                  # 报告、ZIP、云测试、ohosTest 与白盒外围逻辑的 Python 实现
 └── output/
     ├── _runtime/opencode/      # 生成 Agent 的 OpenCode 运行数据
     ├── _runtime/whitebox/      # 白盒裁判的独立 OpenCode 运行数据
     └── <batchId>/              # 正式批量运行结果
 ```
 
-工程提供 `.mjs` 启动入口；在安装 Node.js 的 Windows、macOS 和 Linux 环境中均可运行，不需要手工维护平台启动脚本。Autorun 会按需在私有 runtime 中生成 CLI 的 shell/`.cmd` 包装脚本。
+工程仍使用 `.mjs` 启动入口；报告数据、失败产物 ZIP，以及云测试、ohosTest 和白盒外围决策由 Node 调用 Python 完成。Windows、macOS 和 Linux 都需要能运行 Node.js 与 Python 3.9+，不需要为这些 Python 模块安装额外的 pip 依赖。Autorun 会按需在私有 runtime 中生成 CLI 的 shell/`.cmd` 包装脚本。
 ohosTest 和白盒评价共用根目录依赖。首次检出后只需在工程根目录安装一次；`postinstall` 会自动构建两个 TypeScript 模块，其中白盒评价必须生成 `src/whitebox/dist/localCli.js` 后才能运行：
 
 ```bash
