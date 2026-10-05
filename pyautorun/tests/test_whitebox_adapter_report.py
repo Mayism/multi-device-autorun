@@ -40,6 +40,7 @@ class WhiteboxAdapterReportTests(unittest.TestCase):
                  patch("pyautorun.whitebox_adapter.validate_whitebox_result"):
                 actual = evaluator._run({"inputPath": str(input_path), "outputDir": str(output)}, 4000)
             self.assertEqual(run_process.call_args.kwargs["env"]["HMOS_WHITEBOX_PYTHON_SCORE_ENABLE"], "true")
+            self.assertEqual(run_process.call_args.kwargs["env"]["HMOS_WHITEBOX_PYTHON_RULES_ENABLE"], "true")
             self.assertEqual(run_process.call_args.kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0], str(root))
             return actual, (output / "report.html").read_text(encoding="utf-8"), render_whitebox_html(result)
 

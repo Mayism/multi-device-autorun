@@ -1,3 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { collectEvidence } from "../evidence/collectEvidence.js";
 import {
   defaultEnabledRulePackIds,
@@ -41,6 +46,90 @@ function isDeterministicStaticRule(
   return rule.result !== "未接入判定器";
 }
 
+function runPythonRuleCli<T>(mode: "evaluate" | "assemble" | "evidence", payload: unknown): T {
+  const exchangeDir = mkdtempSync(path.join(tmpdir(), "whitebox-rules-"));
+  try {
+    const inputPath = path.join(exchangeDir, "input.json");
+    const outputPath = path.join(exchangeDir, "output.json");
+    writeFileSync(inputPath, JSON.stringify(payload), "utf8");
+    const python = process.env.HMOS_WHITEBOX_PYTHON_EXECUTABLE || "python3";
+    const run = spawnSync(python, ["-m", "pyautorun.whitebox_rule_cli", "--mode", mode,
+      "--input", inputPath, "--output", outputPath], {
+      encoding: "utf8", maxBuffer: 1024 * 1024, timeout: 30_000, env: process.env,
+    });
+    if (run.error || run.status !== 0) {
+      throw new Error(`Python 白盒规则${mode}执行失败: ${run.error?.message ?? run.stderr}`);
+    }
+    return JSON.parse(readFileSync(outputPath, "utf8")) as T;
+  } finally {
+    rmSync(exchangeDir, { recursive: true, force: true });
+  }
+}
+
+function usePythonEvidence(
+  caseInput: CaseInput,
+  nodeEvidence: Awaited<ReturnType<typeof collectEvidence>>,
+): Awaited<ReturnType<typeof collectEvidence>> {
+  if (process.env.HMOS_WHITEBOX_PYTHON_RULES_ENABLE !== "true") return nodeEvidence;
+  const { arkFacts, ...nodeText } = nodeEvidence;
+  const pythonText = runPythonRuleCli<typeof nodeText>("evidence", { caseInput });
+  const comparison = JSON.parse(JSON.stringify(nodeText)) as typeof nodeText;
+  if (!isDeepStrictEqual(pythonText, comparison)) {
+    const field = Object.keys(comparison).find((key) => !isDeepStrictEqual(
+      (pythonText as unknown as Record<string, unknown>)[key],
+      (comparison as unknown as Record<string, unknown>)[key],
+    ));
+    throw new Error(`Python 与 Node 白盒规则证据不一致: ${field ?? "字段集"}`);
+  }
+  return { ...pythonText, ...(arkFacts ? { arkFacts } : {}) };
+}
+
+function usePythonSelectedRules(
+  rules: ReturnType<typeof listRegisteredRules>,
+  evidence: Awaited<ReturnType<typeof collectEvidence>>,
+  nodeResults: ReturnType<typeof evaluateRegisteredRule>[],
+): ReturnType<typeof evaluateRegisteredRule>[] {
+  if (process.env.HMOS_WHITEBOX_PYTHON_RULES_ENABLE !== "true") return nodeResults;
+  const selected = rules.map((rule, index) => ({ rule, index })).filter(
+    ({ rule }) => rule.detector.kind === "static" &&
+      (rule.detector.mode === "regex" || rule.detector.mode === "project_structure" ||
+        rule.detector.mode === "case_constraint_precheck"),
+  );
+  if (selected.length === 0) return nodeResults;
+  const pythonResults = runPythonRuleCli<ReturnType<typeof evaluateRegisteredRule>[]>("evaluate", {
+    rules: selected.map(({ rule }) => rule),
+    evidence: { workspaceFiles: evidence.workspaceFiles },
+  });
+  if (pythonResults.length !== selected.length) {
+    throw new Error("Python 白盒规则结果数量不一致");
+  }
+  const results = [...nodeResults];
+  for (let index = 0; index < selected.length; index += 1) {
+    const { rule, index: resultIndex } = selected[index];
+    if (!isDeepStrictEqual(pythonResults[index], JSON.parse(JSON.stringify(nodeResults[resultIndex])))) {
+      throw new Error(`Python 与 Node 白盒规则结果不一致: ${rule.rule_id}`);
+    }
+    results[resultIndex] = pythonResults[index];
+  }
+  return results;
+}
+
+function usePythonRuleAssembly(
+  nodeResult: RuleEngineOutput,
+  payload: unknown,
+): RuleEngineOutput {
+  if (process.env.HMOS_WHITEBOX_PYTHON_RULES_ENABLE !== "true") return nodeResult;
+  const pythonResult = runPythonRuleCli<RuleEngineOutput>("assemble", payload);
+  if (!isDeepStrictEqual(pythonResult, JSON.parse(JSON.stringify(nodeResult)))) {
+    const field = Object.keys(nodeResult).find((key) => !isDeepStrictEqual(
+      (pythonResult as unknown as Record<string, unknown>)[key],
+      (nodeResult as unknown as Record<string, unknown>)[key],
+    ));
+    throw new Error(`Python 与 Node 白盒规则汇总结果不一致: ${field ?? "字段集"}`);
+  }
+  return pythonResult;
+}
+
 export async function runRuleEngine(input: {
   referenceRoot: string;
   caseInput: CaseInput;
@@ -49,7 +138,8 @@ export async function runRuleEngine(input: {
   enabledRulePackIds?: string[];
 }): Promise<RuleEngineOutput> {
   void input.referenceRoot;
-  const evidence = await collectEvidence(input.caseInput, { taskType: input.taskType });
+  const nodeEvidence = await collectEvidence(input.caseInput, { taskType: input.taskType });
+  const evidence = usePythonEvidence(input.caseInput, nodeEvidence);
   const enabledRulePacks = input.enabledRulePackIds
     ? getEnabledRulePacks(input.enabledRulePackIds)
     : getEnabledRulePacks([...defaultEnabledRulePackIds]);
@@ -59,7 +149,8 @@ export async function runRuleEngine(input: {
   });
   const ruleSummaryById = new Map(registeredRules.map((rule) => [rule.rule_id, rule.summary]));
   const registeredRuleById = new Map(registeredRules.map((rule) => [rule.rule_id, rule]));
-  const evaluatedRules = registeredRules.map((rule) => evaluateRegisteredRule(rule, evidence));
+  const nodeEvaluatedRules = registeredRules.map((rule) => evaluateRegisteredRule(rule, evidence));
+  const evaluatedRules = usePythonSelectedRules(registeredRules, evidence, nodeEvaluatedRules);
   const evaluatedRuleById = new Map(evaluatedRules.map((rule) => [rule.rule_id, rule]));
   const caseRuleIds = new Set((input.runtimeRules ?? []).map((rule) => rule.rule_id));
 
@@ -115,7 +206,7 @@ export async function runRuleEngine(input: {
       }),
     );
 
-  return {
+  const nodeResult: RuleEngineOutput = {
     staticRuleAuditResults,
     deterministicRuleResults,
     caseRuleResults,
@@ -129,4 +220,15 @@ export async function runRuleEngine(input: {
     ruleEvidenceIndex,
     evidenceSummary: evidence.summary,
   };
+  return usePythonRuleAssembly(nodeResult, {
+    registeredRules,
+    evaluatedRules,
+    runtimeRules: input.runtimeRules ?? [],
+    enabledRulePacks,
+    evidence: {
+      workspaceFiles: evidence.workspaceFiles,
+      changedFiles: evidence.changedFiles,
+      summary: evidence.summary,
+    },
+  });
 }

@@ -1,6 +1,6 @@
 # Multi-Device-Autorun
 
-Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价正在分阶段迁移：Autorun 的白盒 HTML 报告与评分融合（分数、硬门槛、风险和复核项）已由 Python 生成，并与 Node 结果核对；Rubric 和风险分类表已有 Python 实现。规则采集与执行、Rubric Agent、ArkAnalyzer 仍由 TypeScript/Node CLI 处理。HarmonyBot 插件自带的 JavaScript 启动器、DevEco/ohpm/Hvigor、H5 工程自身的 npm 工具链属于外部工具，不是 Autorun 的 Node 运行模块。
+Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价正在分阶段迁移：Autorun 的白盒 HTML 报告、评分融合、34 条文本模式规则、项目结构规则、用例约束静态预判、普通文件与补丁证据收集、规则结果汇总已有 Python 实现，并在运行时与 Node 结果核对；Rubric 和风险分类表也已有 Python 实现。ArkTS/ArkUI 检测器、Rubric Agent、ArkAnalyzer 仍由 TypeScript/Node CLI 处理；目前白盒评价仍需 Node 依赖。HarmonyBot 插件自带的 JavaScript 启动器、DevEco/ohpm/Hvigor、H5 工程自身的 npm 工具链属于外部工具，不是 Autorun 的 Node 运行模块。
 
 ## 安装与运行
 
