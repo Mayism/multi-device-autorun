@@ -1,6 +1,6 @@
 # Multi-Device-Autorun
 
-Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价保留现有 TypeScript/Node 实现，由 Python 调用其编译后的 CLI。HarmonyBot 插件自带的 JavaScript 启动器、DevEco/ohpm/Hvigor、H5 工程自身的 npm 工具链属于外部工具，不是 Autorun 的 Node 运行模块。
+Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价正在分阶段迁移：Autorun 的白盒 HTML 报告已由 Python 生成，Rubric 和风险分类表已有 Python 实现；评分、规则执行和 ArkAnalyzer 仍由 TypeScript/Node CLI 处理。HarmonyBot 插件自带的 JavaScript 启动器、DevEco/ohpm/Hvigor、H5 工程自身的 npm 工具链属于外部工具，不是 Autorun 的 Node 运行模块。
 
 ## 安装与运行
 
@@ -11,9 +11,9 @@ python3 -m pyautorun.cli --check --config config/autorun.config.json
 python3 -m pyautorun.cli --config config/autorun.config.json
 ```
 
-也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令现在调用同一个 Python 入口。只使用 Agent、设备和云测试时无需安装仓库的 npm 依赖。启用白盒评价前执行 `npm install` 和 `npm run build:whitebox`。
+也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令现在调用同一个 Python 入口。只使用 Agent、设备和云测试时无需安装仓库的 npm 依赖。启用白盒评价前执行 `npm install` 和 `npm run build:whitebox`。安装 `pip install -e '.[whitebox]'` 可启用 Python 侧的白盒 Schema 校验，并为后续 Python 评分迁移安装 Rubric 和风险分类表依赖。
 
-Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
+除可选的白盒功能外，Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
 
 Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可执行文件；根目录的 npm 快捷命令使用 `python3`，需该命令在 PATH 中可用。
 

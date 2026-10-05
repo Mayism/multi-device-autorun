@@ -8,6 +8,9 @@ version = "0.2.0"
 requires-python = ">=3.9"
 dependencies = []
 
+[project.optional-dependencies]
+whitebox = ["PyYAML>=6,<7", "jsonschema>=4.23,<4.26"]
+
 [project.scripts]
 autorun = "pyautorun.cli:main"
 autorun-cloudtest = "pyautorun.cloudtest_cli:main"

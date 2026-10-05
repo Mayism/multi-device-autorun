@@ -10,6 +10,8 @@ import subprocess
 
 from .case_run import write_json
 from .whitebox import resolve_judge
+from .whitebox_report import render_whitebox_html, write_whitebox_html
+from .whitebox_schema import validate_whitebox_result
 
 
 async def resolve_judge_runtime(client, server_config, judge, generation_model, directory):
@@ -123,6 +125,24 @@ class WhiteboxEvaluator:
                 except ValueError:
                     pass
         if completed.returncode == 0 and isinstance(parsed, dict) and parsed.get("status") == "completed":
+            try:
+                result_path = Path(parsed.get("resultPath") or output / "outputs" / "result.json")
+                result_json = json.loads(result_path.read_text(encoding="utf-8"))
+                try:
+                    import jsonschema  # noqa: F401
+                except ImportError:
+                    pass  # The retained Node evaluator already validated this result.
+                else:
+                    validate_whitebox_result(result_json, self.repo_root / "src" / "whitebox" /
+                                             "references" / "scoring" / "report_result_schema.json")
+                report_path = output / "report.html"
+                if report_path.is_file() and report_path.read_text(encoding="utf-8") != render_whitebox_html(result_json):
+                    raise ValueError("Python 与 Node 白盒 HTML 报告不一致")
+                write_whitebox_html(result_json, report_path)
+                parsed["reportPath"] = str(report_path)
+            except (OSError, ValueError, TypeError) as error:
+                return {"status": "failed", "error": f"Python 白盒报告生成失败: {error}",
+                        "outputDir": str(output)}
             return parsed
         return {"status": "failed", "error": (parsed or {}).get("error") or
                 completed.stderr.strip() or f"白盒评价进程退出码 {completed.returncode}", **(parsed or {})}
