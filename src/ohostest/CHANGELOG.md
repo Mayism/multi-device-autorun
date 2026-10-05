@@ -5,6 +5,12 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.7.0] - 2026-10-05
+
+### 变更
+
+- 设备连接等待、唤醒解锁、HSP/HAP 安装和 `aa test` 命令生成与结果解析迁至 Python。通过命令回调继续使用现有 Runner 的执行器、日志和超时处理，保持设备失败原因及测试结果格式。
+
 ## [0.6.0] - 2026-09-30
 
 ### 变更

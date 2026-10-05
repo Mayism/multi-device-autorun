@@ -343,6 +343,33 @@ test("installHaps installs HSPs before the app and test HAPs", async () => {
   ]);
 });
 
+test("installHaps removes stale isolated bundles but keeps the active bundle", async () => {
+  const config = makeConfig();
+  config.bundleNameCleanup = {
+    prefixes: ["zhsc.1."],
+    keep: ["zhsc.1.keep"],
+  };
+  const commands: string[] = [];
+  await installHaps({
+    config,
+    device: { id: "phone", target: "127.0.0.1:15001", startEmulator: false },
+    cwd: config.project,
+    outDir: "out",
+    runCommand: async (command) => {
+      commands.push(command);
+      return result(command.includes("bm dump -a")
+        ? "zhsc.1.old\nzhsc.1.keep\nzhsc.1.old\nother.bundle\n"
+        : "");
+    },
+  }, { hspPaths: [], appHap: "/tmp/app.hap", testHap: "/tmp/test.hap" });
+  assert.deepEqual(commands, [
+    "hdc -t 127.0.0.1:15001 uninstall zhsc.1.xxxxxx",
+    "hdc -t 127.0.0.1:15001 shell bm dump -a",
+    "hdc -t 127.0.0.1:15001 uninstall zhsc.1.old",
+    "hdc -t 127.0.0.1:15001 install -r /tmp/app.hap /tmp/test.hap",
+  ]);
+});
+
 test("installHaps rejects AppMod install errors even when hdc exits zero", async () => {
   const config = makeConfig();
   const device: DeviceConfig = {

@@ -13,6 +13,7 @@ import {
   waitForTargetDisconnected,
 } from "./device.js";
 import { buildAaTestCommand, parseAaTestOutput } from "./ohostest.js";
+import { runPythonSession } from "../../../runtime/python-worker.mjs";
 import { deriveExecutionStatus } from "./result.js";
 import { WebPortForwarding } from "./webForwarding.js";
 import {
@@ -602,10 +603,20 @@ async function runLoggedTest(
   const logger = input.logger.child({ suiteClass });
   const command = buildTestCommand(input.config, input.device, testClass);
   let commandResult: CommandResult;
+  let parsed: ParsedAaTestOutput;
   try {
-    commandResult = await input.executor(command, input.config.project, {
-      timeoutMs: input.config.timeoutMs + aaTestHostTimeoutGraceMs,
+    const execution = await runPythonSession<{
+      commandResult: CommandResult;
+      parsed: ParsedAaTestOutput;
+    }>("pyautorun.ohostest_device", {
+      action: "test",
+      state: { command, timeoutMs: input.config.timeoutMs, hostTimeoutGraceMs: aaTestHostTimeoutGraceMs },
+    }, async (event: { type: string; command?: string; timeoutMs?: number }) => {
+      if (event.type !== "command" || !event.command) throw new Error(`未知测试事件: ${event.type}`);
+      return input.executor(event.command, input.config.project, { timeoutMs: event.timeoutMs });
     });
+    commandResult = execution.commandResult;
+    parsed = execution.parsed;
   } catch (error) {
     logger.recordError(error, { command });
     throw error;
@@ -618,9 +629,6 @@ async function runLoggedTest(
     });
     throw new Error("test_command_timed_out");
   }
-  const parsed = parseAaTestOutput(
-    `${commandResult.stdout}\n${commandResult.stderr}`,
-  );
   logger.recordCommand(
     command,
     parsed.testsRun === undefined

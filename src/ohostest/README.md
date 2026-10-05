@@ -18,7 +18,7 @@
 - DevEco Studio 命令行工具
 - HarmonyOS SDK 中的 `hdc`
 - DevEco Emulator 命令
-- Python 3.6+，用于折叠屏控制服务
+- Python 3.9+，用于设备执行步骤、测试结果解析及折叠屏控制服务；默认查找 `python3`（Windows 查找 `python`），可用 `AUTORUN_PYTHON` 指定解释器
 - 可构建的 HarmonyOS 工程，且工程中已存在 `ohosTest` 用例
 
 构建 HarmonyOS 工程需要设置：

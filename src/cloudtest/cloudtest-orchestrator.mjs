@@ -13,12 +13,12 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { CloudTestClient } from "./cloudtest-client.mjs";
 import { readLooseJson5 } from "../shared/json5-lite.mjs";
-import { runPythonWorkerSync } from "../runtime/python-worker.mjs";
+import { runPythonWorker, runPythonWorkerSync } from "../runtime/python-worker.mjs";
 
 // 任务组 status：1 待执行 / 2 执行中；3、4、5、6 均视为已完成（终态）。
 // 另外 resultStatus 非零（已出结果）也直接视为完成，不必等 status 变终态。
@@ -409,17 +409,11 @@ function appInfoForReport(appProfile, effectiveBundleName = "") {
 // ============================================================
 
 /**
- * 步骤 3：读取包内容并计算 sha256/大小。
- * @returns {Promise<{bytes: Buffer, fileName: string, fileSize: number, sha256: string}>}
+ * 步骤 3：计算包 sha256/大小，上传时由 Python 按路径读取包内容。
+ * @returns {Promise<{appPath: string, fileName: string, fileSize: number, sha256: string}>}
  */
 async function computeAppDigest(appPath) {
-  const bytes = await fsp.readFile(appPath);
-  return {
-    bytes,
-    fileName: path.basename(appPath),
-    fileSize: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-  };
+  return JSON.parse((await runPythonWorker("cloudtest-client-digest", { appPath })).toString("utf8"));
 }
 
 /**
@@ -459,7 +453,7 @@ async function uploadAndAnalyzeApp({ client, digest, existingCount, settings, si
     fileSize: digest.fileSize,
     sha256: digest.sha256,
   });
-  await client.putObject(obs, digest.bytes);
+  await client.putObject(obs, digest.appPath, digest);
   await client.triggerAnalyze(obs.objectId);
   const appInfo = await client.pollAnalyze(obs.objectId, {
     timeoutMs: settings.analyzeTimeoutSec * 1000,

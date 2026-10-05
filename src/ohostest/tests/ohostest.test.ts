@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { runPythonWorkerSync } from "../../runtime/python-worker.mjs";
 import {
   buildAaTestCommand,
   parseAaTestOutput,
@@ -49,6 +50,23 @@ test("buildAaTestCommand uses an explicit per-test timeout", () => {
   });
 
   assert.match(command, /-s timeout 30000 -w 120000$/);
+});
+
+test("Python aa command quotes Windows hdc paths and suite names", () => {
+  const command = JSON.parse(runPythonWorkerSync("ohostest-device-aa-command", {
+    input: {
+      platform: "win32",
+      hdc: "C:\\Program Files\\DevEco\\hdc.exe",
+      target: "127.0.0.1:15001",
+      bundleName: "example.bundle",
+      testModule: "entry_test",
+      testRunner: "OpenHarmonyTestRunner",
+      testClass: "Home Suite",
+      timeoutMs: 120000,
+    },
+  }).toString("utf8")) as string;
+  assert.match(command, /^"C:\\Program Files\\DevEco\\hdc\.exe" -t 127\.0\.0\.1:15001/);
+  assert.match(command, /-s class "Home Suite" -s timeout 15000 -w 120000$/);
 });
 
 test("parseAaTestOutput extracts summary and report code", () => {
@@ -121,6 +139,17 @@ test("parseAaTestOutput marks missing summary as unparseable", () => {
     ok: false,
     blockedReason: "test_output_unparseable",
   });
+});
+
+test("parseAaTestOutput ignores a non-finite case duration", () => {
+  const parsed = parseAaTestOutput([
+    "OHOS_REPORT_STATUS: class=Suite",
+    "OHOS_REPORT_STATUS: test=case1",
+    "OHOS_REPORT_STATUS_CODE: 0",
+    "OHOS_REPORT_STATUS: consuming=NaN",
+    "Tests run: 1, Failure: 0, Error: 0, Pass: 1, Ignore: 0",
+  ].join("\n"));
+  assert.deepEqual(parsed.testCases, [{ name: "case1", status: "passed", statusCode: 0 }]);
 });
 
 test("shellQuote uses Windows-compatible double quotes for paths with spaces", () => {

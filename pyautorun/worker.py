@@ -34,12 +34,18 @@ def main() -> None:
     elif action == "cloudtest-summary":
         from .cloudtest import summarize_report
         sys.stdout.write(json.dumps(summarize_report(payload.get("report")), ensure_ascii=False))
+    elif action.startswith("cloudtest-client-"):
+        from .cloudtest_client import dispatch
+        sys.stdout.write(json.dumps(dispatch(action, payload), ensure_ascii=False))
     elif action == "ohostest-config":
         from .ohostest import normalize_config
         sys.stdout.write(json.dumps(normalize_config(payload), ensure_ascii=False))
     elif action == "ohostest-result":
         from .ohostest import classify_result
         sys.stdout.write(json.dumps(classify_result(payload), ensure_ascii=False))
+    elif action.startswith("ohostest-device-"):
+        from .ohostest_device import dispatch
+        sys.stdout.write(json.dumps(dispatch(action, payload), ensure_ascii=False))
     elif action == "whitebox-config":
         from .whitebox import normalize_config
         sys.stdout.write(json.dumps(normalize_config(payload), ensure_ascii=False))
