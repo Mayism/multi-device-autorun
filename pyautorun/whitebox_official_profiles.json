@@ -1,0 +1,584 @@
+[
+  {
+    "ruleId": "@typescript-eslint/await-thenable",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/consistent-type-imports",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/explicit-function-return-type",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/explicit-module-boundary-types",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-explicit-any",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-for-in-array",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-unsafe-argument",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-unsafe-assignment",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-unsafe-call",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-unsafe-member-access",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-unsafe-return",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/prefer-literal-enum-member",
+    "metricNames": [
+      "ArkTS/ArkUI语法与类型安全"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-dynamic-delete",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-this-alias",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@typescript-eslint/no-unnecessary-type-constraint",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@security/no-commented-code",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/array-bracket-spacing",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/brace-style",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/comma-spacing",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/curly",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/indent",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/keyword-spacing",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/max-len",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/no-multi-spaces",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/no-tabs",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/object-property-newline",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/one-var-declaration-per-line",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/operator-linebreak",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/quotes",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/semi-spacing",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/space-before-blocks",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/space-before-function-paren",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@hw-stylistic/space-infix-ops",
+    "metricNames": [
+      "静态坏味道控制"
+    ],
+    "ratio": 0.08,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@security/no-unsafe-3des",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-aes",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-dh",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-dh-key",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-dsa",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-dsa-key",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-ecdsa",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-hash",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-mac",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-rsa-encrypt",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-rsa-key",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@security/no-unsafe-rsa-sign",
+    "metricNames": [
+      "安全与边界意识",
+      "安全/边界意识"
+    ],
+    "ratio": 0.2,
+    "severity": "heavy"
+  },
+  {
+    "ruleId": "@performance/avoid-overusing-custom-component-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/bad-deep-clone-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/crypto-replacement-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/datashare-query-unrelease-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/foreach-args-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/gif-hardware-decoding-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/high-frequency-log-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/monitor-invisible-area-in-image-animation",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/no-high-loaded-frame-rate-range",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/no-use-any-import",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/reuse-date-instances-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/start-window-icon-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/update-state-var-between-animatetos-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/waterflow-data-preload-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@performance/web-on-active-check",
+    "metricNames": [
+      "性能风险"
+    ],
+    "ratio": 0.12,
+    "severity": "light"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/color-contrast",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/color-value",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/font-size",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/font-size-unit",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/size-unit",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/touch-target-size",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.1,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/grid-columns-span",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.12,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/grid-span-value",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.12,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/sidebar-navigation",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.12,
+    "severity": "medium"
+  },
+  {
+    "ruleId": "@cross-device-app-dev/one-multi-breakpoint-check",
+    "metricNames": [
+      "ArkUI组织方式合理性",
+      "HarmonyOS工程实践符合度"
+    ],
+    "ratio": 0.12,
+    "severity": "medium"
+  }
+]

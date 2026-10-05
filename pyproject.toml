@@ -26,4 +26,4 @@ serve-opencode = "pyautorun.serve_opencode:main"
 include = ["pyautorun*"]
 
 [tool.setuptools.package-data]
-pyautorun = ["report.css", "FoldTrigger.ets", "fold-server.py"]
+pyautorun = ["report.css", "FoldTrigger.ets", "fold-server.py", "whitebox_official_profiles.json"]

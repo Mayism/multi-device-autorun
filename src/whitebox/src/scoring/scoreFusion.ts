@@ -1,3 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import type { LoadedRubric } from "./rubricLoader.js";
 import {
   findRiskTaxonomyEntry,
@@ -11,6 +16,7 @@ import type {
 } from "./riskTaxonomy.js";
 import {
   findOfficialLinterRuleProfile,
+  officialLinterRuleProfiles,
   officialLinterSeverityToImpactSeverity,
 } from "./officialLinterRuleProfiles.js";
 import { getRegisteredRulePacks } from "../rules/registry/rulePackRegistry.js";
@@ -1010,6 +1016,57 @@ function buildHvigorBuildConclusionDetail(
   );
 }
 
+function usePythonScoreFusion(
+  input: FuseRubricScoreWithRulesInput,
+  computation: ScoreComputation,
+): ScoreComputation {
+  if (process.env.HMOS_WHITEBOX_PYTHON_SCORE_ENABLE !== "true") {
+    return computation;
+  }
+  const python = process.env.HMOS_WHITEBOX_PYTHON_EXECUTABLE || "python3";
+  const exchangeDir = mkdtempSync(path.join(tmpdir(), "whitebox-score-"));
+  let pythonScore: ScoreComputation;
+  try {
+    const inputPath = path.join(exchangeDir, "input.json");
+    const outputPath = path.join(exchangeDir, "output.json");
+    writeFileSync(inputPath, JSON.stringify({
+      input,
+      ruleProfiles: Object.fromEntries(ruleProfileById),
+      officialProfiles: officialLinterRuleProfiles,
+    }), "utf8");
+    const run = spawnSync(python, ["-m", "pyautorun.whitebox_score_cli", "--input", inputPath,
+      "--output", outputPath], {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: 30_000,
+      env: process.env,
+    });
+    if (run.error || run.status !== 0) {
+      throw new Error(`Python 白盒评分执行失败: ${run.error?.message ?? run.stderr}`);
+    }
+    pythonScore = JSON.parse(readFileSync(outputPath, "utf8")) as ScoreComputation;
+  } finally {
+    rmSync(exchangeDir, { recursive: true, force: true });
+  }
+  const comparison = JSON.parse(JSON.stringify(computation)) as ScoreComputation;
+  if (!isDeepStrictEqual(pythonScore, comparison)) {
+    const firstDifference = (left: unknown, right: unknown, path: string): string => {
+      if (isDeepStrictEqual(left, right)) return "";
+      if (left && right && typeof left === "object" && typeof right === "object") {
+        const leftRecord = left as Record<string, unknown>;
+        const rightRecord = right as Record<string, unknown>;
+        for (const key of new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)])) {
+          const nested = firstDifference(leftRecord[key], rightRecord[key], `${path}.${key}`);
+          if (nested) return nested;
+        }
+      }
+      return path;
+    };
+    throw new Error(`Python 与 Node 白盒评分融合结果不一致: ${firstDifference(pythonScore, comparison, "result")}`);
+  }
+  return pythonScore;
+}
+
 export function fuseRubricScoreWithRules(
   input: FuseRubricScoreWithRulesInput,
 ): ScoreComputation {
@@ -1332,7 +1389,7 @@ export function fuseRubricScoreWithRules(
     );
   }
 
-  return {
+  const computation: ScoreComputation = {
     totalScore,
     hardGateTriggered: hardGateReasons.length > 0,
     hardGateReason: hardGateReasons.join(", "),
@@ -1357,4 +1414,5 @@ export function fuseRubricScoreWithRules(
     mainIssues: input.rubricScoringResult?.main_issues ?? [],
     finalRecommendation: ["当前分数可作为 rubric-first 自动预检结果使用。"],
   };
+  return usePythonScoreFusion(input, computation);
 }

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 from .case_run import write_json
 from .whitebox import resolve_judge
@@ -102,6 +103,9 @@ class WhiteboxEvaluator:
                     "HMOS_OPENCODE_RUNTIME_ROOT": self.config["runtimeRoot"],
                     "HMOS_CODE_LINTER_ENABLED": str(self.config["officialLinter"]["enabled"]).lower(),
                     "HMOS_HVIGOR_BUILD_CHECK_ENABLED": str(self.config["hvigorBuildCheck"]["enabled"]).lower()})
+        env["HMOS_WHITEBOX_PYTHON_SCORE_ENABLE"] = "true"
+        env["HMOS_WHITEBOX_PYTHON_EXECUTABLE"] = sys.executable
+        env["PYTHONPATH"] = str(self.repo_root) + os.pathsep + env.get("PYTHONPATH", "")
         output = Path(task["outputDir"])
         log_path = output / "logs" / "evaluator-process.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
