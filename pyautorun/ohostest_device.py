@@ -1,19 +1,20 @@
-"""Device-side ohosTest steps, driven through the existing Node command executor.
-
-The protocol emits one JSON event per line. Node executes commands, logs, and sleeps,
-then replies with the result. This keeps test injection and command logging intact.
-"""
+"""Device-side ohosTest steps driven by the Python command executor."""
 
 import json
 import math
 import re
 import sys
+from contextvars import ContextVar
 
 TARGET_READY_MAX_ATTEMPTS = 120
 UNLOCK_MAX_ATTEMPTS = 5
+_HANDLER = ContextVar("ohostest_device_handler", default=None)
 
 
 def _rpc(kind, **fields):
+    handler = _HANDLER.get()
+    if handler is not None:
+        return handler(kind, **fields)
     sys.stdout.write(json.dumps({"type": kind, **fields}, ensure_ascii=False) + "\n")
     sys.stdout.flush()
     reply_line = sys.stdin.readline()
@@ -23,6 +24,25 @@ def _rpc(kind, **fields):
     if not reply.get("ok"):
         raise RuntimeError(reply.get("error") or "ohosTest device RPC failed")
     return reply.get("result")
+
+
+def run_device_action(action, state, handler, artifacts=None):
+    """Run an existing device operation directly with a Python command executor."""
+    token = _HANDLER.set(handler)
+    try:
+        if action == "prepare":
+            return prepare_device(state)
+        if action == "install":
+            return install_haps(state, artifacts or {})
+        if action == "ready":
+            return ensure_target_ready(state)
+        if action == "disconnected":
+            return wait_for_target_disconnected(state)
+        if action == "test":
+            return run_aa_test(state)
+        raise ValueError(f"unknown device action: {action}")
+    finally:
+        _HANDLER.reset(token)
 
 
 def shell_quote(value, platform, force=False):

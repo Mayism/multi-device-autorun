@@ -1,4 +1,4 @@
-"""Pure cloud-test decisions used by the existing Node orchestration layer."""
+"""Cloud-test configuration and result decisions for Python orchestration."""
 
 import os
 from pathlib import Path

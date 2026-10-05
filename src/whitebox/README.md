@@ -12,7 +12,7 @@ npm install
 
 白盒评价需要先编译为 `src/whitebox/dist/localCli.js` 才能运行。根目录 `npm install` 会通过 `postinstall` 自动构建；源码修改后可执行 `npm run build:whitebox`。
 
-正式运行由仓库根目录的 `autorun.mjs` 调度。单独调试：
+正式运行由仓库根目录的 Python `pyautorun` 调度。单独调试：
 
 ```bash
 npm run whitebox:evaluate -- --input D:/out/<batch>/<case>/whitebox/inputs/input.json --port 62400

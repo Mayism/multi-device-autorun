@@ -1,3 +1,7 @@
+# 历史文档
+
+当前活跃 ohosTest Runner 已迁至仓库根目录 `pyautorun/`。以下内容为旧 TypeScript 版本的历史说明，执行命令请参考根目录 README。
+
 # HarmonyOS ohosTest Runner
 
 独立的命令行工具，用于在配置好的设备矩阵上运行 HarmonyOS 工程中已有的 `ohosTest` 用例。工具负责构建 HAP、安装应用与测试包、执行 `aa test`、解析测试结果，并输出结构化报告和命令日志。

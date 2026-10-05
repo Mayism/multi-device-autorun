@@ -5,6 +5,12 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.8.0] - 2026-10-05
+
+### 变更
+
+- ohosTest Case、Matrix、H5 服务、折叠控制、构建与设备测试的执行入口及依赖迁至 `pyautorun`。移除旧 TypeScript 执行源码和脚本；仅保留本目录的历史文档与发布记录。
+
 ## [0.7.0] - 2026-10-05
 
 ### 变更

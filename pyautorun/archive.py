@@ -1,4 +1,4 @@
-"""Build failure artifacts with the same paths and exclusions as the Node ZIP."""
+"""Build failure artifact ZIPs with stable path and exclusion rules."""
 
 from io import BytesIO
 import os

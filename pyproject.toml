@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multi-device-autorun-python"
+version = "0.2.0"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+autorun = "pyautorun.cli:main"
+autorun-cloudtest = "pyautorun.cloudtest_cli:main"
+ohostest-case = "pyautorun.ohostest_case:main"
+ohostest-matrix = "pyautorun.ohostest_matrix:main"
+deploy-fold-trigger = "pyautorun.deploy_fold:main"
+autorun-report = "pyautorun.report_cli:main"
+autorun-upload = "pyautorun.upload_cli:main"
+ask-opencode = "pyautorun.ask_opencode:main"
+serve-opencode = "pyautorun.serve_opencode:main"
+
+[tool.setuptools.packages.find]
+include = ["pyautorun*"]
+
+[tool.setuptools.package-data]
+pyautorun = ["report.css", "FoldTrigger.ets", "fold-server.py"]

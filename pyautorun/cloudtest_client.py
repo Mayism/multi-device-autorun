@@ -1,4 +1,4 @@
-"""AGC CloudTest authentication and HTTP transport used by the Node orchestrator."""
+"""AGC CloudTest authentication and HTTP transport for Python orchestration."""
 
 import base64
 import datetime as dt
@@ -268,6 +268,120 @@ def digest(file_path):
             sha.update(chunk)
             size += len(chunk)
     return {"appPath": str(file_path), "fileName": file_path.name, "fileSize": size, "sha256": sha.hexdigest()}
+
+
+TASKGROUP_QUERY = {
+    "name": "", "currentPage": "1", "pageSize": "50",
+    "createTypes": "51,68,70,55,56,72,18", "taskGroupStatus": "1,2,3,4,5,6",
+    "resultStatus": "1,2", "taskType": "1,2,3,6,27,28,14,18",
+    "appTypes": "1,10,11,5,6,7,8,33",
+}
+
+
+class CloudTestClient:
+    """Direct Python AGC client; uses the transport already exercised by the worker."""
+
+    def __init__(self, settings):
+        self.state = initialize(settings)
+        self.team_id = self.state["teamId"]
+        self.project_id = self.state["projectId"]
+
+    def refresh_auth(self, timeout_ms=30000):
+        return refresh_auth(self.state, timeout_ms)
+
+    def auth_expire_time_ms(self):
+        return expiry_ms(self.state)
+
+    def request(self, method, pathname, options=None):
+        return api_request(self.state, method, pathname, options or {})
+
+    def list_apps(self, page_size=100):
+        return ((self.request("GET", f"app/list/1/{page_size}/1").get("data") or {}).get("listResult") or [])
+
+    def request_upload_url(self, file_name, file_size, sha256):
+        payload = self.request("POST", "nsp/upload", {"body": {"fileSize": file_size,
+                                                              "fileName": file_name, "sha256": sha256}})
+        data = payload.get("data")
+        try:
+            obs = json.loads(data) if isinstance(data, str) else data
+        except ValueError as exc:
+            raise ValueError(f"nsp/upload 返回的 data 无法解析: {data}") from exc
+        if not isinstance(obs, dict) or not obs.get("url") or not obs.get("headers"):
+            raise ValueError(f"nsp/upload 返回缺少 url/headers: {str(obs)[:300]}")
+        return obs
+
+    def put_object(self, obs, file_path, expected_digest=None):
+        return put_object(obs, file_path, self.state["proxy"], expected_digest=expected_digest)
+
+    def trigger_analyze(self, object_id):
+        return self.request("GET", "app/down/analyze", {"query": {"objectId": object_id}})
+
+    def get_analyze_status(self, object_id):
+        return self.request("GET", f"app/analyze/{parse.quote(str(object_id), safe='')}")
+
+    def poll_analyze(self, object_id, timeout_ms=600000, interval_ms=3000, on_progress=None):
+        deadline = time.monotonic() + timeout_ms / 1000
+        last_step = ""
+        while time.monotonic() < deadline:
+            data = (self.get_analyze_status(object_id).get("data") or {})
+            step = str(data.get("step") or "")
+            if step != last_step:
+                if on_progress:
+                    on_progress(f"包解析进度: {step or '<unknown>'}")
+                last_step = step
+            if step == "finishAnalyze":
+                if data.get("result") is False:
+                    detail = data.get("errorMessageCn") or data.get("errorMessageEn") or data.get("message") or ""
+                    raise RuntimeError(f"包解析失败: {detail}（errorCode={data.get('errorCode')}）")
+                app = data.get("uploadAppRsp") or {}
+                if not app.get("id"):
+                    raise RuntimeError(f"包解析完成但缺少 uploadAppRsp.id: {str(data)[:300]}")
+                return app
+            time.sleep(interval_ms / 1000)
+        raise TimeoutError(f"等待包解析超时（{round(timeout_ms / 1000)} 秒，最后步骤: {last_step or 'none'}）")
+
+    def list_business_devices(self, app_type, test_categories, api_levels):
+        def serialize(value):
+            return ",".join(map(str, value)) if isinstance(value, list) else str(value or "")
+        payload = self.request("GET", "business/device/list", {"query": {
+            "appType": app_type, "testCategories": serialize(test_categories), "apiLevels": serialize(api_levels)}})
+        return ((payload.get("data") or {}).get("deviceList") or [])
+
+    def predict_confirm(self, payload):
+        return self.request("POST", "business/quota/predictConfirm", {"body": payload})
+
+    def submit_task(self, payload):
+        result = self.request("POST", "task/submit", {"body": payload})
+        task_group_id = result.get("data")
+        if not task_group_id:
+            raise ValueError(f"task/submit 未返回任务组 id: {str(result)[:300]}")
+        return str(task_group_id)
+
+    def list_task_groups(self):
+        return ((self.request("GET", "task/taskgroups", {"query": TASKGROUP_QUERY}).get("data") or {})
+                .get("listResult") or [])
+
+    def get_report_apps(self, task_group_id):
+        return self.request("GET", f"report/developer/apps/{task_group_id}",
+                            {"query": {"productId": self.project_id}}).get("data") or []
+
+    def get_overview_result(self, task_group_id):
+        return self.request("GET", "report/overview/result", {"root": "report",
+                           "query": {"taskGroupId": task_group_id, "productId": self.project_id}}).get("data")
+
+    def get_overview_problem(self, task_group_id, category):
+        return self.request("GET", "report/overview/problem", {"root": "report",
+                           "query": {"taskGroupId": task_group_id, "category": category,
+                                     "productId": self.project_id}}).get("data") or []
+
+    def get_report_task_list(self, task_group_id, category):
+        return self.request("GET", "report/task/list", {"root": "report",
+                           "query": {"taskGroupId": task_group_id, "category": category,
+                                     "productId": self.project_id}}).get("data") or []
+
+    def get_dev_report_title(self, task_group_id, category):
+        return self.request("GET", f"devReportTitle/list/{task_group_id}/{category}", {"root": "report",
+                           "query": {"productId": self.project_id}}).get("data") or []
 
 
 def dispatch(action, payload):
