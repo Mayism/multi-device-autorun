@@ -138,7 +138,7 @@
   },
   "formatter": {
     "agent-json": {
-      "command": ["node", "./formatters/format-json.mjs", "$FILE"],
+      "command": ["python3", "./formatters/format-json.py", "$FILE"],
       "extensions": [".json"]
     }
   },
