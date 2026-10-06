@@ -2,7 +2,7 @@ output/
 node_modules/
 src/ohostest/dist/
 src/whitebox/dist/
-src/whitebox/.opencode/runtime/
+src/whitebox/.opencode/
 .hvigor/
 __pycache__/
 *.py[cod]

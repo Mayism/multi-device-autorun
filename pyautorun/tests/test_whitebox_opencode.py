@@ -10,7 +10,7 @@ import unittest
 from pyautorun.whitebox_opencode import create_runtime, run_prompt
 
 
-ROOT = Path(__file__).resolve().parents[2] / "src" / "whitebox"
+ROOT = Path(__file__).resolve().parents[1] / "whitebox_resources"
 
 
 class WhiteboxOpenCodeTests(unittest.TestCase):
@@ -39,6 +39,10 @@ print(json.dumps({'part': {'type': 'text', 'text': '{"output_file":"metadata/age
             self.assertEqual(config["server"]["port"], 62400)
             self.assertEqual(config["provider"], {"sample": {"models": {"model": {}}}})
             self.assertEqual(config["formatter"]["agent-json"]["command"][0], sys.executable)
+            self.assertEqual(Path(runtime["env"]["OPENCODE_CONFIG_DIR"]),
+                             Path(runtime["runtimeDir"]) / "xdg-config" / "opencode")
+            self.assertTrue((Path(runtime["runtimeDir"]) / "skills" /
+                             "hmos-rubric-scoring" / "SKILL.md").is_file())
             sandbox = root / "sandbox"
             sandbox.mkdir()
             result = run_prompt(runtime, {"sandboxRoot": str(sandbox), "requestTag": "understanding",

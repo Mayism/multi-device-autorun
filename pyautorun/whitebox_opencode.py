@@ -52,8 +52,10 @@ def create_runtime(repo_root, port=None, runtime_name=None, environ=None):
             raise ValueError(f"{key} 必须是正整数")
     port = int(port or env["HMOS_OPENCODE_PORT"])
     root = Path(repo_root).resolve()
-    config_dir = root / ".opencode"
-    runtime = Path(env.get("HMOS_OPENCODE_RUNTIME_ROOT") or config_dir / "runtime").resolve()
+    config_dir = root / "opencode"
+    runtime = Path(env.get("HMOS_OPENCODE_RUNTIME_ROOT") or
+                   Path(env.get("XDG_CACHE_HOME") or Path.home() / ".cache") /
+                   "multi-device-autorun" / "whitebox-opencode").resolve()
     if runtime_name:
         runtime /= runtime_name
     try:
@@ -88,7 +90,7 @@ def create_runtime(repo_root, port=None, runtime_name=None, environ=None):
     env.update({"HOME": str(runtime / "home"), "XDG_CONFIG_HOME": str(runtime / "xdg-config"),
                 "XDG_STATE_HOME": str(runtime / "xdg-state"), "XDG_DATA_HOME": str(runtime / "xdg-data"),
                 "XDG_CACHE_HOME": str(runtime / "xdg-cache"), "OPENCODE_CONFIG": str(config_path),
-                "OPENCODE_CONFIG_DIR": str(config_dir)})
+                "OPENCODE_CONFIG_DIR": str(runtime / "xdg-config" / "opencode")})
     return {"host": env["HMOS_OPENCODE_HOST"], "port": port,
             "serverUrl": f'http://{env["HMOS_OPENCODE_HOST"]}:{port}',
             "runtimeDir": str(runtime), "configPath": str(config_path), "env": env,

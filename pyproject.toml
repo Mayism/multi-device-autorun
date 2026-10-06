@@ -30,3 +30,10 @@ include = ["pyautorun*"]
 
 [tool.setuptools.package-data]
 pyautorun = ["report.css", "FoldTrigger.ets", "fold-server.py", "whitebox_official_profiles.json"]
+"pyautorun.whitebox_resources" = [
+  "references/risks/*.yaml",
+  "references/rules/*.yaml", "references/rules/*.md",
+  "references/scoring/*.yaml", "references/scoring/*.json", "references/scoring/*.md",
+  "opencode/*.json", "opencode/formatters/*.py", "opencode/prompts/*.md",
+  "opencode/skills/*/*.md",
+]

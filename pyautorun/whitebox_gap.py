@@ -7,6 +7,7 @@ import socket
 from uuid import uuid4
 
 from .whitebox_opencode import OpenCodeServer, create_runtime, run_prompt
+from .whitebox_resources import ROOT as WHITEBOX_RESOURCES
 
 
 CONCLUSIONS = {"human_rating_needs_improvement", "scoring_system_needs_improvement",
@@ -36,7 +37,6 @@ def parse_gap_analysis(value):
 
 
 def run_gap_analysis(case_dir, manual, result, *, environ=None, runner=run_prompt):
-    repo_root = Path(__file__).resolve().parent.parent / "src" / "whitebox"
     env = dict(os.environ if environ is None else environ)
     env.setdefault("HMOS_OPENCODE_HOST", "127.0.0.1")
     if not env.get("HMOS_OPENCODE_PORT"):
@@ -45,7 +45,7 @@ def run_gap_analysis(case_dir, manual, result, *, environ=None, runner=run_promp
             env["HMOS_OPENCODE_PORT"] = str(listener.getsockname()[1])
     env.setdefault("HMOS_OPENCODE_TIMEOUT_MS", "180000")
     env.setdefault("HMOS_OPENCODE_MAX_OUTPUT_BYTES", "1048576")
-    runtime = create_runtime(repo_root, runtime_name="human-gap-" + str(manual["taskId"]) +
+    runtime = create_runtime(WHITEBOX_RESOURCES, runtime_name="human-gap-" + str(manual["taskId"]) +
                              "-" + uuid4().hex[:8], environ=env)
     prompt = "\n".join((
         "你是人工评级差异分析 agent，必须使用 hmos-human-rating-gap-analysis skill。",

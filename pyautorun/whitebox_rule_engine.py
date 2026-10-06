@@ -15,6 +15,7 @@ from .whitebox_rule_registry import (DEFAULT_PACK_IDS, enabled_rule_packs, load_
                                      registered_rules)
 from .whitebox_rule_result import assemble_rule_engine_result
 from .whitebox_rule_text import evaluate_project_structure_rule, evaluate_text_rule
+from .whitebox_resources import REFERENCES
 
 
 EVALUATORS = {"regex": evaluate_text_rule,
@@ -51,7 +52,7 @@ def run_rule_engine(case_input, task_type=None, runtime_rules=(), enabled_pack_i
     facts = collect_ark_facts(case_input["generatedProjectPath"], evidence.get("caseDir"), root, environ)
     if facts is not None:
         evidence["arkFacts"] = facts
-    packs = load_rule_packs(root / "src" / "whitebox" / "references" / "rules")
+    packs = load_rule_packs(REFERENCES / "rules")
     enabled = enabled_rule_packs(packs, enabled_pack_ids if enabled_pack_ids is not None else DEFAULT_PACK_IDS)
     rules = registered_rules(packs, [pack["packId"] for pack in enabled], runtime_rules)
     evaluated = evaluate_rules(rules, evidence)

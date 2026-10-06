@@ -18,6 +18,7 @@ from .whitebox_report import write_whitebox_html
 from .whitebox_report_result import build_result_json
 from .whitebox_risk import load_risk_taxonomy
 from .whitebox_rubric import load_rubric, rubric_snapshot
+from .whitebox_resources import ROOT as WHITEBOX_RESOURCES
 from .whitebox_rule_engine import run_rule_engine
 from .whitebox_rule_merge import merge_rule_results
 from .whitebox_rule_registry import resolve_enabled_pack_ids
@@ -158,7 +159,7 @@ def run_local_whitebox(input_data, *, repo_root=None, runtime=None, runner=run_p
                        environ=None):
     _validate_input(input_data)
     repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parent.parent
-    whitebox = repo_root / "src" / "whitebox"
+    whitebox = WHITEBOX_RESOURCES
     env = dict(os.environ if environ is None else environ)
     case_dir = Path(input_data["outputDir"]).resolve()
     case_dir.mkdir(parents=True, exist_ok=True)

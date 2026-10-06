@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .whitebox_rule_registry import load_rule_packs
+from .whitebox_resources import REFERENCES
 
 
 def _milliseconds(value):
@@ -15,8 +16,9 @@ def _milliseconds(value):
 
 
 def registered_rule_metadata(repo_root=None):
-    root = Path(repo_root) if repo_root else Path(__file__).resolve().parent.parent
-    packs = load_rule_packs(root / "src" / "whitebox" / "references" / "rules")
+    references = (Path(repo_root) / "pyautorun" / "whitebox_resources" / "references"
+                  if repo_root else REFERENCES)
+    packs = load_rule_packs(references / "rules")
     rules = {rule["rule_id"]: {"pack_id": pack["packId"],
                               "pack_display_name": pack["displayName"],
                               "rule_summary": rule["summary"],

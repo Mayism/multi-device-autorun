@@ -1,10 +1,10 @@
-# Whitebox Evaluation
+# ArkAnalyzer sidecar
 
-Autorun 的独立 HarmonyOS 白盒评价子系统。它读取本地 Prompt、修改前的 `original`、修改后的最终 `base` 和 Patch。Patch 只用于确定本次变更的文件与行范围，实际代码证据始终读取 `base`；随后执行任务理解、静态规则、规则裁判、Rubric 裁判与分数融合，并输出结构化 JSON 和单文件 HTML。
+此目录只保留可选的 ArkAnalyzer TypeScript 侧车及编译配置。白盒评价的 Python 代码在 `pyautorun/`；规则、评分配置和 OpenCode 提示在 `pyautorun/whitebox_resources/`。
 
-## 安装与构建
+## 构建
 
-白盒运行时和 HTTP 服务由 Python 实现。请在仓库根目录执行：
+白盒运行时和 HTTP 服务由 Python 实现。请在仓库根目录安装：
 
 ```bash
 python3 -m pip install -e '.[whitebox]'
@@ -12,7 +12,7 @@ python3 -m pip install -e '.[whitebox]'
 
 开启 `HMOS_ARKANALYZER_ENABLE=true` 时另执行 `npm ci`；该命令只安装 ArkAnalyzer 和 TypeScript 编译依赖，并生成 `src/whitebox/dist/rules/arkfacts/cli.js`。
 
-正式运行由仓库根目录的 Python `pyautorun` 调度。单独调试：
+本地白盒评价可单独调试：
 
 ```bash
 python3 -m pyautorun.whitebox_local --input D:/out/<batch>/<case>/whitebox/inputs/input.json --port 62400

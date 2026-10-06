@@ -12,6 +12,7 @@ from .case_run import write_json
 from .whitebox import resolve_judge
 from .whitebox_report import write_whitebox_html
 from .whitebox_schema import validate_whitebox_result
+from .whitebox_resources import REFERENCES
 
 
 async def resolve_judge_runtime(client, server_config, judge, generation_model, directory):
@@ -124,8 +125,8 @@ class WhiteboxEvaluator:
             try:
                 result_path = Path(parsed.get("resultPath") or output / "outputs" / "result.json")
                 result_json = json.loads(result_path.read_text(encoding="utf-8"))
-                validate_whitebox_result(result_json, self.repo_root / "src" / "whitebox" /
-                                         "references" / "scoring" / "report_result_schema.json")
+                validate_whitebox_result(result_json,
+                                         REFERENCES / "scoring" / "report_result_schema.json")
                 report_path = output / "report.html"
                 write_whitebox_html(result_json, report_path)
                 parsed["reportPath"] = str(report_path)

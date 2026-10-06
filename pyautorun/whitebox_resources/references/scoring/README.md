@@ -8,6 +8,6 @@ Files in this directory are the repo-local source of truth for:
 - `report_result_schema.json`
 - task-type rubric notes and rule application notes
 
-Static scoring rule packs are maintained as YAML files in `references/rules/`, not in this scoring reference directory.
+Static scoring rule packs are maintained as YAML files in `../rules/`.
 
-The runtime default `referenceRoot` resolves to `references/scoring` unless `DEFAULT_REFERENCE_ROOT` is explicitly set.
+The Python evaluator loads these files from the bundled `pyautorun.whitebox_resources` package.

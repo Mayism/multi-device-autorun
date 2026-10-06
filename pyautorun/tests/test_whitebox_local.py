@@ -69,7 +69,8 @@ class LocalWhiteboxTests(unittest.TestCase):
             revised, _ = apply_human_review_recalculation(result_json,
                 {"itemReviews": [], "riskReviews": []}, "2026-10-06T00:00:00Z")
             validate_whitebox_result(revised,
-                ROOT / "src" / "whitebox" / "references" / "scoring" / "report_result_schema.json")
+                ROOT / "pyautorun" / "whitebox_resources" / "references" / "scoring" /
+                "report_result_schema.json")
 
 
 if __name__ == "__main__":
