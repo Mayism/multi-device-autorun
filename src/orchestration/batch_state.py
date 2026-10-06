@@ -24,9 +24,10 @@ def read_json(path):
 
 
 class BatchStateStore:
-    def __init__(self, path, state):
+    def __init__(self, path, state, on_case_change=None):
         self.path = Path(path)
         self.state = state
+        self.on_case_change = on_case_change
         self.persist()
 
     def persist(self):
@@ -41,6 +42,8 @@ class BatchStateStore:
         self.state["cases"][name].update(values)
         self.state["cases"][name]["updatedAt"] = _iso()
         self.persist()
+        if self.on_case_change:
+            self.on_case_change(name, self.state["cases"][name])
 
 
 def _batch_dirs(output_root):

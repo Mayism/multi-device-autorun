@@ -1,6 +1,8 @@
 """Batch scheduling and offline report integration checks."""
 
 import asyncio
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -90,10 +92,14 @@ class BatchTests(unittest.TestCase):
                       "ohosTest": {"enabled": False}, "cloudTest": {"enabled": False},
                       "whiteboxEvaluation": {"enabled": False}}
             target = root / "out" / "run" / "agent"
+            output = io.StringIO()
             with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
-                 patch("pyautorun.orchestration.batch.run_case", case_run):
+                 patch("pyautorun.orchestration.batch.run_case", case_run), redirect_stdout(output):
                 summary = asyncio.run(run_batch(config, Server(), {}, "run", target, "agent"))
             self.assertEqual(summary["completed"], 2)
+            self.assertEqual(output.getvalue().count("生成状态"), 1)
+            self.assertIn("CaseA", output.getvalue())
+            self.assertIn("CaseB", output.getvalue())
             self.assertEqual(json.loads((target / "report.json").read_text())["schemaVersion"],
                              "autorun-batch-report-v1")
             self.assertTrue((target / "overview.html").is_file())

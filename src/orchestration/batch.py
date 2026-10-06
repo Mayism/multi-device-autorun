@@ -9,6 +9,7 @@ from pathlib import Path
 from pyautorun.orchestration.artifacts import cleanup_case
 from pyautorun.orchestration.batch_state import BatchStateStore
 from pyautorun.orchestration.case_run import now, run_case, safe_name, write_json
+from pyautorun.orchestration.console_reporter import ConsoleReporter
 from pyautorun.orchestration.cases import discover_cases
 from pyautorun.cloud.cloudtest import load_config as load_cloud_config
 from pyautorun.cloud.cloudtest_submit import submit_cloud_test_for_project, finish_cloud_test_polling
@@ -33,11 +34,14 @@ def _report(name, message):
     print(f"[{name}] {message}", flush=True)
 
 
-async def _cloud_branch(config, settings, case_info, agent_result, cloud_submit_lock):
+async def _cloud_branch(config, settings, case_info, agent_result, cloud_submit_lock,
+                        log_progress, on_started):
     out_dir = str(Path(agent_result["resultPath"]).parent / "cloudtest")
-    log = lambda message: _report(case_info["name"], f"云测试：{message}")
+    loop = asyncio.get_running_loop()
+    log = lambda message: loop.call_soon_threadsafe(log_progress, case_info["name"], f"云测试：{message}")
     try:
         async with cloud_submit_lock:
+            on_started(case_info["name"], "cloudTest")
             submission = await asyncio.to_thread(
                 submit_cloud_test_for_project, config, agent_result.get("buildProjectDir") or
                 agent_result.get("projectDir") or "", "", case_info["name"], "", case_info["name"],
@@ -117,8 +121,23 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
     if retry_plan:
         state["retry"] = {"sourceBatchId": retry_plan["sourceBatchId"],
                           "requestedCaseName": retry_plan["requestedCaseName"]}
-    store = BatchStateStore(root / "batch.json", state)
+    reporter = ConsoleReporter([*cases, *skipped])
+    store = BatchStateStore(root / "batch.json", state, reporter.case_usage)
     (root / "batch.pid").write_text(str(os.getpid()) + "\n", encoding="utf-8")
+    reporter.start()
+
+    async def refresh_dashboard():
+        while True:
+            await asyncio.sleep(1)
+            reporter.render()
+
+    refresh_task = asyncio.create_task(refresh_dashboard()) if reporter.dynamic else None
+    user_progress = progress
+
+    def progress(name, message):
+        reporter.case_progress(name, message)
+        if user_progress is not _report:
+            user_progress(name, message)
     queue = asyncio.Queue()
     for case in cases:
         queue.put_nowait(case)
@@ -131,13 +150,21 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
 
     async def post_validate(case_info, result, run_cloud=True, run_ohos=True, run_whitebox=True):
         name = case_info["name"]
-        cloud_job = _cloud_branch(config, cloud["settings"], case_info, result, cloud_submit_lock) if cloud["enabled"] and run_cloud else None
+        cloud_job = _cloud_branch(config, cloud["settings"], case_info, result, cloud_submit_lock,
+                                  progress, reporter.case_test_running) if cloud["enabled"] and run_cloud else None
         whitebox_job = _whitebox_branch(whitebox_evaluator, run_id, case_info, result, execution,
                                        config["whiteboxEvaluation"]) if whitebox_evaluator and run_whitebox else None
         async def ohos_job():
             async with ohos_lock:
-                return await ohostest_runner(case_info, result, ohos, root)
+                reporter.case_test_running(name, "ohosTest")
+                outcome = await ohostest_runner(case_info, result, ohos, root)
+                reporter.case_test_finished(name, "ohosTest", outcome)
+                return outcome
         ohos_task = ohos_job() if ohos["enabled"] and run_ohos else None
+        if cloud_job:
+            reporter.case_test_queued(name, "cloudTest")
+        if ohos_task:
+            reporter.case_test_queued(name, "ohosTest")
         tasks = [asyncio.create_task(job) if job else None for job in (cloud_job, ohos_task, whitebox_job)]
         outcomes = await asyncio.gather(*(job for job in tasks if job), return_exceptions=True)
         iterator = iter(outcomes)
@@ -148,6 +175,10 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
             cloud_result = {"status": "failed", "error": str(cloud_result)}
         if isinstance(whitebox_result, Exception):
             whitebox_result = {"status": "failed", "error": str(whitebox_result)}
+        if cloud_result:
+            reporter.case_test_finished(name, "cloudTest", cloud_result)
+        if ohos_result:
+            reporter.case_test_finished(name, "ohosTest", ohos_result)
         if ohos_result and ohos_result.get("resultPath"):
             async with analysis_lock:
                 analysis = await analyze_uitest_failures(server.client, model, case_info, result, ohos_result)
@@ -188,6 +219,7 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
             await asyncio.to_thread(cleanup_case, name, case_dir / "original", merged["projectDir"],
                                     merged.get("patchPath") or "", case_dir / "generate", False, True, False)
         progress(name, f"完成：{merged['status']}")
+        reporter.case_finished(merged)
         return merged
 
     def schedule_post(case_info, agent_result, **options):
@@ -202,6 +234,7 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                     write_json(finished["resultPath"], finished)
                 store.set_case(case_info["name"], {"status": "failed", "stage": "failed",
                                                    "error": finished["error"], "finishedAt": finished["finishedAt"]})
+                reporter.case_finished(finished)
             results[case_info["name"]] = finished
             if finished["status"] != "completed" and execution.get("continueOnError") is False:
                 stop_queue = True
@@ -216,25 +249,31 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
             except asyncio.QueueEmpty:
                 break
             name = item["name"]
-            progress(name, f"开始执行（worker {index}）")
+            reporter.case_started(name)
+            if user_progress is not _report:
+                user_progress(name, f"开始执行（worker {index}）")
             try:
                 result = await run_case(item, root, server.client, model, execution, skill_runtime, store,
                                         ohos_enabled=ohos["enabled"], cloud_enabled=cloud["enabled"],
                                         whitebox_enabled=bool(whitebox_evaluator), progress=progress)
+                reporter.case_agent_finished(result)
                 if ohos["enabled"] or cloud["enabled"] or whitebox_evaluator:
                     schedule_post(item, result)
                 else:
                     results[name] = result
+                    reporter.case_finished(result)
                     if result["status"] != "completed" and execution.get("continueOnError") is False:
                         stop_queue = True
             except Exception as error:
                 result = getattr(error, "case_result", {"case": name, "status": "failed", "error": str(error)})
+                reporter.case_agent_finished(result)
                 if result.get("agentStatus") == "timed_out" and (ohos["enabled"] or cloud["enabled"]):
                     schedule_post(item, result, run_whitebox=bool(whitebox_evaluator))
                 elif whitebox_evaluator and result.get("projectDir"):
                     schedule_post(item, result, run_cloud=False, run_ohos=False)
                 else:
                     results[name] = result
+                    reporter.case_finished(result)
                 progress(name, f"失败：{result.get('error') or error}")
                 if execution.get("continueOnError") is False:
                     stop_queue = True
@@ -251,6 +290,7 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                                                "error": "前序用例失败且 continueOnError=false", "finishedAt": now()})
             results[pending["name"]] = {"case": pending["name"], "status": "cancelled",
                                         "error": "前序用例失败且 continueOnError=false"}
+            reporter.case_cancelled(pending["name"], "前序用例失败且 continueOnError=false")
             queue.task_done()
         ordered = [results[item["name"]] for item in cases if item["name"] in results]
         failed = sum(item.get("status") != "completed" for item in ordered)
@@ -278,6 +318,13 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
             summary["reportError"] = str(error)
         write_json(root / "summary.json", summary)
         store.set_batch({"status": summary["status"], "finishedAt": summary["finishedAt"]})
+        reporter.finish()
         return summary
+    except BaseException as error:
+        reporter.finish(error)
+        raise
     finally:
+        if refresh_task:
+            refresh_task.cancel()
+            await asyncio.gather(refresh_task, return_exceptions=True)
         (root / "batch.pid").unlink(missing_ok=True)
