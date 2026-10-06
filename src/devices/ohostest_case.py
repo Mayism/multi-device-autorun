@@ -312,7 +312,7 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
             process = subprocess.Popen([sys.executable, "-m", "pyautorun.devices.ohostest_case", "--case", str(case_dir),
                                         "--out", str(output), "--machine-config", str(machine_path),
                                         "--run", "swe", "--keep-workdir"],
-                                       cwd=Path(__file__).resolve().parents[3], stdin=subprocess.DEVNULL,
+                                       cwd=Path(__file__).resolve().parents[2], stdin=subprocess.DEVNULL,
                                        stdout=stream, stderr=stream, start_new_session=(os.name != "nt"))
             try:
                 process.wait(timeout=settings["timeoutSec"])

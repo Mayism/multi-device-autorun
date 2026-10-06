@@ -62,9 +62,9 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 ## 开发与验证
 
 ```bash
-python3 -m compileall -q src/pyautorun
-python3 -m unittest discover -s src/pyautorun/tests -q
+python3 -m compileall -q src
+python3 -m unittest discover -s src/tests -q
 npm test
 ```
 
-`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`src/pyautorun/` 下按功能分为 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与上传）和 `whitebox_eval/`（白盒规则、评分、服务及资源）；可选的 ArkAnalyzer 侧车位于 `whitebox_eval/ark_analyzer/`。根目录保留旧命令的兼容入口。
+`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`src/` 通过打包配置映射为 `pyautorun` 包，下设 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与上传）和 `whitebox_eval/`（白盒规则、评分、服务及资源）；可选的 ArkAnalyzer 侧车位于 `whitebox_eval/ark_analyzer/`。根目录保留旧命令的兼容入口。

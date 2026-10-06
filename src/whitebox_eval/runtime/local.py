@@ -158,7 +158,7 @@ def _persist(case_dir, state, result):
 def run_local_whitebox(input_data, *, repo_root=None, runtime=None, runner=run_prompt, server=None,
                        environ=None):
     _validate_input(input_data)
-    repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[4]
+    repo_root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[3]
     whitebox = WHITEBOX_RESOURCES
     env = dict(os.environ if environ is None else environ)
     case_dir = Path(input_data["outputDir"]).resolve()

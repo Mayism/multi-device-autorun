@@ -26,12 +26,14 @@ whitebox-remote = "pyautorun.whitebox_eval.service.remote:main"
 whitebox-api = "pyautorun.whitebox_eval.service.api:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-namespaces = false
-include = ["pyautorun*"]
+package-dir = {"pyautorun" = "src"}
+packages = [
+  "pyautorun", "pyautorun.cloud", "pyautorun.devices", "pyautorun.orchestration",
+  "pyautorun.reporting", "pyautorun.runtime", "pyautorun.whitebox_eval",
+  "pyautorun.whitebox_eval.resources", "pyautorun.whitebox_eval.rules",
+  "pyautorun.whitebox_eval.runtime", "pyautorun.whitebox_eval.scoring",
+  "pyautorun.whitebox_eval.service",
+]
 
 [tool.setuptools.package-data]
 "pyautorun.devices" = ["FoldTrigger.ets", "fold-server.py"]

@@ -16,7 +16,7 @@ def _milliseconds(value):
 
 
 def registered_rule_metadata(repo_root=None):
-    references = (Path(repo_root) / "src" / "pyautorun" / "whitebox_eval" / "resources" / "references"
+    references = (Path(repo_root) / "src" / "whitebox_eval" / "resources" / "references"
                   if repo_root else REFERENCES)
     packs = load_rule_packs(references / "rules")
     rules = {rule["rule_id"]: {"pack_id": pack["packId"],
