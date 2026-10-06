@@ -12,7 +12,8 @@ def collect_ark_facts(project_path, case_dir=None, repo_root=None, environ=None)
     if env.get("HMOS_ARKANALYZER_ENABLE") != "true":
         return None
     root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[3]
-    sidecar = root / "src" / "whitebox" / "dist" / "rules" / "arkfacts" / "cli.js"
+    sidecar_root = root / "pyautorun" / "whitebox_eval" / "ark_analyzer"
+    sidecar = sidecar_root / "dist" / "rules" / "arkfacts" / "cli.js"
     if not sidecar.is_file():
         raise RuntimeError(f"ArkAnalyzer sidecar is not built: {sidecar}")
     options = {"projectPath": str(Path(project_path).resolve()),
@@ -27,7 +28,7 @@ def collect_ark_facts(project_path, case_dir=None, repo_root=None, environ=None)
         output_path = Path(exchange) / "output.json"
         input_path.write_text(json.dumps(options, ensure_ascii=False), encoding="utf-8")
         run = subprocess.run(["node", str(sidecar), str(input_path), str(output_path)],
-                             cwd=root / "src" / "whitebox", capture_output=True, text=True,
+                             cwd=sidecar_root, capture_output=True, text=True,
                              timeout=120, check=False)
         if run.returncode:
             raise RuntimeError(f"ArkAnalyzer sidecar failed: {run.stderr.strip() or run.returncode}")
