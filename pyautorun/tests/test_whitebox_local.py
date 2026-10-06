@@ -8,6 +8,8 @@ import unittest
 from unittest.mock import patch
 
 from pyautorun.whitebox_local import run_local_whitebox
+from pyautorun.whitebox_review_score import apply_human_review_recalculation
+from pyautorun.whitebox_schema import validate_whitebox_result
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +65,11 @@ class LocalWhiteboxTests(unittest.TestCase):
             self.assertEqual(result["status"], "completed")
             self.assertTrue(Path(result["resultPath"]).is_file())
             self.assertTrue(Path(result["reportPath"]).is_file())
+            result_json = json.loads(Path(result["resultPath"]).read_text(encoding="utf-8"))
+            revised, _ = apply_human_review_recalculation(result_json,
+                {"itemReviews": [], "riskReviews": []}, "2026-10-06T00:00:00Z")
+            validate_whitebox_result(revised,
+                ROOT / "src" / "whitebox" / "references" / "scoring" / "report_result_schema.json")
 
 
 if __name__ == "__main__":

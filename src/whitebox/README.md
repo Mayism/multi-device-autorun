@@ -4,19 +4,21 @@ Autorun 的独立 HarmonyOS 白盒评价子系统。它读取本地 Prompt、修
 
 ## 安装与构建
 
-依赖统一维护在仓库根目录。请在仓库根目录执行：
+白盒运行时和 HTTP 服务由 Python 实现。请在仓库根目录执行：
 
 ```bash
-npm install
+python3 -m pip install -e '.[whitebox]'
 ```
 
-白盒评价需要先编译为 `src/whitebox/dist/localCli.js` 才能运行。根目录 `npm install` 会通过 `postinstall` 自动构建；源码修改后可执行 `npm run build:whitebox`。
+开启 `HMOS_ARKANALYZER_ENABLE=true` 时另执行 `npm ci`；该命令只安装 ArkAnalyzer 和 TypeScript 编译依赖，并生成 `src/whitebox/dist/rules/arkfacts/cli.js`。
 
 正式运行由仓库根目录的 Python `pyautorun` 调度。单独调试：
 
 ```bash
-npm run whitebox:evaluate -- --input D:/out/<batch>/<case>/whitebox/inputs/input.json --port 62400
+python3 -m pyautorun.whitebox_local --input D:/out/<batch>/<case>/whitebox/inputs/input.json --port 62400
 ```
+
+远端任务由 `python3 -m pyautorun.whitebox_api --case-root <dir> --port 3000` 接收；单任务可使用 `python3 -m pyautorun.whitebox_remote --input <remote-task.json>`。`npm run whitebox:evaluate`、`npm run whitebox:api` 只是对应 Python 命令的快捷入口。
 
 裁判模型、并发和超时统一配置在根目录 `config/autorun.config.json` 的 `whiteboxEvaluation` 节点。`judge.providerId` 必须与当前 OpenCode `opencode.json` 中的 Provider 名称完全一致；白盒运行时会按名称复制整个 Provider 配置，不再单独配置协议适配器、baseURL 或 API Key。
 

@@ -1,6 +1,6 @@
 # Multi-Device-Autorun
 
-Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。本地白盒评价入口、规则、Agent 调用、评分融合及报告由 Python 执行。ArkAnalyzer 作为可选的独立 Node 分析器保留，仅在 `HMOS_ARKANALYZER_ENABLE=true` 时调用。官方 Code Linter、OpenCode、DevEco/ohpm/Hvigor 和 H5 工程自身的工具链是外部工具。仓库中仍有旧版 TypeScript 白盒 API/仪表盘源码，尚未迁移为 Python 服务。
+Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价的本地入口、远端任务服务、规则、Agent 调用、评分融合及报告由 Python 执行。ArkAnalyzer 作为可选的独立 Node 分析器保留，仅在 `HMOS_ARKANALYZER_ENABLE=true` 时调用。官方 Code Linter、OpenCode、DevEco/ohpm/Hvigor 和 H5 工程自身的工具链是外部工具。
 
 ## 安装与运行
 
@@ -11,7 +11,7 @@ python3 -m pyautorun.cli --check --config config/autorun.config.json
 python3 -m pyautorun.cli --config config/autorun.config.json
 ```
 
-也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价需安装 `pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 或维护旧版白盒 API 时，才需要 `npm install` 和 `npm run build:whitebox`。
+也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价或白盒 API，先安装 `pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 时需要在仓库根目录执行 `npm ci`；安装脚本会构建侧车。
 
 除可选的白盒功能外，Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
 
@@ -35,6 +35,8 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 | 向现有 OpenCode 发消息 | `python3 -m pyautorun.ask_opencode '你好' --port 61417` |
 | 独立启动 OpenCode | `python3 -m pyautorun.serve_opencode --config config/autorun.config.json` |
 | 本地白盒评价 | `python3 -m pyautorun.whitebox_local --input <input.json> [--port 62400]` |
+| 远端白盒任务 | `python3 -m pyautorun.whitebox_remote --input <remote-task.json> [--case-root <dir>]` |
+| 白盒 HTTP 服务 | `python3 -m pyautorun.whitebox_api --case-root <dir> [--host 0.0.0.0] [--port 3000]` |
 
 所有 Autorun 命令可用 `--config` 指定另一份 JSON 配置。`pip install -e .` 会安装同名的 Python 控制台命令；直接用 `python3 -m` 不需要安装包。
 
@@ -64,4 +66,4 @@ python3 -m unittest discover -s pyautorun/tests -q
 npm test
 ```
 
-`npm test` 运行 Python 回归测试和保留的白盒 TypeScript 测试。`src/ohostest/` 仅保存旧版发布记录与设计文档；活跃 ohosTest 代码在 `pyautorun/`。白盒 Python 代码在 `pyautorun/`；ArkAnalyzer sidecar 和旧版 API 源码在 `src/whitebox/`。
+`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`src/ohostest/` 仅保存旧版发布记录与设计文档；活跃 ohosTest 代码在 `pyautorun/`。白盒 Python 代码在 `pyautorun/`；`src/whitebox/` 保留规则与评分资源、OpenCode 提示和 ArkAnalyzer 侧车。

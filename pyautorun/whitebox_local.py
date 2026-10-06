@@ -2,6 +2,7 @@
 
 import argparse
 from contextlib import nullcontext
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -119,6 +120,20 @@ def _linter_and_build(input_data, case_input, case_dir, understanding, evidence,
 
 
 def _persist(case_dir, state, result):
+    trace_runs = [value["trace"] for value in (state.get("taskUnderstandingAgentResult"),
+                  state.get("rubricAgentRunnerResult"), state.get("ruleAgentRunnerResult"))
+                  if isinstance(value, dict) and isinstance(value.get("trace"), dict)]
+    trace = {"schemaVersion": 1, "caseId": state["caseInput"]["caseId"],
+             "generatedAt": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+             "traceAvailable": bool(trace_runs), "runs": trace_runs,
+             "summary": {"runCount": len(trace_runs),
+                         "eventCount": sum(len(run["events"]) for run in trace_runs),
+                         "toolEventCount": sum(sum(event["type"] == "tool" for event in run["events"])
+                                               for run in trace_runs),
+                         "errorCount": sum(run["status"] != "success" for run in trace_runs),
+                         "attemptCount": sum(len(run["attempts"]) for run in trace_runs),
+                         "totalElapsedMs": sum(run["elapsedMs"] for run in trace_runs)},
+             "warnings": []}
     artifacts = {
         "inputs/rubric-scoring-payload.json": state.get("rubricScoringPayload") or {},
         "inputs/rule-agent-bootstrap-payload.json": state.get("ruleAgentBootstrapPayload") or {},
@@ -133,6 +148,7 @@ def _persist(case_dir, state, result):
         "intermediate/report-schema-version.json": {"schema_version": "v1",
                                                      "result_schema": "report_result_schema.json"},
         "outputs/result.json": result,
+        "outputs/agent-trace.json": trace,
     }
     for relative, value in artifacts.items():
         _write_json(case_dir, relative, value)
@@ -232,6 +248,7 @@ def run_local_whitebox(input_data, *, repo_root=None, runtime=None, runner=run_p
             "riskTaxonomy": taxonomy},
             load_scoring_profiles(whitebox / "references" / "rules"), load_official_linter_profiles())
         state = {"caseInput": case_input, "taskType": task_type, "taskUnderstanding": understanding,
+                 "taskUnderstandingAgentResult": understood,
                  "caseRuleDefinitions": constraints, "enabledRulePacks": rules["enabledRulePacks"],
                  "deterministicRuleResults": rules["deterministicRuleResults"],
                  "assistedRuleCandidates": candidates, "ruleAgentBootstrapPayload": bootstrap,

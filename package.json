@@ -9,45 +9,28 @@
   "scripts": {
     "postinstall": "npm run build:whitebox",
     "build": "npm run build:whitebox",
-    "build:whitebox": "tsc -p src/whitebox/tsconfig.json",
+    "build:whitebox": "tsc -p src/whitebox/tsconfig.arkfacts.json",
     "autorun": "python3 -m pyautorun.cli",
     "ohostest:case": "python3 -m pyautorun.ohostest_case",
     "ohostest:matrix": "python3 -m pyautorun.ohostest_matrix",
     "deploy:fold": "python3 -m pyautorun.deploy_fold",
-    "whitebox:start": "python3 -m pyautorun.whitebox_local",
+    "whitebox:start": "python3 -m pyautorun.whitebox_api",
     "whitebox:evaluate": "python3 -m pyautorun.whitebox_local",
-    "whitebox:dev": "tsx src/whitebox/src/localCli.ts",
+    "whitebox:remote": "python3 -m pyautorun.whitebox_remote",
+    "whitebox:api": "python3 -m pyautorun.whitebox_api",
+    "whitebox:dev": "python3 -m pyautorun.whitebox_local",
     "test": "npm run test:python && npm run test:whitebox",
     "test:autorun": "npm run test:python",
     "test:ohostest": "python3 -m unittest pyautorun.tests.test_ohostest_case -q",
-    "test:whitebox": "npm run build:whitebox && node --test src/whitebox/dist/commons/io/patchGenerator.test.js src/whitebox/dist/agents/runners/protocolRetry.test.js",
+    "test:whitebox": "npm run build:whitebox",
     "test:python": "python3 -m unittest discover -s pyautorun/tests -q",
-    "lint": "npm run lint:whitebox",
-    "lint:whitebox": "eslint -c src/whitebox/eslint.config.js src/whitebox/src",
-    "format:whitebox": "prettier --write \"src/whitebox/src/**/*.ts\" \"src/whitebox/*.json\" \"src/whitebox/*.mjs\""
+    "lint": "npm run build:whitebox"
   },
   "dependencies": {
-    "@langchain/core": "^1.1.40",
-    "@langchain/langgraph": "^1.2.8",
-    "ajv": "^8.18.0",
-    "arkanalyzer": "^1.0.90",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "js-yaml": "^4.1.1",
-    "yauzl": "^3.3.0",
-    "zod": "^4.3.6"
+    "arkanalyzer": "^1.0.90"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/express": "^5.0.6",
-    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.6.0",
-    "@types/yauzl": "^2.10.3",
-    "eslint": "^10.6.0",
-    "globals": "^17.5.0",
-    "prettier": "^3.8.3",
-    "tsx": "^4.21.0",
-    "typescript": "^6.0.2",
-    "typescript-eslint": "^8.62.1"
+    "typescript": "^6.0.2"
   }
 }

@@ -7,7 +7,6 @@ import { adaptArkAnalyzerScene } from "./adapter.js";
 import { collectArkAnalyzerSceneSummary } from "./collector.js";
 import { writeArkFactsDebugArtifacts } from "./debugWriter.js";
 import type { ArkFactsIndex } from "./types.js";
-import type { CollectedEvidence } from "../evidence/types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,11 +23,11 @@ export interface ArkAnalyzerFactsOptions {
   skipExternalExecution?: boolean;
 }
 
-const evidenceCache = new WeakMap<CollectedEvidence, Promise<ArkFactsIndex>>();
+const evidenceCache = new WeakMap<object, Promise<ArkFactsIndex>>();
 const projectCache = new Map<string, Promise<ArkFactsIndex>>();
 
 export async function getArkFactsForEvidence(
-  evidence: CollectedEvidence,
+  evidence: object,
   options: ArkAnalyzerFactsOptions,
 ): Promise<ArkFactsIndex> {
   const cached = evidenceCache.get(evidence);

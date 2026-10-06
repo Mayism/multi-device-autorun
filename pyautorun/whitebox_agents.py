@@ -3,6 +3,8 @@
 import json
 import math
 import re
+import time
+from uuid import uuid4
 
 from .whitebox_risk import normalize_risk_item
 from .whitebox_understanding import parse_constraint_summary
@@ -190,11 +192,14 @@ def run_agent(kind, payload, sandbox, runtime, runner, *, snapshot=None, taxonom
     agent, filename = OUTPUTS[kind]
     raw = ""
     reason = ""
+    attempts = []
+    started = int(time.time() * 1000)
     for attempt in range(3):
         request = {"prompt": _prompt(kind, payload, sandbox, {"reason": reason, "raw": raw} if attempt else None),
                    "sandboxRoot": sandbox, "requestTag": f"{kind}-{attempt}",
                    "agent": agent, "outputFile": "metadata/agent-output/" + filename}
         try:
+            attempt_started = int(time.time() * 1000)
             run = runner(runtime, request)
             raw = run["rawText"]
             if kind == "understanding":
@@ -203,9 +208,48 @@ def run_agent(kind, payload, sandbox, runtime, runner, *, snapshot=None, taxonom
                 result = parse_rule_assessment(raw, payload["assisted_rule_candidates"])
             else:
                 result = parse_rubric_scoring(raw, snapshot, taxonomy)
+            attempts.append({"id": uuid4().hex, "sequence": len(attempts) + 1,
+                "retryIndex": attempt, "requestTag": request["requestTag"],
+                "startedAtMs": attempt_started, "endedAtMs": int(time.time() * 1000),
+                "elapsedMs": int(time.time() * 1000) - attempt_started, "status": "success",
+                "prompt": request["prompt"], "assistantText": run.get("assistantText"),
+                "outputFile": request["outputFile"], "outputFileText": raw, "warnings": [],
+                "rawEvents": run.get("rawEvents", "")})
             return {"outcome": "success", "final_answer": result, "final_answer_raw_text": raw,
-                    "raw_events": run.get("rawEvents", "")}
+                    "raw_events": run.get("rawEvents", ""),
+                    "trace": _trace(kind, agent, started, attempts)}
         except (OSError, RuntimeError, ValueError, TypeError, KeyError) as error:
             reason = str(error)
+            attempts.append({"id": uuid4().hex, "sequence": len(attempts) + 1,
+                "retryIndex": attempt, "requestTag": request["requestTag"],
+                "status": "failed", "elapsedMs": 0, "prompt": request["prompt"],
+                "outputFile": request["outputFile"], "warnings": [reason]})
     return {"outcome": "protocol_error", "failure_reason": reason,
-            "final_answer_raw_text": raw}
+            "final_answer_raw_text": raw,
+            "trace": _trace(kind, agent, started, attempts)}
+
+
+def _trace(kind, agent, started, attempts):
+    events = []
+    for attempt in attempts:
+        for line in attempt.pop("rawEvents", "").splitlines():
+            try:
+                payload = json.loads(line)
+            except ValueError:
+                continue
+            part = payload.get("part") if isinstance(payload, dict) else None
+            event_type = part.get("type") if isinstance(part, dict) else "unknown"
+            if event_type not in ("message", "step-start", "reasoning", "tool", "step-finish", "text"):
+                event_type = "unknown"
+            events.append({"id": uuid4().hex, "sequence": len(events) + 1,
+                "attemptId": attempt["id"], "retryIndex": attempt["retryIndex"],
+                "type": event_type, "title": event_type, "rawPayload": payload,
+                "hasRawPayload": True})
+    return {"id": uuid4().hex, "baseRequestTag": kind, "agentName": agent,
+            "status": "success" if attempts and attempts[-1]["status"] == "success" else "failed",
+            "startedAtMs": started, "endedAtMs": int(time.time() * 1000),
+            "elapsedMs": int(time.time() * 1000) - started,
+            "attempts": attempts, "prompt": attempts[-1]["prompt"] if attempts else "",
+            "outputFile": attempts[-1]["outputFile"] if attempts else "",
+            "outputFileText": attempts[-1].get("outputFileText") if attempts else None,
+            "events": events, "warnings": []}

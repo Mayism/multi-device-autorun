@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/rules/arkfacts/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}
