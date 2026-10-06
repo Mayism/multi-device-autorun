@@ -1,6 +1,6 @@
 # ArkAnalyzer sidecar
 
-此目录保留可选的 ArkAnalyzer TypeScript 侧车及编译配置，与白盒评价的 Python 代码一同放在 `pyautorun/whitebox_eval/` 下。规则、评分配置和 OpenCode 提示在 `pyautorun/whitebox_eval/resources/`。
+此目录保留可选的 ArkAnalyzer TypeScript 侧车及编译配置，与白盒评价的 Python 代码一同放在 `src/pyautorun/whitebox_eval/` 下。规则、评分配置和 OpenCode 提示在 `src/pyautorun/whitebox_eval/resources/`。
 
 ## 构建
 
@@ -10,7 +10,7 @@
 python3 -m pip install -e '.[whitebox]'
 ```
 
-开启 `HMOS_ARKANALYZER_ENABLE=true` 时另执行 `npm ci`；该命令只安装 ArkAnalyzer 和 TypeScript 编译依赖，并生成 `pyautorun/whitebox_eval/ark_analyzer/dist/rules/arkfacts/cli.js`。
+开启 `HMOS_ARKANALYZER_ENABLE=true` 时另执行 `npm ci`；该命令只安装 ArkAnalyzer 和 TypeScript 编译依赖，并生成 `src/pyautorun/whitebox_eval/ark_analyzer/dist/rules/arkfacts/cli.js`。
 
 本地白盒评价可单独调试：
 

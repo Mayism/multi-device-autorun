@@ -1,7 +1,9 @@
 output/
+build/
 node_modules/
-pyautorun/whitebox_eval/ark_analyzer/dist/
-pyautorun/whitebox_eval/ark_analyzer/.opencode/
+src/pyautorun/whitebox_eval/ark_analyzer/dist/
+src/pyautorun/whitebox_eval/ark_analyzer/.opencode/
 .hvigor/
 __pycache__/
 *.py[cod]
+*.egg-info/

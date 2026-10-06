@@ -9,7 +9,7 @@
   "scripts": {
     "postinstall": "npm run build:whitebox",
     "build": "npm run build:whitebox",
-    "build:whitebox": "tsc -p pyautorun/whitebox_eval/ark_analyzer/tsconfig.arkfacts.json",
+    "build:whitebox": "tsc -p src/pyautorun/whitebox_eval/ark_analyzer/tsconfig.arkfacts.json",
     "autorun": "python3 -m pyautorun.cli",
     "ohostest:case": "python3 -m pyautorun.ohostest_case",
     "ohostest:matrix": "python3 -m pyautorun.ohostest_matrix",
@@ -23,7 +23,7 @@
     "test:autorun": "npm run test:python",
     "test:ohostest": "python3 -m unittest pyautorun.tests.test_ohostest_case -q",
     "test:whitebox": "npm run build:whitebox",
-    "test:python": "python3 -m unittest discover -s pyautorun/tests -q",
+    "test:python": "python3 -m unittest discover -s src/pyautorun/tests -q",
     "lint": "npm run build:whitebox"
   },
   "dependencies": {

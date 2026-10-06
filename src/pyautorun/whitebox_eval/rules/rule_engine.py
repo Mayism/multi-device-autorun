@@ -47,7 +47,7 @@ def evaluate_rules(rules, evidence):
 def run_rule_engine(case_input, task_type=None, runtime_rules=(), enabled_pack_ids=None,
                     repo_root=None, environ=None):
     del task_type
-    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[3]
+    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[4]
     evidence = collect_rule_evidence(case_input)
     facts = collect_ark_facts(case_input["generatedProjectPath"], evidence.get("caseDir"), root, environ)
     if facts is not None:

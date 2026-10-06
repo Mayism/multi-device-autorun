@@ -11,8 +11,8 @@ def collect_ark_facts(project_path, case_dir=None, repo_root=None, environ=None)
     env = os.environ if environ is None else environ
     if env.get("HMOS_ARKANALYZER_ENABLE") != "true":
         return None
-    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[3]
-    sidecar_root = root / "pyautorun" / "whitebox_eval" / "ark_analyzer"
+    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[4]
+    sidecar_root = root / "src" / "pyautorun" / "whitebox_eval" / "ark_analyzer"
     sidecar = sidecar_root / "dist" / "rules" / "arkfacts" / "cli.js"
     if not sidecar.is_file():
         raise RuntimeError(f"ArkAnalyzer sidecar is not built: {sidecar}")

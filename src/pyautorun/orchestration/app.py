@@ -38,7 +38,7 @@ async def _whitebox_evaluator(config, workspace):
                                             whitebox["judge"], config["execution"]["generationModel"],
                                             str(workspace))
         return WhiteboxEvaluator(whitebox, judge, source["opencodeBinPath"],
-                                 Path(__file__).resolve().parents[2])
+                                 Path(__file__).resolve().parents[3])
     finally:
         if server:
             await server.stop()

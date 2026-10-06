@@ -12,7 +12,7 @@ from pyautorun.whitebox_eval.scoring.review_score import apply_human_review_reca
 from pyautorun.whitebox_eval.scoring.schema import validate_whitebox_result
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml") and importlib.util.find_spec("jsonschema"),
@@ -69,7 +69,7 @@ class LocalWhiteboxTests(unittest.TestCase):
             revised, _ = apply_human_review_recalculation(result_json,
                 {"itemReviews": [], "riskReviews": []}, "2026-10-06T00:00:00Z")
             validate_whitebox_result(revised,
-                ROOT / "pyautorun" / "whitebox_eval" / "resources" / "references" / "scoring" /
+                ROOT / "src" / "pyautorun" / "whitebox_eval" / "resources" / "references" / "scoring" /
                 "report_result_schema.json")
 
 

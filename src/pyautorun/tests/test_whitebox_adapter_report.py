@@ -38,7 +38,7 @@ class WhiteboxAdapterReportTests(unittest.TestCase):
                 actual = evaluator._run({"inputPath": str(input_path), "outputDir": str(output)}, 4000)
             self.assertEqual(run_process.call_args.args[0][:3],
                              [sys.executable, "-m", "pyautorun.whitebox_eval.runtime.local"])
-            self.assertEqual(run_process.call_args.kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0], str(root))
+            self.assertEqual(run_process.call_args.kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0], str(root / "src"))
             return actual, (output / "report.html").read_text(encoding="utf-8"), render_whitebox_html(result)
 
     def test_completed_result_is_rendered_by_python(self):

@@ -25,7 +25,12 @@ whitebox-evaluate = "pyautorun.whitebox_eval.runtime.local:main"
 whitebox-remote = "pyautorun.whitebox_eval.service.remote:main"
 whitebox-api = "pyautorun.whitebox_eval.service.api:main"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
 include = ["pyautorun*"]
 
 [tool.setuptools.package-data]

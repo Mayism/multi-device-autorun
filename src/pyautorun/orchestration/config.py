@@ -9,7 +9,7 @@ from pyautorun.orchestration.agent import normalize_agent_targets, normalize_gen
 from pyautorun.whitebox_eval.config import bind_runtime, normalize_config
 
 
-DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parents[2] / "output"
+DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parents[3] / "output"
 
 
 def _resolve(base_dir, value):

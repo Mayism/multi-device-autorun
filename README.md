@@ -7,11 +7,12 @@ Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 Harmo
 在仓库根目录执行：
 
 ```bash
+python3 -m pip install -e .
 python3 -m pyautorun.cli --check --config config/autorun.config.json
 python3 -m pyautorun.cli --config config/autorun.config.json
 ```
 
-也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价或白盒 API，先安装 `pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 时需要在仓库根目录执行 `npm ci`；安装脚本会构建侧车。
+也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价或白盒 API，安装 `python3 -m pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 时需要在仓库根目录执行 `npm ci`；安装脚本会构建侧车。
 
 除可选的白盒功能外，Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
 
@@ -38,7 +39,7 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 | 远端白盒任务 | `python3 -m pyautorun.whitebox_remote --input <remote-task.json> [--case-root <dir>]` |
 | 白盒 HTTP 服务 | `python3 -m pyautorun.whitebox_api --case-root <dir> [--host 0.0.0.0] [--port 3000]` |
 
-所有 Autorun 命令可用 `--config` 指定另一份 JSON 配置。`pip install -e .` 会安装同名的 Python 控制台命令；直接用 `python3 -m` 不需要安装包。
+所有 Autorun 命令可用 `--config` 指定另一份 JSON 配置。`pip install -e .` 会安装同名的 Python 控制台命令，并让 `python3 -m pyautorun.*` 在仓库根目录可用。
 
 ## 配置与用例
 
@@ -61,9 +62,9 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 ## 开发与验证
 
 ```bash
-python3 -m compileall -q pyautorun
-python3 -m unittest discover -s pyautorun/tests -q
+python3 -m compileall -q src/pyautorun
+python3 -m unittest discover -s src/pyautorun/tests -q
 npm test
 ```
 
-`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`pyautorun/` 下按功能分为 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与上传）和 `whitebox_eval/`（白盒规则、评分、服务及资源）；可选的 ArkAnalyzer 侧车位于 `whitebox_eval/ark_analyzer/`。根目录保留旧命令的兼容入口。
+`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`src/pyautorun/` 下按功能分为 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与上传）和 `whitebox_eval/`（白盒规则、评分、服务及资源）；可选的 ArkAnalyzer 侧车位于 `whitebox_eval/ark_analyzer/`。根目录保留旧命令的兼容入口。

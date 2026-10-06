@@ -6,8 +6,8 @@
 #       测试代码内的 triggerFold() 通过 HTTP 直接调用本服务，同步等待结果。
 #
 # 用法：
-#   python3 pyautorun/devices/fold-server.py
-#   python3 pyautorun/devices/fold-server.py --profile "Mate X7" --port 8766 --target 127.0.0.1:15002
+#   python3 src/pyautorun/devices/fold-server.py
+#   python3 src/pyautorun/devices/fold-server.py --profile "Mate X7" --port 8766 --target 127.0.0.1:15002
 #
 #   保持运行，测试代码的 triggerFold('half-open') 会请求本服务。
 #

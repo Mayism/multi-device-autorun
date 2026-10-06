@@ -8,8 +8,8 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SIDECAR_ROOT = ROOT / "pyautorun" / "whitebox_eval" / "ark_analyzer"
+ROOT = Path(__file__).resolve().parents[3]
+SIDECAR_ROOT = ROOT / "src" / "pyautorun" / "whitebox_eval" / "ark_analyzer"
 SIDECAR = SIDECAR_ROOT / "dist" / "rules" / "arkfacts" / "cli.js"
 
 
