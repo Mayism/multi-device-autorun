@@ -1,7 +1,0 @@
-{
-  "name": "harmonyos-ohostest-runner",
-  "version": "0.8.0",
-  "private": true,
-  "type": "module",
-  "description": "Historical ohosTest release metadata; active runner and dependencies moved to pyautorun."
-}

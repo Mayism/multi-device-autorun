@@ -66,4 +66,4 @@ python3 -m unittest discover -s pyautorun/tests -q
 npm test
 ```
 
-`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`pyautorun/` 下按功能分为 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与上传）和 `whitebox_eval/`（白盒规则、评分、服务及资源）。根目录保留旧命令的兼容入口。`src/ohostest/` 仅保存旧版文档；`src/whitebox/` 仅保留 ArkAnalyzer 侧车及其构建元数据。
+`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`pyautorun/` 下按功能分为 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与上传）和 `whitebox_eval/`（白盒规则、评分、服务及资源）。根目录保留旧命令的兼容入口。`src/whitebox/` 仅保留 ArkAnalyzer 侧车及其构建元数据。

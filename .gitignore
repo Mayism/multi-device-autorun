@@ -1,6 +1,5 @@
 output/
 node_modules/
-src/ohostest/dist/
 src/whitebox/dist/
 src/whitebox/.opencode/
 .hvigor/
