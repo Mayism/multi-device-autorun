@@ -2,7 +2,7 @@
 
 import unittest
 
-from pyautorun.whitebox_review_score import apply_human_review_recalculation
+from pyautorun.whitebox_eval.scoring.review_score import apply_human_review_recalculation
 
 
 class ReviewScoreTests(unittest.TestCase):

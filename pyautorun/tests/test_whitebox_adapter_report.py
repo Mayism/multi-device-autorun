@@ -9,8 +9,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.whitebox_adapter import WhiteboxEvaluator
-from pyautorun.whitebox_report import render_whitebox_html
+from pyautorun.whitebox_eval.runtime.adapter import WhiteboxEvaluator
+from pyautorun.whitebox_eval.scoring.report import render_whitebox_html
 
 
 class WhiteboxAdapterReportTests(unittest.TestCase):
@@ -33,11 +33,11 @@ class WhiteboxAdapterReportTests(unittest.TestCase):
             evaluator.repo_root = root
             completed = subprocess.CompletedProcess([], 0, json.dumps({"status": "completed",
                                                                         "resultPath": str(result_path)}), "")
-            with patch("pyautorun.whitebox_adapter.subprocess.run", return_value=completed) as run_process, \
-                 patch("pyautorun.whitebox_adapter.validate_whitebox_result"):
+            with patch("pyautorun.whitebox_eval.runtime.adapter.subprocess.run", return_value=completed) as run_process, \
+                 patch("pyautorun.whitebox_eval.runtime.adapter.validate_whitebox_result"):
                 actual = evaluator._run({"inputPath": str(input_path), "outputDir": str(output)}, 4000)
             self.assertEqual(run_process.call_args.args[0][:3],
-                             [sys.executable, "-m", "pyautorun.whitebox_local"])
+                             [sys.executable, "-m", "pyautorun.whitebox_eval.runtime.local"])
             self.assertEqual(run_process.call_args.kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0], str(root))
             return actual, (output / "report.html").read_text(encoding="utf-8"), render_whitebox_html(result)
 

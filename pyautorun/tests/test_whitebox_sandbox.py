@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pyautorun.whitebox_sandbox import build_sandbox
+from pyautorun.whitebox_eval.runtime.sandbox import build_sandbox
 
 
 class WhiteboxSandboxTests(unittest.TestCase):

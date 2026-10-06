@@ -7,13 +7,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.ohostest_case import run_ohostest_case, stage_generated_case
-from pyautorun.ohostest_project import load_case_metadata, select_devices
-from pyautorun.ohostest_fold import deploy_fold_trigger
-from pyautorun.ohostest_web import WebForwarding
-from pyautorun.ohostest_execution import CommandLog, run_device
-from pyautorun.ohostest_compat import temporary_device_types, apply_answer_device_type_checks
-from pyautorun.ohostest_matrix import run_matrix
+from pyautorun.devices.ohostest_case import run_ohostest_case, stage_generated_case
+from pyautorun.devices.ohostest_project import load_case_metadata, select_devices
+from pyautorun.devices.ohostest_fold import deploy_fold_trigger
+from pyautorun.devices.ohostest_web import WebForwarding
+from pyautorun.devices.ohostest_execution import CommandLog, run_device
+from pyautorun.devices.ohostest_compat import temporary_device_types, apply_answer_device_type_checks
+from pyautorun.devices.ohostest_matrix import run_matrix
 
 
 class OhosTestCaseTests(unittest.TestCase):
@@ -59,7 +59,7 @@ class OhosTestCaseTests(unittest.TestCase):
                       "testCaseTimeoutMs": 15000, "timeoutMs": 120000}
             device = {"id": "phone", "target": "127.0.0.1:15001", "startEmulator": False}
             artifacts = {"appHap": "app.hap", "testHap": "test.hap", "hspPaths": []}
-            with patch("pyautorun.ohostest_device._sleep", lambda *_args: None):
+            with patch("pyautorun.devices.ohostest_device._sleep", lambda *_args: None):
                 result = run_device(config, device, artifacts, ["PhoneTest"], log)
             self.assertEqual(result["status"], "passed")
             self.assertEqual(result["passes"], 1)
@@ -168,7 +168,7 @@ class OhosTestCaseTests(unittest.TestCase):
                         "diagnostics": [], "devices": [{"id": "phone", "status": "passed",
                         "testsRun": 1, "failures": 0, "errors": 0, "passes": 1, "ignored": 0,
                         "suiteResults": []}]}
-            with patch("pyautorun.ohostest_case.run_execution", fake_execution):
+            with patch("pyautorun.devices.ohostest_case.run_execution", fake_execution):
                 result = run_ohostest_case(case, machine, case / ".ohostest-runs" / "run", "all")
             self.assertEqual(result["status"], "completed", result["diagnostics"])
             self.assertEqual(result["runs"]["answer"]["devices"][0]["passes"], 2)

@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pyautorun.whitebox_trace import trace_event_raw, trace_run_raw, trace_summary
+from pyautorun.whitebox_eval.service.trace import trace_event_raw, trace_run_raw, trace_summary
 
 
 class TraceTests(unittest.TestCase):

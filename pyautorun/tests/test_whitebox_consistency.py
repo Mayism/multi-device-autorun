@@ -3,8 +3,8 @@
 import tempfile
 import unittest
 
-from pyautorun.whitebox_consistency import merge_consistency_patch
-from pyautorun.whitebox_service_store import WhiteboxServiceStore
+from pyautorun.whitebox_eval.service.consistency import merge_consistency_patch
+from pyautorun.whitebox_eval.service.service_store import WhiteboxServiceStore
 
 
 class ConsistencyTests(unittest.TestCase):

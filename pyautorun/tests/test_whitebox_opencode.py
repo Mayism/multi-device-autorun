@@ -7,10 +7,10 @@ import sys
 import tempfile
 import unittest
 
-from pyautorun.whitebox_opencode import create_runtime, run_prompt
+from pyautorun.whitebox_eval.runtime.opencode import create_runtime, run_prompt
 
 
-ROOT = Path(__file__).resolve().parents[1] / "whitebox_resources"
+ROOT = Path(__file__).resolve().parents[1] / "whitebox_eval" / "resources"
 
 
 class WhiteboxOpenCodeTests(unittest.TestCase):

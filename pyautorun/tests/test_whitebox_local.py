@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.whitebox_local import run_local_whitebox
-from pyautorun.whitebox_review_score import apply_human_review_recalculation
-from pyautorun.whitebox_schema import validate_whitebox_result
+from pyautorun.whitebox_eval.runtime.local import run_local_whitebox
+from pyautorun.whitebox_eval.scoring.review_score import apply_human_review_recalculation
+from pyautorun.whitebox_eval.scoring.schema import validate_whitebox_result
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -58,7 +58,7 @@ class LocalWhiteboxTests(unittest.TestCase):
                                   for candidate in payload["assisted_rule_candidates"]]}
                 return {"outcome": "success", "final_answer": answer,
                         "final_answer_raw_text": json.dumps(answer), "raw_events": ""}
-            with patch("pyautorun.whitebox_local.run_agent", fake_agent):
+            with patch("pyautorun.whitebox_eval.runtime.local.run_agent", fake_agent):
                 result = run_local_whitebox(manifest, repo_root=ROOT, runtime={},
                                             environ={"HMOS_CODE_LINTER_ENABLED": "false",
                                                      "HMOS_HVIGOR_BUILD_CHECK_ENABLED": "false"})
@@ -69,7 +69,7 @@ class LocalWhiteboxTests(unittest.TestCase):
             revised, _ = apply_human_review_recalculation(result_json,
                 {"itemReviews": [], "riskReviews": []}, "2026-10-06T00:00:00Z")
             validate_whitebox_result(revised,
-                ROOT / "pyautorun" / "whitebox_resources" / "references" / "scoring" /
+                ROOT / "pyautorun" / "whitebox_eval" / "resources" / "references" / "scoring" /
                 "report_result_schema.json")
 
 

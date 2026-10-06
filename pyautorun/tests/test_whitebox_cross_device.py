@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pyautorun.whitebox_cross_device import cases_page, related_tasks, rule_violations_page
+from pyautorun.whitebox_eval.service.cross_device import cases_page, related_tasks, rule_violations_page
 
 
 @unittest.skipUnless(importlib.util.find_spec("yaml"), "PyYAML unavailable")

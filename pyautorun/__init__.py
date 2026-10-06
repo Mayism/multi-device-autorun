@@ -1,1 +1,1 @@
-"""Python implementation of Autorun's data and artifact operations."""
+"""Python Autorun package, organized by functional modules."""

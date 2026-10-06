@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.batch import run_batch
-from pyautorun.case_run import write_json
-from pyautorun.reports import merge_overview, write_comparison_report
+from pyautorun.orchestration.batch import run_batch
+from pyautorun.orchestration.case_run import write_json
+from pyautorun.reporting.reports import merge_overview, write_comparison_report
 
 
 class BatchTests(unittest.TestCase):
@@ -49,9 +49,9 @@ class BatchTests(unittest.TestCase):
                                     "agent": "a", "model": "m", "concurrency": 1},
                       "ohosTest": {"enabled": True, "devices": [{"id": "phone", "target": "127.0.0.1:15001"}]},
                       "cloudTest": {"enabled": False}, "whiteboxEvaluation": {"enabled": False}}
-            with patch("pyautorun.batch.validate_server_config", validate), \
-                 patch("pyautorun.batch.run_case", failed_case), \
-                 patch("pyautorun.batch.analyze_uitest_failures", return_value=None):
+            with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
+                 patch("pyautorun.orchestration.batch.run_case", failed_case), \
+                 patch("pyautorun.orchestration.batch.analyze_uitest_failures", return_value=None):
                 summary = asyncio.run(run_batch(config, Server(), {}, "run", root / "out" / "run", "agent",
                                                 ohostest_runner=passed_ohostest))
             self.assertEqual(summary["results"][0]["status"], "timed_out")
@@ -90,8 +90,8 @@ class BatchTests(unittest.TestCase):
                       "ohosTest": {"enabled": False}, "cloudTest": {"enabled": False},
                       "whiteboxEvaluation": {"enabled": False}}
             target = root / "out" / "run" / "agent"
-            with patch("pyautorun.batch.validate_server_config", validate), \
-                 patch("pyautorun.batch.run_case", case_run):
+            with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
+                 patch("pyautorun.orchestration.batch.run_case", case_run):
                 summary = asyncio.run(run_batch(config, Server(), {}, "run", target, "agent"))
             self.assertEqual(summary["completed"], 2)
             self.assertEqual(json.loads((target / "report.json").read_text())["schemaVersion"],

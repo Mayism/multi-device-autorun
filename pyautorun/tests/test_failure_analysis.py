@@ -2,7 +2,7 @@
 
 import unittest
 
-from pyautorun.failure_analysis import collect_uitest_failures, normalize_analyses
+from pyautorun.reporting.failure_analysis import collect_uitest_failures, normalize_analyses
 
 
 class FailureAnalysisTests(unittest.TestCase):

@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from http.server import ThreadingHTTPServer
 
-from pyautorun.whitebox_api import WhiteboxApiService, make_handler
+from pyautorun.whitebox_eval.service.api import WhiteboxApiService, make_handler
 from pyautorun.tests.test_whitebox_remote import _task
 
 

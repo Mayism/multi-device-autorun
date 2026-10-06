@@ -3,7 +3,7 @@
 import tempfile
 import unittest
 
-from pyautorun.whitebox_review_dataset import append_dataset, query_dataset, update_manual_status
+from pyautorun.whitebox_eval.service.review_dataset import append_dataset, query_dataset, update_manual_status
 
 
 class ReviewDatasetTests(unittest.TestCase):

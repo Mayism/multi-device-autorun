@@ -7,9 +7,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.artifacts import excluded, filter_patch, initialize_git_baseline, generate_patch, prune_project
-from pyautorun.batch_state import BatchStateStore, load_retry_plan, recover_interrupted_runs
-from pyautorun.case_run import run_case, write_json
+from pyautorun.orchestration.artifacts import excluded, filter_patch, initialize_git_baseline, generate_patch, prune_project
+from pyautorun.orchestration.batch_state import BatchStateStore, load_retry_plan, recover_interrupted_runs
+from pyautorun.orchestration.case_run import run_case, write_json
 
 
 class ArtifactTests(unittest.TestCase):
@@ -66,7 +66,7 @@ class CaseRunTests(unittest.TestCase):
                     "promptPath": str(case / "PROMPT.md"), "platform": "web"}
             state = {"cases": {"WebCase": {"status": "pending"}}}
             store = BatchStateStore(batch / "batch.json", state)
-            with patch("pyautorun.case_run.run_monitored_session", monitored):
+            with patch("pyautorun.orchestration.case_run.run_monitored_session", monitored):
                 result = asyncio.run(run_case(info, batch, Client(), {"providerId": "p", "modelId": "m"},
                                               {"agent": "a"}, {"skills": [], "toolReadRoots": []}, store))
             self.assertEqual(result["status"], "completed")

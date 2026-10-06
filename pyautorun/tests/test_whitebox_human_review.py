@@ -5,9 +5,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pyautorun.whitebox_api import WhiteboxApiService
-from pyautorun.whitebox_human_review import submit_human_review
-from pyautorun.whitebox_review_dataset import read_dataset
+from pyautorun.whitebox_eval.service.api import WhiteboxApiService
+from pyautorun.whitebox_eval.service.human_review import submit_human_review
+from pyautorun.whitebox_eval.service.review_dataset import read_dataset
 
 
 class HumanReviewTests(unittest.TestCase):

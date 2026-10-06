@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from zipfile import ZipFile
 
-from pyautorun.whitebox_remote import (download_project, prepare_remote_task, run_remote_task)
+from pyautorun.whitebox_eval.service.remote import (download_project, prepare_remote_task, run_remote_task)
 
 
 def _task():

@@ -1,6 +1,6 @@
 # ArkAnalyzer sidecar
 
-此目录只保留可选的 ArkAnalyzer TypeScript 侧车及编译配置。白盒评价的 Python 代码在 `pyautorun/`；规则、评分配置和 OpenCode 提示在 `pyautorun/whitebox_resources/`。
+此目录只保留可选的 ArkAnalyzer TypeScript 侧车及编译配置。白盒评价的 Python 代码在 `pyautorun/whitebox_eval/`；规则、评分配置和 OpenCode 提示在 `pyautorun/whitebox_eval/resources/`。
 
 ## 构建
 

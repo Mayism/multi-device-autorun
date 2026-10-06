@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from pyautorun.whitebox_agents import parse_rubric_scoring, parse_rule_assessment, run_agent
+from pyautorun.whitebox_eval.runtime.agents import parse_rubric_scoring, parse_rule_assessment, run_agent
 
 
 class WhiteboxAgentProtocolTests(unittest.TestCase):

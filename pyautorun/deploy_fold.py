@@ -1,19 +1,6 @@
-"""Standalone FoldTrigger deployment command."""
+"""Compatibility entry point for pyautorun.deploy_fold."""
 
-import argparse
-
-from .ohostest_fold import deploy_fold_trigger
-
-
-def main(argv=None):
-    parser = argparse.ArgumentParser(description="Deploy FoldTrigger.ets")
-    parser.add_argument("--project", required=True)
-    parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--module", default="entry")
-    args = parser.parse_args(argv)
-    path = deploy_fold_trigger(args.project, args.module, args.port)
-    print(f"FoldTrigger.ets 已部署到: {path}")
-    return 0
+from pyautorun.devices.deploy_fold import *
 
 
 if __name__ == "__main__":

@@ -12,25 +12,27 @@ dependencies = []
 whitebox = ["PyYAML>=6,<7", "jsonschema>=4.23,<4.26"]
 
 [project.scripts]
-autorun = "pyautorun.cli:main"
-autorun-cloudtest = "pyautorun.cloudtest_cli:main"
-ohostest-case = "pyautorun.ohostest_case:main"
-ohostest-matrix = "pyautorun.ohostest_matrix:main"
-deploy-fold-trigger = "pyautorun.deploy_fold:main"
-autorun-report = "pyautorun.report_cli:main"
-autorun-upload = "pyautorun.upload_cli:main"
-ask-opencode = "pyautorun.ask_opencode:main"
-serve-opencode = "pyautorun.serve_opencode:main"
-whitebox-evaluate = "pyautorun.whitebox_local:main"
-whitebox-remote = "pyautorun.whitebox_remote:main"
-whitebox-api = "pyautorun.whitebox_api:main"
+autorun = "pyautorun.orchestration.cli:main"
+autorun-cloudtest = "pyautorun.cloud.cloudtest_cli:main"
+ohostest-case = "pyautorun.devices.ohostest_case:main"
+ohostest-matrix = "pyautorun.devices.ohostest_matrix:main"
+deploy-fold-trigger = "pyautorun.devices.deploy_fold:main"
+autorun-report = "pyautorun.reporting.report_cli:main"
+autorun-upload = "pyautorun.reporting.upload_cli:main"
+ask-opencode = "pyautorun.runtime.ask_opencode:main"
+serve-opencode = "pyautorun.runtime.serve_opencode:main"
+whitebox-evaluate = "pyautorun.whitebox_eval.runtime.local:main"
+whitebox-remote = "pyautorun.whitebox_eval.service.remote:main"
+whitebox-api = "pyautorun.whitebox_eval.service.api:main"
 
 [tool.setuptools.packages.find]
 include = ["pyautorun*"]
 
 [tool.setuptools.package-data]
-pyautorun = ["report.css", "FoldTrigger.ets", "fold-server.py", "whitebox_official_profiles.json"]
-"pyautorun.whitebox_resources" = [
+"pyautorun.devices" = ["FoldTrigger.ets", "fold-server.py"]
+"pyautorun.reporting" = ["report.css"]
+"pyautorun.whitebox_eval.resources" = [
+  "official_profiles.json",
   "references/risks/*.yaml",
   "references/rules/*.yaml", "references/rules/*.md",
   "references/scoring/*.yaml", "references/scoring/*.json", "references/scoring/*.md",

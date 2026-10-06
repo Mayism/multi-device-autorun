@@ -9,23 +9,23 @@ import threading
 import unittest
 from urllib.parse import parse_qs, urlsplit
 
-from pyautorun.agent import (normalize_agent_targets, normalize_generation_model,
+from pyautorun.orchestration.agent import (normalize_agent_targets, normalize_generation_model,
                              resolve_configured_model, server_allows_execution)
-from pyautorun.config import load_autorun_config
-from pyautorun.opencode import OpenCodeClient, OpenCodeHttpError
-from pyautorun.opencode_installation import resolve_opencode_source, _node_platform, _node_arch
-from pyautorun.sandbox_copy import copy_project
-from pyautorun.agent_case_workspace import (agent_case_layout, prepare_agent_case_workspace,
+from pyautorun.orchestration.config import load_autorun_config
+from pyautorun.runtime.opencode import OpenCodeClient, OpenCodeHttpError
+from pyautorun.runtime.opencode_installation import resolve_opencode_source, _node_platform, _node_arch
+from pyautorun.orchestration.sandbox_copy import copy_project
+from pyautorun.orchestration.agent_case_workspace import (agent_case_layout, prepare_agent_case_workspace,
                                              materialize_agent_case_projects)
-from pyautorun.platform import check_configured_emulator_ports, format_emulator_port_conflict
-from pyautorun.usage import aggregate_session_messages, collect_compile_attempts, TokenUsageTracker
-from pyautorun.skill_runtime import discover_runtime_skills, discover_loaded_skills, inspect_skill_workflow
-from pyautorun.cloudtest_poll import poll_existing_task
-from pyautorun.cloudtest_submit import run_cloud_test, apply_signing_overrides, read_app_profile
-from pyautorun.json5_lite import parse_loose_json5
-from pyautorun.session_monitor import run_monitored_session, requests_basic_tests_reply, hard_quota_cap
-from pyautorun.opencode_server import prepare_software_runtime
-from pyautorun.cases import discover_cases
+from pyautorun.runtime.platform import check_configured_emulator_ports, format_emulator_port_conflict
+from pyautorun.runtime.usage import aggregate_session_messages, collect_compile_attempts, TokenUsageTracker
+from pyautorun.runtime.skill_runtime import discover_runtime_skills, discover_loaded_skills, inspect_skill_workflow
+from pyautorun.cloud.cloudtest_poll import poll_existing_task
+from pyautorun.cloud.cloudtest_submit import run_cloud_test, apply_signing_overrides, read_app_profile
+from pyautorun.devices.json5_lite import parse_loose_json5
+from pyautorun.runtime.session_monitor import run_monitored_session, requests_basic_tests_reply, hard_quota_cap
+from pyautorun.runtime.opencode_server import prepare_software_runtime
+from pyautorun.orchestration.cases import discover_cases
 
 
 class AgentConfigTests(unittest.TestCase):
