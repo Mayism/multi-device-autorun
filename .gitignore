@@ -4,6 +4,22 @@ node_modules/
 src/whitebox_eval/ark_analyzer/dist/
 src/whitebox_eval/ark_analyzer/.opencode/
 .hvigor/
+
+# Local autorun state
+/.harmonybot/
+
+# Python environments, caches and test output
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+htmlcov/
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Local OS files
+.DS_Store
