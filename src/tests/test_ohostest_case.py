@@ -1,13 +1,16 @@
 """Python ohosTest staging and result tests."""
 
+import asyncio
+from contextlib import nullcontext
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.devices.ohostest_case import run_ohostest_case, stage_generated_case
+from pyautorun.devices.ohostest_case import run_ohostest_case, run_ohostest_for_batch, stage_generated_case
 from pyautorun.devices.ohostest_project import load_case_metadata, select_devices
 from pyautorun.devices.ohostest_fold import deploy_fold_trigger
 from pyautorun.devices.ohostest_web import WebForwarding
@@ -17,6 +20,31 @@ from pyautorun.devices.ohostest_matrix import run_matrix
 
 
 class OhosTestCaseTests(unittest.TestCase):
+    def test_batch_runner_receives_configured_sdk_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            case = root / "CaseA"
+            case.mkdir()
+            result_path = case / "result.json"
+            result_path.write_text("{}", encoding="utf-8")
+            settings = {"timeoutSec": 10, "machineConfig": {},
+                        "runnerEnvOverrides": {"DEVECO_SDK_HOME": "/sdk", "JAVA_HOME": "/java"}}
+            staged = {"metadataPath": str(case / "metadata.json"),
+                      "testPatchPath": str(case / "test.patch"),
+                      "goldenPatchPath": str(case / "golden.patch")}
+            with patch("pyautorun.devices.ohostest_case.stage_generated_case", return_value=staged), \
+                 patch("pyautorun.devices.ohostest_case.device_lease", return_value=nullcontext()), \
+                 patch("pyautorun.devices.ohostest_case.subprocess.Popen") as popen, \
+                 patch.dict(os.environ, {"RUNNER_PARENT_SENTINEL": "inherited"}):
+                popen.return_value.returncode = 0
+                asyncio.run(run_ohostest_for_batch({"name": "CaseA"},
+                            {"resultPath": str(result_path), "patchPath": str(case / "diff.patch")},
+                            settings, root))
+            child_env = popen.call_args.kwargs["env"]
+            self.assertEqual(child_env["DEVECO_SDK_HOME"], "/sdk")
+            self.assertEqual(child_env["JAVA_HOME"], "/java")
+            self.assertEqual(child_env["RUNNER_PARENT_SENTINEL"], "inherited")
+
     def test_temporary_device_type_restored_and_answer_marks_missing_declaration(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
