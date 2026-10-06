@@ -93,12 +93,15 @@ function usePythonSelectedRules(
   const selected = rules.map((rule, index) => ({ rule, index })).filter(
     ({ rule }) => rule.detector.kind === "static" &&
       (rule.detector.mode === "regex" || rule.detector.mode === "project_structure" ||
-        rule.detector.mode === "case_constraint_precheck"),
+        rule.detector.mode === "case_constraint_precheck" || rule.detector.mode === "arkts_static" ||
+        rule.detector.mode === "arkui_extra" || rule.detector.mode === "arkui_static"),
   );
   if (selected.length === 0) return nodeResults;
   const pythonResults = runPythonRuleCli<ReturnType<typeof evaluateRegisteredRule>[]>("evaluate", {
     rules: selected.map(({ rule }) => rule),
-    evidence: { workspaceFiles: evidence.workspaceFiles },
+    evidence: { workspaceFiles: evidence.workspaceFiles, allWorkspaceFiles: evidence.allWorkspaceFiles,
+      changedFiles: evidence.changedFiles, patchText: evidence.patchText,
+      ...(evidence.arkFacts ? { arkFacts: evidence.arkFacts } : {}) },
   });
   if (pythonResults.length !== selected.length) {
     throw new Error("Python 白盒规则结果数量不一致");
