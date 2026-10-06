@@ -1,6 +1,6 @@
 # Multi-Device-Autorun
 
-Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价正在分阶段迁移：Autorun 的白盒 HTML 报告、评分融合、34 条文本模式规则、项目结构规则、用例约束静态预判、普通文件与补丁证据收集、规则结果汇总已有 Python 实现，并在运行时与 Node 结果核对；Rubric 和风险分类表也已有 Python 实现。ArkTS/ArkUI 检测器、Rubric Agent、ArkAnalyzer 仍由 TypeScript/Node CLI 处理；目前白盒评价仍需 Node 依赖。HarmonyBot 插件自带的 JavaScript 启动器、DevEco/ohpm/Hvigor、H5 工程自身的 npm 工具链属于外部工具，不是 Autorun 的 Node 运行模块。
+Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。本地白盒评价入口、规则、Agent 调用、评分融合及报告由 Python 执行。ArkAnalyzer 作为可选的独立 Node 分析器保留，仅在 `HMOS_ARKANALYZER_ENABLE=true` 时调用。官方 Code Linter、OpenCode、DevEco/ohpm/Hvigor 和 H5 工程自身的工具链是外部工具。仓库中仍有旧版 TypeScript 白盒 API/仪表盘源码，尚未迁移为 Python 服务。
 
 ## 安装与运行
 
@@ -11,7 +11,7 @@ python3 -m pyautorun.cli --check --config config/autorun.config.json
 python3 -m pyautorun.cli --config config/autorun.config.json
 ```
 
-也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令现在调用同一个 Python 入口。只使用 Agent、设备和云测试时无需安装仓库的 npm 依赖。启用白盒评价前执行 `npm install` 和 `npm run build:whitebox`。安装 `pip install -e '.[whitebox]'` 可启用 Python 侧的白盒 Schema 校验，并为后续 Python 评分迁移安装 Rubric 和风险分类表依赖。
+也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价需安装 `pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 或维护旧版白盒 API 时，才需要 `npm install` 和 `npm run build:whitebox`。
 
 除可选的白盒功能外，Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
 
@@ -34,6 +34,7 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 | 产物归档与上传 | `python3 -m pyautorun.upload_cli <batchRoot> [--config config/autorun.config.json]` |
 | 向现有 OpenCode 发消息 | `python3 -m pyautorun.ask_opencode '你好' --port 61417` |
 | 独立启动 OpenCode | `python3 -m pyautorun.serve_opencode --config config/autorun.config.json` |
+| 本地白盒评价 | `python3 -m pyautorun.whitebox_local --input <input.json> [--port 62400]` |
 
 所有 Autorun 命令可用 `--config` 指定另一份 JSON 配置。`pip install -e .` 会安装同名的 Python 控制台命令；直接用 `python3 -m` 不需要安装包。
 
@@ -46,7 +47,7 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 - `execution.casesRoot`、`execution.outputRoot`、`execution.agent`、`execution.providerId`、`execution.model`、`execution.concurrency`：用例、产物、模型与并发。
 - `ohosTest`：启用设备验证时设置 `paths`、`devices` 和 `timeoutSec`。本机的 HDC、模拟器、Hvigor 路径放在配置中，勿提交本机凭据。
 - `cloudTest`：AGC 云测试设置。未启用时不提交任务；独立提交和续查可使用上表命令。
-- `whiteboxEvaluation`：启用时需要构建 `src/whitebox/dist/localCli.js`。
+- `whiteboxEvaluation`：启用时使用 Python 白盒入口；开启 `HMOS_ARKANALYZER_ENABLE=true` 时另需构建 ArkAnalyzer sidecar。
 - `upload`：默认关闭。启用时提供 `projectId`、`clientId`、`clientSecret`、`bucketName`，也可通过 `AGC_UPLOAD_PROJECT_ID`、`AGC_UPLOAD_CLIENT_ID`、`AGC_UPLOAD_CLIENT_SECRET`、`AGC_UPLOAD_BUCKET` 环境变量提供。不要把凭据提交到 Git。
 
 `execution.casesRoot` 下每个直接子目录是一个用例。可执行用例包含 `PROMPT.md` 和 `base/` 或 `task/`；如果 `metadata.platform` 为 `web`，还需同级 `web/`。Python 会复制工程到批次隔离目录，原始工程不被 Agent 修改。Agent 在 H5 用例中可同时看到 `base/` 与 `web/`，补丁路径以这两个目录的父目录为根。
@@ -63,4 +64,4 @@ python3 -m unittest discover -s pyautorun/tests -q
 npm test
 ```
 
-`npm test` 运行 Python 回归测试和保留的白盒 TypeScript 测试。`src/ohostest/` 仅保存旧版发布记录与设计文档；活跃 ohosTest 代码在 `pyautorun/`。白盒源码及其 npm 依赖在 `src/whitebox/`。
+`npm test` 运行 Python 回归测试和保留的白盒 TypeScript 测试。`src/ohostest/` 仅保存旧版发布记录与设计文档；活跃 ohosTest 代码在 `pyautorun/`。白盒 Python 代码在 `pyautorun/`；ArkAnalyzer sidecar 和旧版 API 源码在 `src/whitebox/`。

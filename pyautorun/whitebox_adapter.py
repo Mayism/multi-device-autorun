@@ -1,17 +1,16 @@
-"""Python batch interface to the intentionally retained whitebox Node evaluator."""
+"""Python batch interface to the Python whitebox evaluator."""
 
 import asyncio
 from hashlib import sha256
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 from .case_run import write_json
 from .whitebox import resolve_judge
-from .whitebox_report import render_whitebox_html, write_whitebox_html
+from .whitebox_report import write_whitebox_html
 from .whitebox_schema import validate_whitebox_result
 
 
@@ -82,9 +81,6 @@ class WhiteboxEvaluator:
         self.judge_runtime = judge_runtime
         self.opencode_bin = opencode_bin
         self.repo_root = Path(repo_root)
-        self.cli = self.repo_root / "src" / "whitebox" / "dist" / "localCli.js"
-        if not self.cli.is_file():
-            raise ValueError(f"白盒评价尚未构建: {self.cli}；请执行 npm run build:whitebox")
         self.semaphore = asyncio.Semaphore(config["concurrency"])
         self.ports = asyncio.Queue()
         for offset in range(config["concurrency"]):
@@ -103,19 +99,14 @@ class WhiteboxEvaluator:
                     "HMOS_OPENCODE_RUNTIME_ROOT": self.config["runtimeRoot"],
                     "HMOS_CODE_LINTER_ENABLED": str(self.config["officialLinter"]["enabled"]).lower(),
                     "HMOS_HVIGOR_BUILD_CHECK_ENABLED": str(self.config["hvigorBuildCheck"]["enabled"]).lower()})
-        env["HMOS_WHITEBOX_PYTHON_SCORE_ENABLE"] = "true"
-        env["HMOS_WHITEBOX_PYTHON_RULES_ENABLE"] = "true"
-        env["HMOS_WHITEBOX_PYTHON_EXECUTABLE"] = sys.executable
         env["PYTHONPATH"] = str(self.repo_root) + os.pathsep + env.get("PYTHONPATH", "")
         output = Path(task["outputDir"])
         log_path = output / "logs" / "evaluator-process.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        node = shutil.which("node")
-        if not node:
-            return {"status": "failed", "error": "白盒评价需要 Node，但 PATH 中未找到 node"}
         try:
-            completed = subprocess.run([node, str(self.cli), "--input", task["inputPath"], "--port", str(port)],
-                                       cwd=self.cli.parent.parent, env=env, capture_output=True, text=True,
+            completed = subprocess.run([sys.executable, "-m", "pyautorun.whitebox_local",
+                                        "--input", task["inputPath"], "--port", str(port)],
+                                       cwd=self.repo_root, env=env, capture_output=True, text=True,
                                        timeout=self.config["timeoutSec"], check=False)
         except subprocess.TimeoutExpired:
             return {"status": "timed_out", "error": f"白盒评价超时（{self.config['timeoutSec']} 秒）"}
@@ -133,16 +124,9 @@ class WhiteboxEvaluator:
             try:
                 result_path = Path(parsed.get("resultPath") or output / "outputs" / "result.json")
                 result_json = json.loads(result_path.read_text(encoding="utf-8"))
-                try:
-                    import jsonschema  # noqa: F401
-                except ImportError:
-                    pass  # The retained Node evaluator already validated this result.
-                else:
-                    validate_whitebox_result(result_json, self.repo_root / "src" / "whitebox" /
-                                             "references" / "scoring" / "report_result_schema.json")
+                validate_whitebox_result(result_json, self.repo_root / "src" / "whitebox" /
+                                         "references" / "scoring" / "report_result_schema.json")
                 report_path = output / "report.html"
-                if report_path.is_file() and report_path.read_text(encoding="utf-8") != render_whitebox_html(result_json):
-                    raise ValueError("Python 与 Node 白盒 HTML 报告不一致")
                 write_whitebox_html(result_json, report_path)
                 parsed["reportPath"] = str(report_path)
             except (OSError, ValueError, TypeError) as error:

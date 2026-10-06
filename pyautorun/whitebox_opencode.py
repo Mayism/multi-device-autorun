@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from urllib.error import URLError
-from urllib.request import urlopen
+from urllib.request import build_opener, ProxyHandler
 
 
 REQUIRED = ("HMOS_OPENCODE_PORT", "HMOS_OPENCODE_HOST", "HMOS_OPENCODE_PROVIDER_ID",
@@ -100,10 +100,12 @@ class OpenCodeServer:
     def __init__(self, runtime):
         self.runtime = runtime
         self.process = None
+        self.log_stream = None
+        self.opener = build_opener(ProxyHandler({}))
 
     def _healthy(self):
         try:
-            with urlopen(self.runtime["serverUrl"] + "/global/health", timeout=2) as response:
+            with self.opener.open(self.runtime["serverUrl"] + "/global/health", timeout=2) as response:
                 return json.load(response).get("healthy") is True
         except (URLError, TimeoutError, OSError, ValueError):
             return False
@@ -113,14 +115,18 @@ class OpenCodeServer:
             return
         if not shutil.which("opencode", path=self.runtime["env"].get("PATH")):
             raise RuntimeError("opencode CLI 不存在，请先安装 opencode 并确保它在 PATH 中")
+        log_path = Path(self.runtime["runtimeDir"]) / "opencode-server.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log_stream = log_path.open("ab")
         self.process = subprocess.Popen(["opencode", "serve", "--hostname", self.runtime["host"],
                                          "--port", str(self.runtime["port"])],
-                                        env=self.runtime["env"], stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.PIPE)
+                                        env=self.runtime["env"], stdout=self.log_stream,
+                                        stderr=subprocess.STDOUT)
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
-                reason = self.process.stderr.read(1000).decode("utf-8", errors="replace")
+                reason = log_path.read_bytes()[-1000:].decode("utf-8", errors="replace")
+                self.stop()
                 raise RuntimeError(f"opencode serve 提前退出: {reason}")
             if self._healthy():
                 return
@@ -129,14 +135,16 @@ class OpenCodeServer:
         raise TimeoutError("opencode serve 健康检查超时")
 
     def stop(self):
-        if self.process is None or self.process.poll() is not None:
-            return
-        self.process.terminate()
-        try:
-            self.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=5)
+        if self.process is not None and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=5)
+        if self.log_stream is not None:
+            self.log_stream.close()
+            self.log_stream = None
 
     def __enter__(self):
         self.start()

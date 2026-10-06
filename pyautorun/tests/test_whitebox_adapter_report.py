@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -13,7 +14,7 @@ from pyautorun.whitebox_report import render_whitebox_html
 
 
 class WhiteboxAdapterReportTests(unittest.TestCase):
-    def _run_completed(self, previous_report=None):
+    def _run_completed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             output = root / "whitebox"
@@ -21,8 +22,6 @@ class WhiteboxAdapterReportTests(unittest.TestCase):
             result_path.parent.mkdir(parents=True)
             result = {"overall_conclusion": {"total_score": 80, "summary": "完成"}}
             result_path.write_text(json.dumps(result), encoding="utf-8")
-            if previous_report is not None:
-                (output / "report.html").write_text(previous_report, encoding="utf-8")
             input_path = root / "input.json"
             input_path.write_text("{}", encoding="utf-8")
             evaluator = WhiteboxEvaluator.__new__(WhiteboxEvaluator)
@@ -32,15 +31,13 @@ class WhiteboxAdapterReportTests(unittest.TestCase):
             evaluator.judge_runtime = {"providerId": "test", "modelId": "test", "providerConfig": {}}
             evaluator.opencode_bin = "/usr/bin/true"
             evaluator.repo_root = root
-            evaluator.cli = root / "localCli.js"
             completed = subprocess.CompletedProcess([], 0, json.dumps({"status": "completed",
                                                                         "resultPath": str(result_path)}), "")
-            with patch("pyautorun.whitebox_adapter.shutil.which", return_value="/usr/bin/node"), \
-                 patch("pyautorun.whitebox_adapter.subprocess.run", return_value=completed) as run_process, \
+            with patch("pyautorun.whitebox_adapter.subprocess.run", return_value=completed) as run_process, \
                  patch("pyautorun.whitebox_adapter.validate_whitebox_result"):
                 actual = evaluator._run({"inputPath": str(input_path), "outputDir": str(output)}, 4000)
-            self.assertEqual(run_process.call_args.kwargs["env"]["HMOS_WHITEBOX_PYTHON_SCORE_ENABLE"], "true")
-            self.assertEqual(run_process.call_args.kwargs["env"]["HMOS_WHITEBOX_PYTHON_RULES_ENABLE"], "true")
+            self.assertEqual(run_process.call_args.args[0][:3],
+                             [sys.executable, "-m", "pyautorun.whitebox_local"])
             self.assertEqual(run_process.call_args.kwargs["env"]["PYTHONPATH"].split(os.pathsep)[0], str(root))
             return actual, (output / "report.html").read_text(encoding="utf-8"), render_whitebox_html(result)
 
@@ -48,13 +45,6 @@ class WhiteboxAdapterReportTests(unittest.TestCase):
         actual, written, expected = self._run_completed()
         self.assertEqual(actual["status"], "completed")
         self.assertEqual(written, expected)
-
-    def test_different_node_report_is_rejected(self):
-        actual, written, _ = self._run_completed("different")
-        self.assertEqual(actual["status"], "failed")
-        self.assertIn("不一致", actual["error"])
-        self.assertEqual(written, "different")
-
 
 if __name__ == "__main__":
     unittest.main()

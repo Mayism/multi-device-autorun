@@ -21,6 +21,7 @@ autorun-report = "pyautorun.report_cli:main"
 autorun-upload = "pyautorun.upload_cli:main"
 ask-opencode = "pyautorun.ask_opencode:main"
 serve-opencode = "pyautorun.serve_opencode:main"
+whitebox-evaluate = "pyautorun.whitebox_local:main"
 
 [tool.setuptools.packages.find]
 include = ["pyautorun*"]
