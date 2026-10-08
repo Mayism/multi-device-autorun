@@ -8,9 +8,11 @@ Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 Harmo
 
 ```bash
 python3 -m pip install -e .
-python3 -m pyautorun.cli --check --config config/autorun.config.json
-python3 -m pyautorun.cli --config config/autorun.config.json
+python3 -m pyautorun.cli --check
+python3 -m pyautorun.cli
 ```
+
+`python3 -m pyautorun.cli` 会运行 `pyautorun` 包中的 CLI 模块：`src/cli.py` 是兼容入口，实际命令处理在 `src/orchestration/cli.py`。从仓库根目录启动时，默认读取 `./config/autorun.config.json`，无需重复指定 `--config`；如果从其他工作目录启动，或要使用另一份配置，请传入 `--config <配置文件路径>`。
 
 也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价或白盒 API，安装 `python3 -m pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 时需要在仓库根目录执行 `npm ci`；安装脚本会构建侧车。
 
@@ -39,7 +41,7 @@ Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可
 | 远端白盒任务 | `python3 -m pyautorun.whitebox_remote --input <remote-task.json> [--case-root <dir>]` |
 | 白盒 HTTP 服务 | `python3 -m pyautorun.whitebox_api --case-root <dir> [--host 0.0.0.0] [--port 3000]` |
 
-所有 Autorun 命令可用 `--config` 指定另一份 JSON 配置。`pip install -e .` 会安装同名的 Python 控制台命令，并让 `python3 -m pyautorun.*` 在仓库根目录可用。
+`pip install -e .` 会将 `src/` 映射为 `pyautorun` 包，并安装 `autorun` 控制台命令；上面的 `python3 -m pyautorun.cli` 与它运行同一入口。
 
 ## 配置与用例
 
