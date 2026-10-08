@@ -16,6 +16,7 @@ from pyautorun.runtime.opencode_installation import resolve_opencode_source
 from pyautorun.runtime.opencode_server import start_server
 from pyautorun.runtime.platform import check_configured_emulator_ports, format_emulator_port_conflict
 from pyautorun.orchestration.preflight import check_environment, validate_server_config
+from pyautorun.reporting.l1_report import write_l1_reports
 from pyautorun.reporting.reports import merge_overview, write_comparison_report
 from pyautorun.orchestration.target_runtime import (allocate_run_directory, config_for_target,
                              create_shared_cases_snapshot, prepare_shared_generation_provider,
@@ -122,5 +123,12 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
     comparison = write_comparison_report(run_root, run_id, config["execution"]["generationModel"], target_results)
     if multiple and not comparison["comparison"]["sameModelValidated"]:
         exit_code = 1
+    # L1 评分报告（构建完成 + 功能完成 → 100/0 分，单页 HTML + 汇总索引）；
+    # 报告失败不改变批次退出码，仅提示。
+    try:
+        l1 = write_l1_reports(run_root, run_id, config["execution"]["generationModel"], target_results)
+        on_log(f"[l1] L1 评分报告已生成: {l1['indexPagePath']}")
+    except Exception as error:
+        on_log(f"[l1] L1 评分报告生成失败: {error}")
     return {"exitCode": exit_code, "runId": run_id, "runRoot": str(run_root),
             "overviewPath": comparison["overviewPath"], "targets": target_results}

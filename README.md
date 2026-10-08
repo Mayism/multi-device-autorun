@@ -38,6 +38,7 @@ Windows 需安装 Python 3.9 或更高版本。如果没有 `py` 启动器，可
 | 批量执行 | `python3 -m pyautorun.cli` |
 | 重试失败批次 | `python3 -m pyautorun.cli --retry <batchId> [--case <caseName>]` |
 | 合并历史报告 | `python3 -m pyautorun.cli --merge [outputRoot]` |
+| 仅生成 L1 评分报告 | `python3 -m pyautorun.cli --l1 [batchId或目录]`（缺省取 outputRoot 下最新批次，也可指向单个 Agent 目标目录；批次结束后也会自动生成） |
 | 独立云测试 | `python3 -m pyautorun.cli --cloud-test --case <caseName>` 或 `--app <signed.app>` |
 | 续查云测试 | `python3 -m pyautorun.cli --poll-task <taskGroupId>` |
 | 单用例 ohosTest | `python3 -m pyautorun.ohostest_case --case <caseDir> --out <outDir> --machine-config <machine.json> --run swe` |
@@ -69,7 +70,7 @@ Windows 需安装 Python 3.9 或更高版本。如果没有 `py` 启动器，可
 
 启用 ohosTest 时，每个用例还需 `metadata.json`、`test_patch` 和 `golden_patch`；补丁和元数据仅在 Agent 结束后交给设备 Runner。Python Runner 支持 native、web、RN、Flutter、设备套件、bundle 隔离、设备类型兼容检查、折叠控制与 H5 端口转发。`pc`/`2in1` 用例按原逻辑跳过。
 
-每个批次会写入 `summary.json`、`report.json` 和 `overview.html`，每个用例有独立状态、Agent 日志、补丁、设备/云测试结果和 HTML 详情页。失败用例可归档为 ZIP；配置 AGC 上传后会保存下载地址。
+每个批次会写入 `summary.json`、`report.json` 和 `overview.html`，每个用例有独立状态、Agent 日志、补丁、设备/云测试结果和 HTML 详情页。批次结束后另生成 L1 评分报告（`l1-report/index.html` 与 `l1.json`）：按「构建完成 + 功能完成（全部设备通过且实际执行用例）」口径对每个用例打 100/0 分，单页含左侧导航、汇聚统计、各用例章节与「不带skill → 带skill」固定列序，S-001 静态质量为预留扩展位；也可用 `--l1` 从既有批次产物离线重新生成。失败用例可归档为 ZIP；配置 AGC 上传后会保存下载地址。
 
 ## 开发与验证
 

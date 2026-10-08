@@ -18,6 +18,24 @@ def esc(value):
     return escape("" if value is None else str(value), quote=True).replace("&#x27;", "&#39;")
 
 
+# Agent 来源分类（值与批次分层目录名一致）：
+#   harmonyBot          → 自研：使用 HarmonyOS Dev Assistant 插件
+#   softwareEngineering → 软工：software-multi-device，opencode 来源含 Skills
+#   baseModel           → 裸模：software-multi-device，opencode 来源无 Skills
+AGENT_SOURCE_LABELS = {"harmonyBot": "自研", "softwareEngineering": "软工", "baseModel": "裸模"}
+
+
+def agent_source_label(mode):
+    return AGENT_SOURCE_LABELS.get(str(mode or "").strip(), "")
+
+
+def agent_display_name(agent, mode):
+    """展示为「agent名称/（自研｜软工｜裸模）」；分类未知时仅展示名称。"""
+    name = str(agent or "").strip()
+    label = agent_source_label(mode)
+    return f"{name}/{label}" if name and label else name
+
+
 def badge(value):
     key = str(value or "").strip().lower()
     label, css = STATUS_META.get(key, (key or "--", "muted"))

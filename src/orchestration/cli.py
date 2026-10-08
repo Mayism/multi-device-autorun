@@ -9,6 +9,8 @@ from pyautorun.orchestration.app import run_autorun
 from pyautorun.cloud.cloudtest_cli import main as cloudtest_main
 from pyautorun.orchestration.config import load_autorun_config
 from pyautorun.orchestration.preflight import check_environment
+from pyautorun.reporting.l1_report import collect_l1_report_targets, write_l1_reports
+from pyautorun.orchestration.batch_state import read_json
 from pyautorun.reporting.reports import merge_overview
 
 
@@ -18,6 +20,7 @@ def main(argv=None):
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--retry")
     parser.add_argument("--merge", nargs="?", const="")
+    parser.add_argument("--l1", "--l1-report", nargs="?", const="", dest="l1_report")
     parser.add_argument("--cloud-test", action="store_true")
     parser.add_argument("--poll-task")
     parser.add_argument("--case", dest="case_name")
@@ -27,8 +30,8 @@ def main(argv=None):
     parser.add_argument("--task-name")
     args = parser.parse_args(argv)
     if args.cloud_test or args.poll_task:
-        if args.retry or args.merge is not None or args.check:
-            parser.error("云测试独立命令不能和 --retry、--merge 或 --check 一起使用")
+        if args.retry or args.merge is not None or args.check or args.l1_report is not None:
+            parser.error("云测试独立命令不能和 --retry、--merge、--l1 或 --check 一起使用")
         forwarded = ["--config", args.config]
         if args.cloud_test:
             forwarded.append("--cloud-test")
@@ -40,6 +43,28 @@ def main(argv=None):
             if value:
                 forwarded.extend((name, value))
         return cloudtest_main(forwarded)
+    if args.l1_report is not None:
+        if args.retry or args.merge is not None or args.check or args.case_name:
+            parser.error("--l1 不能和 --check、--retry、--case 或 --merge 一起使用")
+        config = load_autorun_config(args.config)
+        run_root, targets = collect_l1_report_targets(args.l1_report, config["execution"]["outputRoot"])
+        summaries = [read_json(Path(target["targetRoot"]) / "summary.json") for target in targets]
+        run_id = str(next((item.get("batchId") for item in summaries if item and item.get("batchId")),
+                          Path(run_root).name))
+        model_source = next((item for item in summaries
+                             if item and item.get("providerId") and item.get("modelId")), {})
+        try:
+            l1 = write_l1_reports(run_root, run_id,
+                                  {"providerId": model_source.get("providerId")
+                                   or config["execution"].get("providerId", ""),
+                                   "modelId": model_source.get("modelId")
+                                   or config["execution"].get("model", "")},
+                                  targets)
+        except Exception as error:
+            print(f"[l1] {error}", file=sys.stderr)
+            return 1
+        print(f"[l1] L1 评分报告已生成: {l1['indexPagePath']}")
+        return 0
     if args.merge is not None:
         if args.check or args.retry or args.case_name:
             parser.error("--merge 不能和 --check、--retry 或 --case 一起使用")
