@@ -172,6 +172,22 @@ def _choose_url(configured, max_attempts=20):
     raise ValueError(f"OpenCode Server 端口不可用，已尝试 {port}-{min(65535, port + max_attempts - 1)}")
 
 
+def _is_windows():
+    return os.name == "nt"
+
+
+def _terminate_windows_tree(process):
+    # HarmonyBot's Node launcher spawns opencode.exe. TerminateProcess only stops
+    # the launcher, leaving its child listening on the selected port.
+    try:
+        subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                       capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    if process.poll() is None:
+        process.terminate()
+
+
 class OwnedServer:
     def __init__(self, client, config, source, process=None, log_path="", server_url="", tool_resources=None):
         self.client = client
@@ -186,8 +202,8 @@ class OwnedServer:
     async def stop(self):
         if not self.process or self.process.poll() is not None:
             return
-        if os.name == "nt":
-            self.process.terminate()
+        if _is_windows():
+            await asyncio.to_thread(_terminate_windows_tree, self.process)
         else:
             try:
                 os.killpg(self.process.pid, signal.SIGTERM)
@@ -196,7 +212,7 @@ class OwnedServer:
         try:
             await asyncio.to_thread(self.process.wait, 5)
         except subprocess.TimeoutExpired:
-            if os.name == "nt":
+            if _is_windows():
                 self.process.kill()
             else:
                 try:

@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
 from pyautorun.orchestration.agent import (normalize_agent_targets, normalize_generation_model,
@@ -24,11 +25,40 @@ from pyautorun.cloud.cloudtest_poll import poll_existing_task
 from pyautorun.cloud.cloudtest_submit import run_cloud_test, apply_signing_overrides, read_app_profile
 from pyautorun.devices.json5_lite import parse_loose_json5
 from pyautorun.runtime.session_monitor import run_monitored_session, requests_basic_tests_reply, hard_quota_cap
-from pyautorun.runtime.opencode_server import prepare_software_runtime
+from pyautorun.runtime.opencode_server import OwnedServer, prepare_software_runtime
 from pyautorun.orchestration.cases import discover_cases
 
 
 class AgentConfigTests(unittest.TestCase):
+    def test_windows_server_stop_kills_launcher_and_child_tree(self):
+        class Process:
+            pid = 1234
+            returncode = None
+            terminated = False
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, _timeout=None):
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+                self.returncode = 1
+
+        process = Process()
+        commands = []
+
+        def taskkill(command, **_kwargs):
+            commands.append(command)
+            process.returncode = 0
+
+        with patch("pyautorun.runtime.opencode_server._is_windows", return_value=True), \
+             patch("pyautorun.runtime.opencode_server.subprocess.run", side_effect=taskkill):
+            asyncio.run(OwnedServer(None, {}, {}, process=process).stop())
+        self.assertEqual(commands, [["taskkill", "/PID", "1234", "/T", "/F"]])
+        self.assertFalse(process.terminated)
+
     def test_target_and_model_normalization(self):
         targets = normalize_agent_targets({"targets": [
             {"id": "hb", "mode": "harmonyBot", "root": "../extensions", "agent": "build-agent"},
