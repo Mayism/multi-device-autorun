@@ -60,7 +60,7 @@ Windows 需安装 Python 3.9 或更高版本。如果没有 `py` 启动器，可
 - `server.opencodeSource`：`harmonyBot` 或 `softwareEngineering` 来源；也支持 `targets` 数组进行多 Agent 对比。
 - `server.url`、`server.runtimeRoot`、`server.devecoHome`：OpenCode 地址、私有运行目录和 DevEco 安装目录。
 - `execution.casesRoot`、`execution.outputRoot`、`execution.agent`、`execution.providerId`、`execution.model`、`execution.concurrency`：用例、产物、模型与并发。
-- `ohosTest`：启用设备验证时设置 `paths`、`devices` 和 `timeoutSec`。本机的 HDC、模拟器、Hvigor 路径放在配置中，勿提交本机凭据。
+- `ohosTest`：启用设备验证时设置 `paths`、`devices` 和 `timeoutSec`。本机的 HDC、模拟器、Hvigor 路径放在配置中，勿提交本机凭据。折叠屏开合脚本默认使用 `src/devices/fold-server.py`，无需配置 `paths.foldServerScript`；旧 `src/ohostest/src/fold/assets/fold-server.py` 路径会自动映射到新位置。
 - `cloudTest`：AGC 云测试设置。未启用时不提交任务；独立提交和续查可使用上表命令。
 - `whiteboxEvaluation`：启用时使用 Python 白盒入口；开启 `HMOS_ARKANALYZER_ENABLE=true` 时另需构建 ArkAnalyzer sidecar。
 - `upload`：默认关闭。启用时提供 `projectId`、`clientId`、`clientSecret`、`bucketName`，也可通过 `AGC_UPLOAD_PROJECT_ID`、`AGC_UPLOAD_CLIENT_ID`、`AGC_UPLOAD_CLIENT_SECRET`、`AGC_UPLOAD_BUCKET` 环境变量提供。不要把凭据提交到 Git。

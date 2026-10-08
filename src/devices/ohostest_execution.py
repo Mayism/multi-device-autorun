@@ -25,6 +25,19 @@ def _platform():
     return "win32" if os.name == "nt" else "darwin" if sys.platform == "darwin" else "linux"
 
 
+def resolve_fold_server_script(paths):
+    bundled = Path(__file__).with_name("fold-server.py")
+    configured = str((paths or {}).get("foldServerScript") or "").strip()
+    script = Path(configured) if configured else bundled
+    legacy = "src/ohostest/src/fold/assets/fold-server.py"
+    normalized = configured.replace("\\", "/").lower()
+    if normalized == legacy or normalized.endswith("/" + legacy):
+        script = bundled
+    if not script.is_file():
+        raise RuntimeError(f"fold_server_start_failed: script not found: {script}")
+    return str(script)
+
+
 class CommandLog:
     def __init__(self, path, executor=None):
         self.path = Path(path)
@@ -244,9 +257,7 @@ def run_device(config, device, artifacts, suites, log, keep_emulators=False, web
                                        log, config["project"])
             forwarding.start()
         if device.get("foldControl"):
-            script = config["paths"].get("foldServerScript") or str(Path(__file__).with_name("fold-server.py"))
-            if not Path(script).is_file():
-                raise RuntimeError(f"fold_server_start_failed: script not found: {script}")
+            script = resolve_fold_server_script(config["paths"])
             fold_server = start_fold_server(device, script, config["paths"]["hdc"], log)
             deploy_fold_trigger(config["project"], config["moduleSrcPath"], fold_server.device_port)
             q = lambda value: shell_quote(value, _platform())

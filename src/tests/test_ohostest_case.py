@@ -14,12 +14,25 @@ from pyautorun.devices.ohostest_case import run_ohostest_case, run_ohostest_for_
 from pyautorun.devices.ohostest_project import load_case_metadata, select_devices
 from pyautorun.devices.ohostest_fold import deploy_fold_trigger
 from pyautorun.devices.ohostest_web import WebForwarding
-from pyautorun.devices.ohostest_execution import CommandLog, run_device
+from pyautorun.devices.ohostest_execution import CommandLog, run_device, resolve_fold_server_script
 from pyautorun.devices.ohostest_compat import temporary_device_types, apply_answer_device_type_checks
 from pyautorun.devices.ohostest_matrix import run_matrix
 
 
 class OhosTestCaseTests(unittest.TestCase):
+    def test_fold_server_script_uses_bundled_path_for_legacy_config(self):
+        bundled = Path(resolve_fold_server_script({}))
+        self.assertEqual(bundled.name, "fold-server.py")
+        self.assertTrue(bundled.is_file())
+        self.assertEqual(Path(resolve_fold_server_script({"foldServerScript":
+            r"D:\code\multi-device-autorun\src\ohostest\src\fold\assets\fold-server.py"})), bundled)
+        with tempfile.TemporaryDirectory() as temp:
+            custom = Path(temp) / "fold-server.py"
+            custom.write_text("# custom\n", encoding="utf-8")
+            self.assertEqual(resolve_fold_server_script({"foldServerScript": str(custom)}), str(custom))
+            with self.assertRaisesRegex(RuntimeError, "script not found"):
+                resolve_fold_server_script({"foldServerScript": str(custom.with_name("missing.py"))})
+
     def test_batch_runner_receives_configured_sdk_environment(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
