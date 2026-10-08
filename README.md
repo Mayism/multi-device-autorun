@@ -4,7 +4,7 @@ Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 Harmo
 
 ## 安装与运行
 
-在仓库根目录执行：
+macOS/Linux 在仓库根目录执行：
 
 ```bash
 python3 -m pip install -e .
@@ -12,13 +12,23 @@ python3 -m pyautorun.cli --check
 python3 -m pyautorun.cli
 ```
 
+Windows（PowerShell 或 CMD）在仓库根目录执行：
+
+```powershell
+py -3 -m pip install -e .
+py -3 -m pyautorun.cli --check
+py -3 -m pyautorun.cli
+```
+
+Windows 需安装 Python 3.9 或更高版本。如果没有 `py` 启动器，可将上述 `py -3` 换成已加入 PATH 的 `python`。
+
 `python3 -m pyautorun.cli` 会运行 `pyautorun` 包中的 CLI 模块：`src/cli.py` 是兼容入口，实际命令处理在 `src/orchestration/cli.py`。从仓库根目录启动时，默认读取 `./config/autorun.config.json`，无需重复指定 `--config`；如果从其他工作目录启动，或要使用另一份配置，请传入 `--config <配置文件路径>`。
 
 也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价或白盒 API，安装 `python3 -m pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 时需要在仓库根目录执行 `npm ci`；安装脚本会构建侧车。
 
 除可选的白盒功能外，Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
 
-Windows 终端可将示例里的 `python3` 换成 `py -3` 或实际 Python 3 可执行文件；根目录的 npm 快捷命令使用 `python3`，需该命令在 PATH 中可用。
+根目录的 npm 快捷命令使用 `python3`，Windows 上只有该命令在 PATH 中可用时才适用；否则使用上面的 `py -3` 命令。
 
 ## 主要命令
 
