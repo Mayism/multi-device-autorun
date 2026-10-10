@@ -276,21 +276,20 @@ function runnerOutputDir(caseDir, startedAt) {
   return path.join(caseDir, ".ohostest-runs", batchLocalTimestamp(startedAt));
 }
 
-// 迁移目录里的用例名段：路径预算紧张，超长用例名截断并附加名称哈希消歧，
-// 保证不同用例目录互不冲突且总路径尽量短。
-function rnCaseSegment(caseName) {
-  const safe = String(caseName || "case").replace(/[^0-9A-Za-z._-]+/g, "_");
-  if (safe.length <= 24) return safe || "case";
-  const hash = createHash("sha1").update(String(caseName)).digest("hex").slice(0, 4);
-  return `${safe.slice(0, 19)}~${hash}`;
+// 迁移目录里的用例段名：临时目录追求最短，直接用用例名的 8 位哈希——定长、
+// 不同用例天然互不冲突，也避免长用例名吃掉路径预算。临时目录名与最终产物
+// 目录无关（迁回后仍是 <caseRunDir>/ohostest-workdir 与 .ohostest-runs/<ts>），
+// 用例 ↔ 临时目录的对应关系在运行日志中打印。
+function rnTempSegment(caseName) {
+  return createHash("sha1").update(String(caseName || "case")).digest("hex").slice(0, 8);
 }
 
-// 准备迁移输出目录：临时目录路径越短越好，优先复用固定短路径 <rnWorkRoot>/<case>。
-// 先清理本用例在迁移根下的全部历史残留（上次崩溃遗留的时间戳变体、旧方案遗留的
-// __retained 目录等）；固定路径存在且清不掉（文件被占用等）时，才退回加时间戳的
+// 准备迁移输出目录：临时目录路径越短越好，优先复用固定短路径
+// <rnWorkRoot>/<用例哈希>。先清理本用例在迁移根下的全部历史残留（上次崩溃遗留
+// 的时间戳变体等）；固定路径存在且清不掉（文件被占用等）时，才退回加时间戳的
 // 变体区分。
 async function prepareRelocatedOutDir(rnWorkRoot, caseName, startedAt) {
-  const segment = rnCaseSegment(caseName);
+  const segment = rnTempSegment(caseName);
   const primary = path.join(rnWorkRoot, segment);
   await sweepRelocatedOutDirs(rnWorkRoot, caseName);
   try {
@@ -303,10 +302,10 @@ async function prepareRelocatedOutDir(rnWorkRoot, caseName, startedAt) {
   return primary;
 }
 
-// 清理同一用例在迁移根下的全部历史目录（上次运行崩溃、旧方案 __retained 遗留等），
-// 失败忽略（清不掉的由 prepareRelocatedOutDir 退回时间戳变体规避）。
+// 清理同一用例在迁移根下的全部历史目录（上次运行崩溃遗留等），失败忽略
+//（清不掉的由 prepareRelocatedOutDir 退回时间戳变体规避）。
 async function sweepRelocatedOutDirs(rnWorkRoot, caseName) {
-  const segment = rnCaseSegment(caseName);
+  const segment = rnTempSegment(caseName);
   const prefix = `${segment}__`;
   let entries;
   try {
