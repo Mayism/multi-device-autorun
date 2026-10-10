@@ -198,7 +198,7 @@ devecocli --version
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
 | `ohosTest.paths` | Runner 使用的 Hvigor、ohpm、hdc、模拟器和折叠屏服务脚本路径。 |
-| `ohosTest.rnWorkRoot` | RN 用例 ohosTest 构建目录迁移根，用于规避 Windows 259 字符路径限制。未配置时仅 Windows 默认 `D:\mda-rn-work`；显式配置任意平台生效；配置为 `false` 关闭迁移。详见「Windows/Hvigor 输出路径建议」。 |
+| `ohosTest.rnWorkRoot` | RN 用例 ohosTest 构建目录迁移根，用于规避 Windows 259 字符路径限制。未配置时仅 Windows 默认 `D:\rn`；显式配置任意平台生效；配置为 `false` 关闭迁移。详见「Windows/Hvigor 输出路径建议」。 |
 | `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
 | `cloudTest.enabled` | 云测试是否作为主流程的一部分默认执行（Agent → ohosTest → 云测试）。默认 `true`；设为 `false` 关闭整个云测试流程（主批次与独立指令均不可用）。配置不完整时主批次会告警并跳过该阶段，独立指令则直接报错。 |
 | `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |
@@ -267,7 +267,7 @@ devecocli --version
 
 Autorun 会在 `outputRoot/<batchId>/<agentId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，RN（rnoh）用例的 `oh_modules/@react-native-ohos/...`、`generated/ts` 等层级尤其深。
 
-**RN 用例自动迁移构建目录**：Windows 下未显式配置 `ohosTest.rnWorkRoot` 时，Autorun 默认让 RN 用例的 Runner `--out` 直接指向数据盘短根下的固定目录 `D:\mda-rn-work\<caseName>`（在 Agent 产物工程的 `oh-package.json5`、`package.json` 或一层模块的 `oh-package.json5` 中发现 `react-native` / `@rnoh` 依赖即判定为 RN 工程）：Runner 的构建目录 `<out>/work/project` 全程在短根下完成构建与设备测试，用例输入目录不变，Runner 无需感知迁移。开始前自动清理该用例的历史残留（含异常退出遗留；`<caseName>__retained` 为 workdir 联接目标，保留），固定目录清理失败（文件被占用等）时本次运行才改用 `<caseName>__<时间戳>` 变体。Runner 进程完全退出后才迁移产物：构建产物以同卷移动加目录联接保留为 `<caseRunDir>/ohostest-workdir`（实体存于短根的 `<caseName>__retained` 目录，Windows Junction 不需要管理员权限）；结果目录随后整体迁回 `<caseRunDir>/.ohostest-runs/`（同卷 rename 瞬时完成，跨卷自动降级为小文件复制，绝不会复制 work 目录；work 被占用移不动时原地保留、联接直指它，输出目录留在短根兜底）。正常结束、异常结束与手动停止均会清理短根下的临时目录。批次报告、失败用例打包等所有路径均不变；其他用例不受影响。macOS/Linux 显式配置 `ohosTest.rnWorkRoot` 后同样生效（目录联接使用符号链接）。注意：删除短根内容会使 `ohostest-workdir` 联接失效，跨机器迁移批次产物前需先复制联接指向的实体目录。
+**RN 用例自动迁移构建目录**：Windows 下未显式配置 `ohosTest.rnWorkRoot` 时，Autorun 默认让 RN 用例的 Runner `--out` 直接指向数据盘短根下的固定目录 `D:\rn\<caseName>`（在 Agent 产物工程的 `oh-package.json5`、`package.json` 或一层模块的 `oh-package.json5` 中发现 `react-native` / `@rnoh` 依赖即判定为 RN 工程）：Runner 的构建目录 `<out>/work/project` 全程在短根下完成构建与设备测试，用例输入目录不变，Runner 无需感知迁移（路径仍超长时可通过 `ohosTest.rnWorkRoot` 配置更短的根，或缩短用例名）。开始前自动清理该用例在短根下的全部历史残留（含异常退出遗留与旧版方案遗留目录），固定目录清理失败（文件被占用等）时本次运行才改用 `<caseName>__<时间戳>` 变体。Runner 进程完全退出后才迁移产物，全部物理迁回 autorun 产物目录：构建产物移动为 `<caseRunDir>/ohostest-workdir` 真实目录（同卷 rename 瞬时完成，跨卷复制后删源、目录联接按链接原样保留；移动失败时以目录联接指向短根原位置兜底并告警）；结果目录随后整体迁回 `<caseRunDir>/.ohostest-runs/`。正常结束、异常结束与手动停止均会清理短根下的临时目录，运行成功后迁移根内不残留该用例的任何目录。提示：`execution.outputRoot` 与 `ohosTest.rnWorkRoot` 配置在同一磁盘时，work 迁回为瞬时 rename。批次报告、失败用例打包等所有路径均不变；其他用例不受影响。macOS/Linux 显式配置 `ohosTest.rnWorkRoot` 后同样生效（目录联接使用符号链接）。
 
 可用 `ohosTest.rnWorkRoot` 覆盖迁移根（相对路径以 `config/autorun.config.json` 所在目录为基准，任意平台显式配置均生效；配置为 `false` 可在 Windows 上显式关闭迁移）：
 
