@@ -26,9 +26,14 @@ def load_autorun_config(config_path="./config/autorun.config.json"):
         raise ValueError(f"配置文件不是合法 JSON: {absolute_path}: {error}") from error
     if not isinstance(raw, dict):
         raise ValueError(f"配置文件必须为 JSON 对象: {absolute_path}")
-    base_dir = absolute_path.parent
+    return normalize_autorun_config(raw, absolute_path.parent, absolute_path)
+
+
+def normalize_autorun_config(raw, base_dir, config_path=None):
+    """Normalize an in-memory config using the same rules as the legacy JSON loader."""
+    base_dir = Path(os.path.abspath(base_dir))
     config = deepcopy(raw)
-    config["__configPath"] = str(absolute_path)
+    config["__configPath"] = str(config_path or base_dir)
     config["__baseDir"] = str(base_dir)
     server = config.setdefault("server", {})
     execution = config.setdefault("execution", {})

@@ -217,4 +217,5 @@ def build_batch_report(payload):
                   "skipped": len(skipped), "skippedCases": skipped},
         "agent": agent, "ohosTest": ohos_summary,
         "whitebox": whitebox_summary(results, _obj(summary.get("whiteboxEvaluation")).get("enabled")),
+        "harmonyEval": _obj(summary.get("harmonyEval")),
     }

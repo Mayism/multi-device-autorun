@@ -1,0 +1,44 @@
+# Paths are resolved relative to this file. Set HARMONY_EVAL_API_KEY before running.
+scenario: MultiDev/AgentEval
+id: harmonybot-agent-example
+description: Run a HarmonyBot agent against the bundled one-to-many adaptation cases.
+
+dataset:
+  type: swe-bench-hm-multi-dev
+  dir: ../../cases
+
+target:
+  type: harmonybot_agent
+  dir: ~/.vscode/extensions
+
+harmonybot_agent:
+  rounds: 1
+  execution:
+    agent_name: harmonyos-multi-device
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: HARMONY_EVAL_API_KEY
+    timeout: 900
+    concurrency: 1
+    without_enable: false
+  verification:
+    - type: UITest
+      deveco_home: /Applications/DevEco-Studio.app
+      # devices: [{id: phone, profile: Pura 90 Pro, target: "127.0.0.1:15001", hdcPort: 15001}]
+    # CloudTest requires AGC_TEAM_ID, AGC_PROJECT_ID and AGC_AUTH_INFO (or corresponding fields).
+    # - type: CloudTest
+    #   test_categories: [{category: 24, timeSpan: 60}]
+    # - type: Whitebox
+  scoring:
+    - dimension: L1
+      name: BooleanScoring
+    # - dimension: L2
+    #   name: WeightedSummation
+    #   weights: {device: 0.5, rule: 0.5}
+    # - dimension: L3
+    #   name: ImmediateValue
+  report:
+    output_dir: ../../output/harmony-eval
+    format: html

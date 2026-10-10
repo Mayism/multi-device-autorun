@@ -19,6 +19,7 @@ from pyautorun.orchestration.preflight import validate_server_config
 from pyautorun.reporting.reports import write_batch_report
 from pyautorun.runtime.usage import add_compile_usage, add_token_usage
 from pyautorun.whitebox_eval.runtime.adapter import prepare_whitebox_input
+from pyautorun.harmony_eval.scoring import score_case, summarize_scores
 
 
 def _seconds(start, end):
@@ -66,7 +67,7 @@ def _cloud_case_summary(result):
     task = result.get("task") or {}
     return {"status": result.get("status") or "failed", "taskGroupId": task.get("taskGroupId") or "",
             "taskName": task.get("taskName") or "", "error": result.get("error") or "",
-            "outputDir": result.get("outputDir") or ""}
+            "outputDir": result.get("outputDir") or "", "resultPath": result.get("resultPath") or ""}
 
 
 async def run_batch(config, server, skill_runtime, run_id, target_root, target_id,
@@ -202,6 +203,14 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
             merged["error"] = result.get("agentError") or result.get("error") or "Agent failed"
         if merged["status"] == "running":
             merged["status"] = "completed"
+        scoring_rules = (config.get("harmonyEval") or {}).get("scoring") or []
+        if scoring_rules:
+            merged["scoring"] = score_case(scoring_rules, merged)
+            unavailable = [name for name, score in merged["scoring"].items()
+                           if score["status"] != "scored"]
+            if unavailable and merged["status"] == "completed":
+                merged["status"] = "failed"
+                merged["error"] = f"评分报告不可用: {', '.join(unavailable)}"
         merged["finishedAt"] = now()
         merged["elapsedSec"] = _seconds(merged.get("startedAt"), merged["finishedAt"])
         write_json(merged["resultPath"], merged)
@@ -213,7 +222,7 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
         store.set_case(name, {"status": merged["status"], "stage": merged["status"],
                               "error": merged.get("error") or "", "finishedAt": merged["finishedAt"],
                               "ohosTest": merged.get("ohosTest"), "cloudTest": merged.get("cloudTest"),
-                              "whitebox": merged.get("whitebox")})
+                              "whitebox": merged.get("whitebox"), "scoring": merged.get("scoring")})
         if whitebox_evaluator:
             case_dir = Path(merged["resultPath"]).parent
             await asyncio.to_thread(cleanup_case, name, case_dir / "original", merged["projectDir"],
@@ -309,6 +318,10 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                                           "failed": sum(bool(item.get("whitebox")) and
                                                         (item["whitebox"].get("status") != "completed") for item in ordered)},
                    "results": ordered}
+        scoring_rules = (config.get("harmonyEval") or {}).get("scoring") or []
+        if scoring_rules:
+            summary["harmonyEval"] = {"taskId": config["harmonyEval"]["taskId"],
+                                      "scores": summarize_scores(ordered, scoring_rules)}
         if retry_plan:
             summary["retry"] = state["retry"]
         try:

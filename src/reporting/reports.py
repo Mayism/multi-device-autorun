@@ -56,6 +56,17 @@ def _case_page(result):
                 sections.append(_link(report.as_uri(), "查看云测试报告"))
         if title == "白盒评价" and detail.get("outputDir"):
             sections.append(f'<p class="muted">评分：{esc(detail.get("totalScore", "--"))}</p>')
+    if result.get("scoring"):
+        scores = []
+        for dimension, item in result["scoring"].items():
+            score = item.get("score") if item.get("status") == "scored" else "--"
+            source = item.get("sourceReport") or ""
+            source_link = _link(Path(source).as_uri(), "原始报告") if source and Path(source).is_file() else "--"
+            scores.append(f"<tr><td>{esc(dimension)}</td><td>{esc(item.get('rule'))}</td>"
+                          f"<td>{esc(score)}</td><td>{esc(item.get('status'))}</td><td>{source_link}</td></tr>")
+        sections.append('<h2>评估评分</h2><div class="card tbl-wrap"><table><thead><tr>'
+                        '<th>维度</th><th>规则</th><th>得分</th><th>状态</th><th>报告</th>'
+                        '</tr></thead><tbody>' + "".join(scores) + '</tbody></table></div>')
     if result.get("output"):
         sections.append(f'<h2>Agent 最终回复</h2><pre class="card">{esc(result["output"])}</pre>')
     return page_shell(f"Autorun · {name}", "\n".join(sections))
@@ -74,17 +85,32 @@ def write_batch_report(batch_root, summary, upload_config=None, on_log=lambda _m
     subpage = root / "subpage"
     subpage.mkdir(parents=True, exist_ok=True)
     rows = []
+    has_scoring = bool((summary.get("harmonyEval") or {}).get("scores"))
     for result in summary.get("results") or []:
         name = str(result.get("case") or "")
         filename = name + ".html"
         (subpage / filename).write_text(_case_page(result), encoding="utf-8")
         href = "subpage/" + quote(filename)
+        case_scores = result.get("scoring") or {}
+        score_text = ", ".join(f"{key}: {value['score']:.3f}" if value.get("status") == "scored"
+                               else f"{key}: --" for key, value in case_scores.items())
         rows.append(f'<tr><td><a class="link" href="{esc(href)}">{esc(name)}</a></td>'
                     f'<td>{badge(result.get("agentStatus") or result.get("status"))}</td>'
                     f'<td>{badge((result.get("ohosTest") or {}).get("status"))}</td>'
                     f'<td>{badge((result.get("cloudTest") or {}).get("status"))}</td>'
                     f'<td>{badge((result.get("whitebox") or {}).get("status"))}</td>'
-                    f'<td>{fmt_duration(result.get("elapsedSec"))}</td></tr>')
+                    + (f'<td>{esc(score_text)}</td>' if has_scoring else '')
+                    + f'<td>{fmt_duration(result.get("elapsedSec"))}</td></tr>')
+    scoring_header = '<th>评分</th>' if has_scoring else ''
+    scoring_summary = ''
+    if has_scoring:
+        items = (summary["harmonyEval"]["scores"]).items()
+        lines = (f'<tr><td>{esc(name)}</td><td>{esc(value.get("rule"))}</td>'
+                 f'<td>{esc(value.get("average") if value.get("average") is not None else "--")}</td>'
+                 f'<td>{value.get("scored")}/{value.get("total")}</td></tr>' for name, value in items)
+        scoring_summary = ('<h2>维度汇总</h2><div class="card tbl-wrap"><table><thead><tr>'
+                           '<th>维度</th><th>规则</th><th>均分</th><th>有效/全部</th>'
+                           '</tr></thead><tbody>' + ''.join(lines) + '</tbody></table></div>')
     body = (f'<h1>Autorun 批次报告</h1><p class="muted">{esc(summary.get("batchId"))} · '
             f'{esc(summary.get("targetId"))}</p><div class="stats">'
             f'<div class="stat"><div class="k">状态</div><div class="v">{badge(summary.get("status"))}</div></div>'
@@ -92,8 +118,9 @@ def write_batch_report(batch_root, summary, upload_config=None, on_log=lambda _m
             f'<div class="stat"><div class="k">失败</div><div class="v">{summary.get("failed", 0)}</div></div>'
             f'<div class="stat"><div class="k">Token</div><div class="v">{(summary.get("tokenUsage") or {}).get("total", 0)}</div></div>'
             '</div><h2>用例</h2><div class="card tbl-wrap"><table><thead><tr>'
-            '<th>用例</th><th>Agent</th><th>ohosTest</th><th>云测试</th><th>白盒</th><th>耗时</th>'
-            '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>')
+            '<th>用例</th><th>Agent</th><th>ohosTest</th><th>云测试</th><th>白盒</th>'
+            + scoring_header + '<th>耗时</th>'
+            + '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>' + scoring_summary)
     overview = root / "overview.html"
     overview.write_text(page_shell("Autorun 批次报告", body), encoding="utf-8")
     return {"jsonPath": str(json_path), "htmlOverviewPath": str(overview), "htmlError": ""}

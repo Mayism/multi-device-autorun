@@ -45,7 +45,7 @@ async def _whitebox_evaluator(config, workspace):
 
 
 async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False, on_log=print):
-    config = load_autorun_config(config_path)
+    config = config_path if isinstance(config_path, dict) else load_autorun_config(config_path)
     if check:
         result = await check_environment(config, on_log)
         return {"exitCode": 0 if result["checked"] else 1, "check": result}

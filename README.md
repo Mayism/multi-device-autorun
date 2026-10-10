@@ -4,6 +4,38 @@ Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 Harmo
 
 ## 安装与运行
 
+### task.yaml 驱动的 HarmonyBot 评测
+
+从 `develop` 的新入口可以用 `harmony-eval run <task.yaml>` 执行 `harmonybot_agent`，示例见
+[`examples/harmonybot-agent/task.yaml`](examples/harmonybot-agent/task.yaml)。安装后若用户级 Python
+脚本目录不在 `PATH`，也可运行 `python3 -m pyautorun.harmony_eval.cli run <task.yaml>`。
+
+```bash
+python3 -m pip install -e .
+export HARMONY_EVAL_API_KEY='<model API key>'
+harmony-eval run examples/harmonybot-agent/task.yaml --check
+harmony-eval run examples/harmonybot-agent/task.yaml
+```
+
+`dataset.dir` 指向现有 Autorun 用例目录，`target.dir` 指向 HarmonyOS Dev Assistant 扩展目录或其父目录。
+`execution.agent_name` 是 `opencode.json` 的 Agent ID；`一多适配Agent` 也会映射为
+`harmonyos-multi-device`。模型配置会写入输出目录下的私有 OpenCode 资源快照，不修改已安装扩展。
+`execution.model.api_key` 可写环境变量名或字面值；推荐环境变量名。`UITest.deveco_home` 派生
+SDK、Hvigor、ohpm、HDC、模拟器路径，`devices` 不填时沿用 phone/foldable/tablet 三种默认设备。
+云测试配置放在 `CloudTest` 节点，类别使用 AGC 数字 `test_categories`；白盒评价用 `Whitebox`
+或 `LLM_judge`。云测试凭据可沿用 `AGC_TEAM_ID`、`AGC_PROJECT_ID`、`AGC_AUTH_INFO` 环境变量。
+
+`scoring` 中的 `name` 通过 [`src/harmony_eval/scoring.py`](src/harmony_eval/scoring.py) 的
+`@register_scorer` 找到规则。当前临时规则为：`BooleanScoring` 读取 UITest JSON，所有实际执行的
+设备测试均通过得 1，否则得 0；`WeightedSummation` 读取云测试 JSON 的设备与规则通过率，默认
+各占 0.5；`ImmediateValue` 直接取白盒 JSON 的 `totalScore`。评分依赖落盘报告，缺报告时状态是
+`unavailable`，不会按 0 分计。分数写入用例 `result.json`、批次 `summary.json`、`report.json`
+和 HTML 报告。修改规则含义时应同时记录新的规则版本。
+
+当前 `AGCDetection` 没有独立的原有执行器；`CloudTest.test_category` 的英文类别名也没有稳定的
+AGC 数字映射，因此 YAML 会明确报错，需按现有云测试 API 填入数字类别。`without_enable`
+在 `harmonybot_agent` 下尚无明确的“关闭 Agent 后怎样执行任务”的基线语义；当前只运行正常组并提示。
+
 macOS/Linux 在仓库根目录执行：
 
 ```bash

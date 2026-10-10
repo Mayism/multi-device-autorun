@@ -6,12 +6,13 @@ build-backend = "setuptools.build_meta"
 name = "multi-device-autorun-python"
 version = "0.2.0"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["PyYAML>=6,<7"]
 
 [project.optional-dependencies]
 whitebox = ["PyYAML>=6,<7", "jsonschema>=4.23,<4.26"]
 
 [project.scripts]
+harmony-eval = "pyautorun.harmony_eval.cli:main"
 autorun = "pyautorun.orchestration.cli:main"
 autorun-cloudtest = "pyautorun.cloud.cloudtest_cli:main"
 ohostest-case = "pyautorun.devices.ohostest_case:main"
@@ -28,7 +29,7 @@ whitebox-api = "pyautorun.whitebox_eval.service.api:main"
 [tool.setuptools]
 package-dir = {"pyautorun" = "src"}
 packages = [
-  "pyautorun", "pyautorun.cloud", "pyautorun.devices", "pyautorun.orchestration",
+  "pyautorun", "pyautorun.cloud", "pyautorun.devices", "pyautorun.harmony_eval", "pyautorun.orchestration",
   "pyautorun.reporting", "pyautorun.runtime", "pyautorun.whitebox_eval",
   "pyautorun.whitebox_eval.resources", "pyautorun.whitebox_eval.rules",
   "pyautorun.whitebox_eval.runtime", "pyautorun.whitebox_eval.scoring",
