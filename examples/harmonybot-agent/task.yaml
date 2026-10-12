@@ -15,7 +15,6 @@ harmonybot_agent:
   rounds: 1
   execution:
     agent_name: harmonyos-multi-device
-    server_url: http://127.0.0.1:61419
     model:
       api_type: openai_api
       provider_id: zhipuai-coding-plan

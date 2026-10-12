@@ -23,6 +23,7 @@ _DEFAULT_DEVICES = [
      "startEmulator": True},
 ]
 _AGENT_ALIASES = {"一多适配Agent": "harmonyos-multi-device"}
+_OPENCODE_SERVER_URL = "http://127.0.0.1:61419"
 
 
 def _mapping(value, field):
@@ -233,7 +234,7 @@ def load_harmony_task(task_path):
     if java_home and (java_home / "Contents" / "Home").is_dir():
         java_home = java_home / "Contents" / "Home"
     raw_config = {
-        "server": {"url": str(execution.get("server_url") or "http://127.0.0.1:61419"),
+        "server": {"url": _OPENCODE_SERVER_URL,
                    "opencodeSource": {"id": "harmonybot", "mode": "harmonyBot",
                                       "root": staged_root, "agent": agent_name},
                    "devecoHome": deveco_home,

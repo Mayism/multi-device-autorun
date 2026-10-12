@@ -141,6 +141,7 @@ harmonybot_agent:
             self.assertEqual(config["execution"]["agent"], "harmonyos-multi-device")
             self.assertEqual(config["execution"]["model"], "qwen-plus")
             self.assertEqual(config["execution"]["providerId"], "harmony-eval")
+            self.assertEqual(config["server"]["url"], "http://127.0.0.1:61419")
             self.assertTrue(config["ohosTest"]["enabled"])
             self.assertTrue(config["cloudTest"]["enabled"])
             self.assertTrue(config["whiteboxEvaluation"]["enabled"])
