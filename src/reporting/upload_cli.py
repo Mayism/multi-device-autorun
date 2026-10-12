@@ -11,7 +11,7 @@ from pyautorun.reporting.upload import archive_and_upload
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Archive/upload Autorun batch results")
     parser.add_argument("batch_root")
-    parser.add_argument("--config", default="config/autorun.config.json")
+    parser.add_argument("--config", required=True, help="Path to an explicit legacy JSON config")
     args = parser.parse_args(argv)
     root = Path(args.batch_root).resolve()
     summary = read_json(root / "summary.json")

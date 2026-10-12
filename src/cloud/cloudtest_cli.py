@@ -10,7 +10,7 @@ from pyautorun.orchestration.config import load_autorun_config
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Autorun 云测试")
-    parser.add_argument("--config", "-c", default="./config/autorun.config.json")
+    parser.add_argument("--config", "-c", required=True, help="Path to an explicit legacy JSON config")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--cloud-test", action="store_true")
     mode.add_argument("--poll-task", metavar="TASK_GROUP_ID")

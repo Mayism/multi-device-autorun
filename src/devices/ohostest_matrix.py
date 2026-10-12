@@ -52,7 +52,7 @@ def run_matrix(project, machine, out, devices=None, test_class="", skip_build=Fa
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Python ohosTest matrix runner")
     parser.add_argument("--project", required=True)
-    parser.add_argument("--machine-config", default="config/machine.json")
+    parser.add_argument("--machine-config", required=True)
     parser.add_argument("--out")
     parser.add_argument("--device", action="append")
     parser.add_argument("--test-class", default="")

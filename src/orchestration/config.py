@@ -16,7 +16,7 @@ def _resolve(base_dir, value):
     return os.path.abspath(os.path.join(str(base_dir), str(value))) if value else ""
 
 
-def load_autorun_config(config_path="./config/autorun.config.json"):
+def load_autorun_config(config_path):
     absolute_path = Path(os.path.abspath(config_path))
     if absolute_path.suffix.lower() != ".json":
         raise ValueError(f"Autorun 配置必须为 JSON 文件: {absolute_path}")

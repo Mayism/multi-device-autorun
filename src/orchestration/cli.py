@@ -14,7 +14,7 @@ from pyautorun.reporting.reports import merge_overview
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Autorun Python 运行入口")
-    parser.add_argument("--config", "-c", default="./config/autorun.config.json")
+    parser.add_argument("--config", "-c", required=True, help="Path to an explicit legacy JSON config")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--retry")
     parser.add_argument("--merge", nargs="?", const="")

@@ -20,7 +20,7 @@ python3 -m pyautorun.whitebox_local --input D:/out/<batch>/<case>/whitebox/input
 
 远端任务由 `python3 -m pyautorun.whitebox_api --case-root <dir> --port 3000` 接收；单任务可使用 `python3 -m pyautorun.whitebox_remote --input <remote-task.json>`。`npm run whitebox:evaluate`、`npm run whitebox:api` 只是对应 Python 命令的快捷入口。
 
-裁判模型、并发和超时统一配置在根目录 `config/autorun.config.json` 的 `whiteboxEvaluation` 节点。`judge.providerId` 必须与当前 OpenCode `opencode.json` 中的 Provider 名称完全一致；白盒运行时会按名称复制整个 Provider 配置，不再单独配置协议适配器、baseURL 或 API Key。
+通过 `harmony-eval run <task.yaml>` 运行时，在 `harmonybot_agent.verification` 中添加 `type: Whitebox` 即可启用白盒评价；裁判模型使用当前任务的模型 Provider。`judge.providerId` 必须与当前 OpenCode `opencode.json` 中的 Provider 名称完全一致；白盒运行时会按名称复制整个 Provider 配置，不再单独配置协议适配器、baseURL 或 API Key。
 
 Autorun 本地评价使用 `agentBuild` 传入生成 Agent 的真实 Hvigor 尝试。结果按尝试顺序保留，最后一次有效编译决定最终状态；未执行编译时记为 `not_run`，不默认为成功。原有 `remoteBuildSuccess` 仅保留给原工程的远端 API 任务兼容，Autorun 不使用该分支。
 

@@ -132,7 +132,7 @@ def poll_existing_task(config, task_group_id, on_log=print, client=None, sleep=t
 def main(argv=None):
     parser = argparse.ArgumentParser(description="续查已有 AGC 云测试任务")
     parser.add_argument("task_group_id", help="纯数字任务组 ID")
-    parser.add_argument("--config", "-c", default="./config/autorun.config.json")
+    parser.add_argument("--config", "-c", required=True, help="Path to an explicit legacy JSON config")
     args = parser.parse_args(argv)
     if not args.task_group_id.isdigit():
         parser.error("任务组 ID 必须为纯数字")

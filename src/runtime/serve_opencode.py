@@ -34,7 +34,7 @@ async def _run(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Start OpenCode from the Autorun configuration")
-    parser.add_argument("--config", default="config/autorun.config.json")
+    parser.add_argument("--config", required=True, help="Path to an explicit legacy JSON config")
     parser.add_argument("--source")
     parser.add_argument("--runtime-root")
     parser.add_argument("--workspace")

@@ -370,7 +370,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Python ohosTest case runner")
     parser.add_argument("--case", required=True)
     parser.add_argument("--out")
-    parser.add_argument("--machine-config", default="config/machine.json")
+    parser.add_argument("--machine-config", required=True)
     parser.add_argument("--run", choices=("swe", "answer", "all"), default="answer")
     parser.add_argument("--skip-build", action="store_true")
     parser.add_argument("--keep-emulators", action="store_true")
