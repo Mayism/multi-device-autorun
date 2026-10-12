@@ -11,17 +11,10 @@ import yaml
 
 from pyautorun.orchestration.config import normalize_autorun_config
 from pyautorun.harmony_eval.scoring import validate_scoring
+from pyautorun.harmony_eval.verification import normalize_task_verifications
 from pyautorun.runtime.opencode_installation import resolve_opencode_source
 
 
-_DEFAULT_DEVICES = [
-    {"id": "phone", "profile": "Pura 90 Pro", "target": "127.0.0.1:15001", "hdcPort": 15001,
-     "startEmulator": True},
-    {"id": "foldable", "profile": "Mate X7", "target": "127.0.0.1:15005", "hdcPort": 15005,
-     "startEmulator": True},
-    {"id": "tablet", "profile": "MatePad Pro 13", "target": "127.0.0.1:15008", "hdcPort": 15008,
-     "startEmulator": True},
-]
 _AGENT_ALIASES = {"一多适配Agent": "harmonyos-multi-device"}
 _OPENCODE_SERVER_URL = "http://127.0.0.1:61419"
 
@@ -118,65 +111,9 @@ def _stage_agent_source(source_root, output_root, model, without=False):
     return str(staged)
 
 
-def _deveco_contents(home):
-    root = Path(home)
-    return root / "Contents" if (root / "Contents").is_dir() else root
-
-
 def _verification(items, base):
-    if not isinstance(items, list):
-        raise ValueError("harmonybot_agent.verification 必须是列表")
-    result = {"ohosTest": {"enabled": False}, "cloudTest": {"enabled": False},
-              "whiteboxEvaluation": {"enabled": False}}
-    seen = set()
-    for index, raw in enumerate(items):
-        item = _mapping(raw, f"verification[{index}]")
-        kind = str(item.get("type") or "").strip().lower()
-        if kind in seen:
-            raise ValueError(f"verification 类型重复: {item.get('type')}")
-        seen.add(kind)
-        if kind == "uitest":
-            home = _path(base, item.get("deveco_home"), "UITest.deveco_home")
-            contents = _deveco_contents(home)
-            paths = {"hvigorw": str(contents / "tools/hvigor/bin/hvigorw"),
-                     "ohpm": str(contents / "tools/ohpm/bin/ohpm"),
-                     "hdc": str(contents / "sdk/default/openharmony/toolchains/hdc"),
-                     "emulatorBin": str(contents / "tools/emulator/Emulator"),
-                     "emulatorDeployedDir": str(Path(item.get("emulator_deployed_dir") or
-                                                     "~/.Huawei/Emulator/deployed").expanduser()),
-                     "flutter": str(item.get("flutter_home") or "")}
-            result["ohosTest"] = {"enabled": item.get("enabled") is not False, "paths": paths,
-                                  "devices": item.get("devices") or _DEFAULT_DEVICES,
-                                  "timeoutSec": int(item.get("timeout_sec") or 7200)}
-            result["devecoHome"] = str(contents)
-        elif kind == "cloudtest":
-            config = {k: v for k, v in item.items() if k != "type"}
-            cloud_deveco = config.pop("deveco_home", None)
-            if cloud_deveco:
-                contents = str(_deveco_contents(_path(base, cloud_deveco, "CloudTest.deveco_home")))
-                if result.get("devecoHome") and result["devecoHome"] != contents:
-                    raise ValueError("UITest 和 CloudTest 的 deveco_home 必须一致")
-                result["devecoHome"] = contents
-            categories = config.pop("test_categories", None)
-            if categories is None and config.pop("test_category", None):
-                raise ValueError("CloudTest.test_category 请改为 test_categories，提供 AGC 数字 category 列表")
-            if categories is not None and (not isinstance(categories, list) or not categories or
-                                           any(not isinstance(category, dict) or
-                                               not isinstance(category.get("category"), int)
-                                               for category in categories)):
-                raise ValueError("CloudTest.test_categories 必须是含数字 category 的非空对象列表")
-            result["cloudTest"] = {**config, "enabled": item.get("enabled") is not False,
-                                   "testCategories": categories or [{"category": 24, "timeSpan": 60}]}
-        elif kind in ("whitebox", "whiteboxevaluation", "llm_judge"):
-            if item.get("prompt_path"):
-                raise ValueError("当前白盒评价沿用原有内置提示词，不支持 LLM_judge.prompt_path")
-            result["whiteboxEvaluation"] = {**{k: v for k, v in item.items() if k != "type"},
-                                            "enabled": item.get("enabled") is not False,
-                                            "runtime": {"source": "harmonyBot"}}
-        else:
-            raise ValueError(f"暂不支持 verification[{index}].type={item.get('type')!r}；"
-                             "当前支持 UITest、CloudTest、Whitebox/LLM_judge")
-    return result
+    specs, legacy, shared = normalize_task_verifications(items, base)
+    return {**legacy, **shared, "specs": specs}
 
 
 def load_harmony_task(task_path):
@@ -219,9 +156,7 @@ def load_harmony_task(task_path):
     without = execution.get("without_enable") is True
     verification = _verification(task.get("verification") or [], path.parent)
     scoring = task.get("scoring") or []
-    validate_scoring(scoring, {"UITest": verification["ohosTest"]["enabled"],
-                               "CloudTest": verification["cloudTest"]["enabled"],
-                               "Whitebox": verification["whiteboxEvaluation"]["enabled"]})
+    scoring = validate_scoring(scoring, verification["specs"])
     staged_root = _stage_agent_source(source_root, output_root, model_settings, without=False)
     agent_name = str(execution.get("agent_name") or "harmonyos-multi-device").strip()
     agent_name = _AGENT_ALIASES.get(agent_name, agent_name)
@@ -251,6 +186,7 @@ def load_harmony_task(task_path):
         "cloudTest": verification["cloudTest"],
         "whiteboxEvaluation": verification["whiteboxEvaluation"],
         "harmonyEval": {"taskId": str(document.get("id") or path.stem),
+                        "verification": [spec.to_dict() for spec in verification["specs"]],
                         "scoring": scoring, "withoutEnable": without},
     }
     config = normalize_autorun_config(raw_config, path.parent, path)

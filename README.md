@@ -30,11 +30,21 @@ SDK、Hvigor、ohpm、HDC、模拟器路径，`devices` 不填时沿用 phone/fo
 原文件为空，可以填入有效 cookie，或设置 `AGC_AUTH_INFO`。
 
 `scoring` 中的 `name` 通过 [`src/harmony_eval/scoring.py`](src/harmony_eval/scoring.py) 的
-`@register_scorer` 找到规则。当前临时规则为：`BooleanScoring` 读取 UITest JSON，所有实际执行的
+`@register_scorer` 找到规则；`verification` 填验证器的 `id`，从对应的落盘报告取数。当前临时规则为：`BooleanScoring` 读取 UITest JSON，所有实际执行的
 设备测试均通过得 1，否则得 0；`WeightedSummation` 读取云测试 JSON 的设备与规则通过率，默认
 各占 0.5；`ImmediateValue` 直接取白盒 JSON 的 `totalScore`。评分依赖落盘报告，缺报告时状态是
 `unavailable`，不会按 0 分计。分数写入用例 `result.json`、批次 `summary.json`、`report.json`
 和 HTML 报告。修改规则含义时应同时记录新的规则版本。
+
+验证器扩展点位于 [`src/harmony_eval/verification.py`](src/harmony_eval/verification.py)：`@register_verifier`
+把 YAML 的 `type` 映射到 `Verifier` 子类，子类负责配置转换、运行准备、逐用例验证和报告路径。
+`src/harmony_eval/verifiers/` 中新增 `<name>_verifier.py` 会自动注册，无需修改批次调度器。
+`VerificationResult` 统一保存 `id/type/status/reportPath/error/details`，原有 `ohosTest`、
+`cloudTest`、`whitebox` 字段继续供旧报告使用。新增评分公式时在 `scoring.py` 用
+`@register_scorer("RuleName", ("VerifierType",))` 注册接收报告 JSON 的函数，再在 YAML 中写
+`name: RuleName` 和 `verification: <验证器 id>`。同一验证器类型目前仅允许配置一个实例。
+这一结构参照 EvalScope 的 `evalscope/api/registry.py` 中的 `register_evaluator` / `register_metric`：
+配置按名称选择实现，执行器与评分规则分别注册，运行时按注册表分派。
 
 当前 `AGCDetection` 没有独立的原有执行器；`CloudTest.test_category` 的英文类别名也没有稳定的
 AGC 数字映射，因此 YAML 会明确报错，需按现有云测试 API 填入数字类别。`without_enable`

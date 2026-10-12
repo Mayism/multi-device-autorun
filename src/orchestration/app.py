@@ -1,10 +1,7 @@
 """Top-level Python Autorun orchestration."""
 
 import asyncio
-from copy import deepcopy
 from datetime import datetime
-from pathlib import Path
-import traceback
 
 from pyautorun.orchestration.batch import run_batch
 from pyautorun.orchestration.batch_state import load_retry_plan, recover_interrupted_runs
@@ -12,36 +9,14 @@ from pyautorun.orchestration.case_run import safe_name, write_json
 from pyautorun.orchestration.config import load_autorun_config
 from pyautorun.devices.ohostest import normalize_config as normalize_ohostest_config
 from pyautorun.devices.ohostest_case import run_ohostest_for_batch
-from pyautorun.runtime.opencode_installation import resolve_opencode_source
+from pyautorun.harmony_eval.verification import prepare_verifiers
 from pyautorun.runtime.opencode_server import start_server
 from pyautorun.runtime.platform import check_configured_emulator_ports, format_emulator_port_conflict
 from pyautorun.orchestration.preflight import check_environment, validate_server_config
-from pyautorun.reporting.reports import merge_overview, write_comparison_report
+from pyautorun.reporting.reports import write_comparison_report
 from pyautorun.orchestration.target_runtime import (allocate_run_directory, config_for_target,
                              create_shared_cases_snapshot, prepare_shared_generation_provider,
                              write_target_environment)
-from pyautorun.whitebox_eval.runtime.adapter import WhiteboxEvaluator, resolve_judge_runtime
-
-
-async def _whitebox_evaluator(config, workspace):
-    whitebox = config["whiteboxEvaluation"]
-    source = resolve_opencode_source({"mode": "harmonyBot", "root": whitebox["runtime"]["root"]})
-    discovery = deepcopy(config)
-    discovery["server"]["opencodeSource"] = {"mode": "harmonyBot",
-                                              "root": source["installation"]["extensionDir"]}
-    discovery["server"]["runtimeRoot"] = str(Path(whitebox["runtimeRoot"]) / "provider-discovery")
-    discovery["execution"]["agent"] = "harmonyos-multi-device"
-    server = None
-    try:
-        server = await start_server(discovery, workspace, reuse_existing=False)
-        judge = await resolve_judge_runtime(server.client, server.server_config,
-                                            whitebox["judge"], config["execution"]["generationModel"],
-                                            str(workspace))
-        return WhiteboxEvaluator(whitebox, judge, source["opencodeBinPath"],
-                                 Path(__file__).resolve().parents[2])
-    finally:
-        if server:
-            await server.stop()
 
 
 async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False, on_log=print):
@@ -66,7 +41,7 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
     run_id, run_root = allocate_run_directory(config["execution"]["outputRoot"])
     overlay = prepare_shared_generation_provider(config, run_id) if multiple else ""
     cases_root = create_shared_cases_snapshot(config, run_id, run_root) if multiple else config["execution"]["casesRoot"]
-    evaluator = await _whitebox_evaluator(config, cases_root) if config["whiteboxEvaluation"]["enabled"] else None
+    verifiers = await prepare_verifiers(config, cases_root, {"ohostest_runner": run_ohostest_for_batch})
     target_results = []
     if multiple:
         fingerprints = []
@@ -104,8 +79,7 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
                                                  server.server_config, target["mode"])
             _, skill_runtime = await write_target_environment(target_root, target, prepared, server, model)
             summary = await run_batch(prepared, server, skill_runtime, run_id, target_root, target["id"],
-                                      whitebox_evaluator=evaluator, retry_plan=retry,
-                                      ohostest_runner=run_ohostest_for_batch)
+                                      retry_plan=retry, prepared_verifiers=verifiers)
             target_results.append({**target, "targetRoot": str(target_root), "summary": summary})
             if summary["failed"]:
                 exit_code = 1

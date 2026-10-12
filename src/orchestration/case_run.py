@@ -82,7 +82,8 @@ async def save_agent_logs(client, session_ids, generate_dir):
 
 
 async def run_case(case_info, batch_root, client, model, execution, skill_runtime, store,
-                   ohos_enabled=False, cloud_enabled=False, whitebox_enabled=False, progress=None):
+                   ohos_enabled=False, cloud_enabled=False, whitebox_enabled=False, progress=None,
+                   verification_ids=None):
     name = case_info["name"]
     run_dir = Path(batch_root) / safe_name(name)
     layout = agent_case_layout(case_info, run_dir)
@@ -174,7 +175,7 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
         await asyncio.to_thread(materialize_agent_case_projects, case_info, layout, run_dir)
         finished = datetime.now(timezone.utc)
         elapsed = round((finished - started).total_seconds())
-        pending = ohos_enabled or cloud_enabled or whitebox_enabled
+        pending = ohos_enabled or cloud_enabled or whitebox_enabled or bool(verification_ids)
         result = {"case": name, "status": "running" if pending else "completed", "agentStatus": "completed",
                   "quotaLimited": monitored.get("quotaLimited", False), "sessionId": session_id,
                   "childSessionIds": monitored["childSessionIds"], "agent": execution["agent"],
@@ -199,9 +200,12 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
                              ("whitebox", whitebox_enabled)):
             if enabled:
                 result[key] = {"status": "queued"}
+        if verification_ids:
+            result["verifications"] = {identifier: {"status": "queued"} for identifier in verification_ids}
         write_json(result_path, result)
         update({"status": result["status"], "stage": "ohostest_queued" if ohos_enabled else
-                "cloudtest_queued" if cloud_enabled else "whitebox_queued" if whitebox_enabled else "completed",
+                "cloudtest_queued" if cloud_enabled else "whitebox_queued" if whitebox_enabled else
+                "verification_queued" if verification_ids else "completed",
                 "agentStatus": "completed", "agentFinishedAt": result["agentFinishedAt"],
                 "finishedAt": result.get("finishedAt"), "resultPath": str(result_path),
                 "patchPath": str(patch_path), "tokenUsage": usage, "agentCompile": logs["agentCompile"]})

@@ -29,6 +29,7 @@ whitebox-api = "pyautorun.whitebox_eval.service.api:main"
 [tool.setuptools]
 package-dir = {"pyautorun" = "src"}
 packages = [
+  "pyautorun.harmony_eval.verifiers",
   "pyautorun", "pyautorun.cloud", "pyautorun.devices", "pyautorun.harmony_eval", "pyautorun.orchestration",
   "pyautorun.reporting", "pyautorun.runtime", "pyautorun.whitebox_eval",
   "pyautorun.whitebox_eval.resources", "pyautorun.whitebox_eval.rules",

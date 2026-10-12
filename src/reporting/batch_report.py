@@ -217,5 +217,9 @@ def build_batch_report(payload):
                   "skipped": len(skipped), "skippedCases": skipped},
         "agent": agent, "ohosTest": ohos_summary,
         "whitebox": whitebox_summary(results, _obj(summary.get("whiteboxEvaluation")).get("enabled")),
+        "verifications": {identifier: {**_obj(info), "cases": [
+            {"case": _text(_obj(item).get("case")), **_obj(_obj(item).get("verifications")).get(identifier, {})}
+            for item in results if identifier in _obj(_obj(item).get("verifications"))]}
+            for identifier, info in _obj(summary.get("verifications")).items()},
         "harmonyEval": _obj(summary.get("harmonyEval")),
     }

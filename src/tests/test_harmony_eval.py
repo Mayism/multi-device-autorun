@@ -10,8 +10,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from pyautorun.harmony_eval.scoring import score_case, summarize_scores, validate_scoring
+from pyautorun.harmony_eval.scoring import register_scorer, score_case, summarize_scores, validate_scoring
 from pyautorun.harmony_eval.task import _verification, load_harmony_task
+from pyautorun.harmony_eval.verification import (VerificationSpec, Verifier, get_verifier,
+                                                  normalize_task_verifications, register_verifier)
 from pyautorun.orchestration.batch import run_batch
 from pyautorun.orchestration.case_run import write_json
 from pyautorun.reporting.batch_report import build_batch_report
@@ -20,6 +22,103 @@ from pyautorun.runtime.opencode_installation import _node_arch, _node_platform, 
 
 
 class HarmonyEvalTaskTests(unittest.TestCase):
+    def test_builtin_verifier_adapters_keep_report_paths(self):
+        self.assertEqual(get_verifier("UITest").legacy_result_key, "ohosTest")
+        self.assertEqual(get_verifier("CloudTest").legacy_result_key, "cloudTest")
+        self.assertEqual(get_verifier("LLM_judge").legacy_result_key, "whitebox")
+
+        class Judge:
+            judge = {"model": "fake"}
+
+            async def schedule(self, task):
+                return {"status": "completed", "resultPath": task["resultPath"]}
+
+        async def exercise(root):
+            cloud = get_verifier("CloudTest")(VerificationSpec("cloud", "CloudTest"))
+            whitebox = get_verifier("Whitebox")(VerificationSpec("white", "Whitebox"))
+            config = {"cloudTest": {"enabled": True}, "whiteboxEvaluation": {"enabled": True}}
+            await cloud.prepare(config, root, {})
+            await whitebox.prepare(config, root, {"whitebox_evaluator": Judge()})
+            context = {"case_info": {"name": "CaseA"},
+                       "agent_result": {"resultPath": str(root / "result.json"), "projectDir": str(root)},
+                       "progress": lambda *_args: None, "run_id": "run", "execution": {}}
+            cloud_result = await cloud.verify(context)
+            whitebox_result = await whitebox.verify(context)
+            return cloud.result(cloud_result), whitebox.result(whitebox_result)
+
+        with tempfile.TemporaryDirectory() as directory, \
+             patch("pyautorun.harmony_eval.verifiers.cloudtest_verifier.load_cloud_config",
+                   return_value={"enabled": True, "testCategories": []}), \
+             patch("pyautorun.harmony_eval.verifiers.cloudtest_verifier.submit_cloud_test_for_project",
+                   return_value={"taskGroupId": "group"}), \
+             patch("pyautorun.harmony_eval.verifiers.cloudtest_verifier.finish_cloud_test_polling",
+                   return_value={"status": "completed", "resultPath": str(Path(directory) / "cloud.json")}), \
+             patch("pyautorun.harmony_eval.verifiers.whitebox_verifier.prepare_whitebox_input",
+                   return_value={"resultPath": str(Path(directory) / "whitebox.json")}):
+            cloud_result, whitebox_result = asyncio.run(exercise(Path(directory)))
+        self.assertTrue(cloud_result.report_path.endswith("cloud.json"))
+        self.assertTrue(whitebox_result.report_path.endswith("whitebox.json"))
+
+    def test_registered_verifier_and_rule_run_without_batch_branches(self):
+        @register_verifier("SyntheticTest")
+        class SyntheticVerifier(Verifier):
+            async def verify(self, context):
+                path = Path(context["agent_result"]["resultPath"]).with_name("synthetic.json")
+                write_json(path, {"successes": 3, "total": 4})
+                return {"status": "completed", "resultPath": str(path)}
+
+        @register_scorer("SyntheticRatio", ("SyntheticTest",))
+        def score_synthetic(report, _config):
+            return report["successes"] / report["total"]
+
+        specs, legacy, _shared = normalize_task_verifications(
+            [{"id": "checks", "type": "SyntheticTest"}], Path("."))
+        self.assertIs(get_verifier("SyntheticTest"), SyntheticVerifier)
+        self.assertEqual(legacy["ohosTest"], {"enabled": False})
+        rules = validate_scoring([{"dimension": "quality", "name": "SyntheticRatio",
+                                   "verification": "checks"}], specs)
+
+        class Server:
+            client = object()
+            server_config = {}
+
+        async def validate(*_args):
+            return {"providerId": "p", "modelId": "m"}
+
+        async def run_case(item, root, *_args, **_kwargs):
+            case_dir = Path(root) / item["name"]
+            case_dir.mkdir(parents=True)
+            result = {"case": item["name"], "status": "running", "agentStatus": "completed",
+                      "resultPath": str(case_dir / "result.json")}
+            write_json(result["resultPath"], result)
+            return result
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = root / "cases" / "CaseA"
+            (case / "base").mkdir(parents=True)
+            (case / "PROMPT.md").write_text("work", encoding="utf-8")
+            config = {"server": {"opencodeSource": {"mode": "harmonyBot", "agent": "agent"}},
+                      "execution": {"casesRoot": str(case.parent), "outputRoot": str(root / "out"),
+                                    "agent": "agent", "model": "m", "concurrency": 1},
+                      "ohosTest": {"enabled": False}, "cloudTest": {"enabled": False},
+                      "whiteboxEvaluation": {"enabled": False},
+                      "harmonyEval": {"taskId": "test", "verification": [spec.to_dict() for spec in specs],
+                                      "scoring": rules}}
+            target = root / "out" / "run" / "agent"
+            with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
+                 patch("pyautorun.orchestration.batch.run_case", run_case), redirect_stdout(io.StringIO()):
+                summary = asyncio.run(run_batch(config, Server(), {}, "run", target, "agent"))
+            result = summary["results"][0]
+            self.assertEqual(result["verifications"]["checks"]["type"], "SyntheticTest")
+            self.assertEqual(result["scoring"]["quality"]["score"], 0.75)
+            self.assertEqual(summary["verifications"]["checks"]["completed"], 1)
+            self.assertIn("checks", (target / "overview.html").read_text(encoding="utf-8"))
+            report = json.loads((target / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["verifications"]["checks"]["cases"][0]["reportPath"],
+                             result["verifications"]["checks"]["reportPath"])
+            self.assertEqual(score_case(rules, {"agentStatus": "failed"})["quality"]["status"], "unavailable")
+
     def test_batch_persists_scores_from_verifier_report(self):
         class Server:
             client = object()
@@ -63,7 +162,7 @@ class HarmonyEvalTaskTests(unittest.TestCase):
                           {"dimension": "L1", "name": "BooleanScoring"}]}}
             with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
                  patch("pyautorun.orchestration.batch.run_case", run_case), \
-                 patch("pyautorun.orchestration.batch.analyze_uitest_failures", return_value=None), \
+                 patch("pyautorun.harmony_eval.verifiers.uitest_verifier.analyze_uitest_failures", return_value=None), \
                  redirect_stdout(io.StringIO()):
                 summary = asyncio.run(run_batch(config, Server(), {}, "run", target_root,
                                                 "harmonybot", ohostest_runner=uitest))
@@ -145,6 +244,10 @@ harmonybot_agent:
             self.assertTrue(config["ohosTest"]["enabled"])
             self.assertTrue(config["cloudTest"]["enabled"])
             self.assertTrue(config["whiteboxEvaluation"]["enabled"])
+            self.assertEqual([item["type"] for item in config["harmonyEval"]["verification"]],
+                             ["UITest", "CloudTest", "Whitebox"])
+            self.assertEqual([item["verification"] for item in config["harmonyEval"]["scoring"]],
+                             ["UITest", "CloudTest", "Whitebox"])
             staged = resolve_opencode_source(config["server"]["opencodeSource"])
             opencode = json.loads((Path(staged["resourcesDir"]) / "opencode.json").read_text(encoding="utf-8"))
             self.assertEqual(opencode["provider"]["harmony-eval"]["models"]["qwen-plus"]["name"], "qwen-plus")

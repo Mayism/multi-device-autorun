@@ -53,7 +53,7 @@ class BatchTests(unittest.TestCase):
                       "cloudTest": {"enabled": False}, "whiteboxEvaluation": {"enabled": False}}
             with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
                  patch("pyautorun.orchestration.batch.run_case", failed_case), \
-                 patch("pyautorun.orchestration.batch.analyze_uitest_failures", return_value=None):
+                 patch("pyautorun.harmony_eval.verifiers.uitest_verifier.analyze_uitest_failures", return_value=None):
                 summary = asyncio.run(run_batch(config, Server(), {}, "run", root / "out" / "run", "agent",
                                                 ohostest_runner=passed_ohostest))
             self.assertEqual(summary["results"][0]["status"], "timed_out")

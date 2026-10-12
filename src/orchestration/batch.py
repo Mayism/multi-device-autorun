@@ -8,17 +8,13 @@ from pathlib import Path
 
 from pyautorun.orchestration.artifacts import cleanup_case
 from pyautorun.orchestration.batch_state import BatchStateStore
-from pyautorun.orchestration.case_run import now, run_case, safe_name, write_json
+from pyautorun.orchestration.case_run import now, run_case, write_json
 from pyautorun.orchestration.console_reporter import ConsoleReporter
 from pyautorun.orchestration.cases import discover_cases
-from pyautorun.cloud.cloudtest import load_config as load_cloud_config
-from pyautorun.cloud.cloudtest_submit import submit_cloud_test_for_project, finish_cloud_test_polling
-from pyautorun.reporting.failure_analysis import analyze_uitest_failures
-from pyautorun.devices.ohostest import normalize_config as normalize_ohostest_config
+from pyautorun.harmony_eval.verification import prepare_verifiers
 from pyautorun.orchestration.preflight import validate_server_config
 from pyautorun.reporting.reports import write_batch_report
 from pyautorun.runtime.usage import add_compile_usage, add_token_usage
-from pyautorun.whitebox_eval.runtime.adapter import prepare_whitebox_input
 from pyautorun.harmony_eval.scoring import score_case, summarize_scores
 
 
@@ -35,43 +31,9 @@ def _report(name, message):
     print(f"[{name}] {message}", flush=True)
 
 
-async def _cloud_branch(config, settings, case_info, agent_result, cloud_submit_lock,
-                        log_progress, on_started):
-    out_dir = str(Path(agent_result["resultPath"]).parent / "cloudtest")
-    loop = asyncio.get_running_loop()
-    log = lambda message: loop.call_soon_threadsafe(log_progress, case_info["name"], f"云测试：{message}")
-    try:
-        async with cloud_submit_lock:
-            on_started(case_info["name"], "cloudTest")
-            submission = await asyncio.to_thread(
-                submit_cloud_test_for_project, config, agent_result.get("buildProjectDir") or
-                agent_result.get("projectDir") or "", "", case_info["name"], "", case_info["name"],
-                out_dir, log, None, settings)
-        return await asyncio.to_thread(finish_cloud_test_polling, submission, log)
-    except Exception as error:
-        return {"status": "failed", "error": str(error), "outputDir": out_dir}
-
-
-async def _whitebox_branch(evaluator, batch_id, case_info, agent_result, execution, config):
-    if not evaluator or not agent_result.get("projectDir"):
-        return None
-    try:
-        task = await asyncio.to_thread(prepare_whitebox_input, batch_id, case_info, agent_result,
-                                       execution, config)
-        return await evaluator.schedule(task)
-    except Exception as error:
-        return {"status": "failed", "error": str(error), "judge": evaluator.judge}
-
-
-def _cloud_case_summary(result):
-    task = result.get("task") or {}
-    return {"status": result.get("status") or "failed", "taskGroupId": task.get("taskGroupId") or "",
-            "taskName": task.get("taskName") or "", "error": result.get("error") or "",
-            "outputDir": result.get("outputDir") or "", "resultPath": result.get("resultPath") or ""}
-
-
 async def run_batch(config, server, skill_runtime, run_id, target_root, target_id,
-                    whitebox_evaluator=None, retry_plan=None, ohostest_runner=None, progress=_report):
+                    whitebox_evaluator=None, retry_plan=None, ohostest_runner=None, progress=_report,
+                    prepared_verifiers=None):
     source = config["server"]["opencodeSource"]
     execution = deepcopy(config["execution"])
     execution["agent"] = "build" if source["mode"] == "softwareEngineering" else str(execution.get("agent") or source["agent"])
@@ -80,17 +42,15 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
     execution["maxRuntimeSec"] = max(1, int(execution.get("maxRuntimeSec") or 6000))
     if not execution["agent"]:
         raise ValueError("未配置 execution.agent")
-    ohos = normalize_ohostest_config({"config": config})
-    if ohos["enabled"] and ohostest_runner is None:
-        raise RuntimeError("Python ohosTest Runner 尚未配置，不能执行启用设备测试的批次")
-    cloud = {"enabled": False, "settings": None}
-    try:
-        settings = load_cloud_config({"config": config})
-        cloud = {"enabled": settings["enabled"], "settings": settings}
-    except Exception as error:
-        if (config.get("cloudTest") or {}).get("enabled") is not False:
-            progress("environment", f"云测试配置不完整，跳过：{error}")
-    discovered = discover_cases(execution["casesRoot"], require_ohostest=ohos["enabled"])
+    verifiers = prepared_verifiers if prepared_verifiers is not None else await prepare_verifiers(
+        config, execution["casesRoot"], {"ohostest_runner": ohostest_runner,
+                                        "whitebox_evaluator": whitebox_evaluator})
+    ohos_enabled = any(plugin.requires_ohostest_case for plugin in verifiers)
+    cloud_enabled = any(plugin.requires_cloud_stage for plugin in verifiers)
+    whitebox_plugins = [plugin for plugin in verifiers if plugin.retain_original]
+    evaluator = whitebox_plugins[0].evaluator if whitebox_plugins else None
+    cloud_plugins = [plugin for plugin in verifiers if plugin.requires_cloud_stage]
+    discovered = discover_cases(execution["casesRoot"], require_ohostest=ohos_enabled)
     cases = discovered["runnable"]
     skipped = discovered["skipped"]
     if retry_plan:
@@ -107,12 +67,14 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
              "updatedAt": now(), "agent": execution["agent"], "opencodeSourceMode": source["mode"],
              "providerId": model["providerId"], "modelId": model["modelId"],
              "concurrency": execution["concurrency"],
-             "ohosTest": {"enabled": ohos["enabled"], "concurrency": 1 if ohos["enabled"] else 0},
-             "cloudTest": {"enabled": cloud["enabled"], "testCategories":
-                           cloud["settings"]["testCategories"] if cloud["enabled"] else []},
-             "whiteboxEvaluation": {"enabled": bool(whitebox_evaluator),
-                                    "concurrency": whitebox_evaluator.config["concurrency"] if whitebox_evaluator else 0,
-                                    "judge": whitebox_evaluator.judge if whitebox_evaluator else None},
+             "verifications": {plugin.spec.id: {"type": plugin.spec.type, "enabled": True}
+                               for plugin in verifiers},
+             "ohosTest": {"enabled": ohos_enabled, "concurrency": 1 if ohos_enabled else 0},
+             "cloudTest": {"enabled": cloud_enabled, "testCategories":
+                           cloud_plugins[0].settings["testCategories"] if cloud_plugins else []},
+             "whiteboxEvaluation": {"enabled": bool(evaluator),
+                                    "concurrency": evaluator.config["concurrency"] if evaluator else 0,
+                                    "judge": evaluator.judge if evaluator else None},
              "cases": {item["name"]: {"status": "skipped" if item.get("skipReason") else "pending",
                                       "stage": "skipped" if item.get("skipReason") else "queued",
                                       "caseRoot": item["caseRoot"], "projectName": item["projectName"],
@@ -144,60 +106,37 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
         queue.put_nowait(case)
     results = {}
     post_jobs = []
-    cloud_submit_lock = asyncio.Lock()
-    ohos_lock = asyncio.Lock()
-    analysis_lock = asyncio.Lock()
     stop_queue = False
 
-    async def post_validate(case_info, result, run_cloud=True, run_ohos=True, run_whitebox=True):
+    async def post_validate(case_info, result):
         name = case_info["name"]
-        cloud_job = _cloud_branch(config, cloud["settings"], case_info, result, cloud_submit_lock,
-                                  progress, reporter.case_test_running) if cloud["enabled"] and run_cloud else None
-        whitebox_job = _whitebox_branch(whitebox_evaluator, run_id, case_info, result, execution,
-                                       config["whiteboxEvaluation"]) if whitebox_evaluator and run_whitebox else None
-        async def ohos_job():
-            async with ohos_lock:
-                reporter.case_test_running(name, "ohosTest")
-                outcome = await ohostest_runner(case_info, result, ohos, root)
-                reporter.case_test_finished(name, "ohosTest", outcome)
-                return outcome
-        ohos_task = ohos_job() if ohos["enabled"] and run_ohos else None
-        if cloud_job:
-            reporter.case_test_queued(name, "cloudTest")
-        if ohos_task:
-            reporter.case_test_queued(name, "ohosTest")
-        tasks = [asyncio.create_task(job) if job else None for job in (cloud_job, ohos_task, whitebox_job)]
-        outcomes = await asyncio.gather(*(job for job in tasks if job), return_exceptions=True)
-        iterator = iter(outcomes)
-        cloud_result, ohos_result, whitebox_result = [next(iterator) if job else None for job in tasks]
-        if isinstance(ohos_result, Exception):
-            ohos_result = {"status": "failed", "error": str(ohos_result)}
-        if isinstance(cloud_result, Exception):
-            cloud_result = {"status": "failed", "error": str(cloud_result)}
-        if isinstance(whitebox_result, Exception):
-            whitebox_result = {"status": "failed", "error": str(whitebox_result)}
-        if cloud_result:
-            reporter.case_test_finished(name, "cloudTest", cloud_result)
-        if ohos_result:
-            reporter.case_test_finished(name, "ohosTest", ohos_result)
-        if ohos_result and ohos_result.get("resultPath"):
-            async with analysis_lock:
-                analysis = await analyze_uitest_failures(server.client, model, case_info, result, ohos_result)
-            if analysis:
-                ohos_result = {**ohos_result, "failureAnalysis": analysis}
+        active = [plugin for plugin in verifiers if plugin.should_run(result)]
+        context = {"case_info": case_info, "agent_result": result, "root": root,
+                   "server": server, "model": model, "run_id": run_id,
+                   "execution": execution, "progress": progress}
+        for plugin in active:
+            reporter.case_test_queued(name, plugin.legacy_result_key or plugin.spec.id)
+
+        async def run_plugin(plugin):
+            reporter.case_test_running(name, plugin.legacy_result_key or plugin.spec.id)
+            try:
+                outcome = await plugin.verify(context)
+            except Exception as error:
+                outcome = {"status": "failed", "error": str(error)}
+            outcome = outcome or {"status": "unavailable", "error": "验证器未返回结果"}
+            reporter.case_test_finished(name, plugin.legacy_result_key or plugin.spec.id, outcome)
+            return outcome
+
+        outcomes = await asyncio.gather(*(run_plugin(plugin) for plugin in active))
         merged = dict(result)
-        if ohos_result:
-            merged["ohosTest"] = ohos_result
-            merged["status"] = ohos_result.get("status") or "failed"
-            merged["error"] = "" if merged["status"] == "completed" else ohos_result.get("error") or "ohosTest failed"
-        if cloud_result:
-            cloud_summary = _cloud_case_summary(cloud_result)
-            merged["cloudTest"] = cloud_summary
-            if merged["status"] in ("completed", "running"):
-                merged["status"] = cloud_summary["status"]
-                merged["error"] = cloud_summary["error"] if merged["status"] != "completed" else ""
-        if whitebox_result:
-            merged["whitebox"] = whitebox_result
+        merged["verifications"] = dict(result.get("verifications") or {})
+        for plugin, outcome in zip(active, outcomes):
+            merged["verifications"][plugin.spec.id] = plugin.result(outcome).to_dict()
+            if plugin.legacy_result_key:
+                merged[plugin.legacy_result_key] = plugin.legacy_result(outcome)
+            if plugin.affects_case_status and merged["status"] in ("completed", "running"):
+                merged["status"] = outcome.get("status") or "failed"
+                merged["error"] = "" if merged["status"] == "completed" else outcome.get("error") or f"{plugin.spec.id} failed"
         if result.get("agentStatus") not in ("completed", "running"):
             merged["status"] = result.get("agentStatus") or "failed"
             merged["error"] = result.get("agentError") or result.get("error") or "Agent failed"
@@ -222,8 +161,9 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
         store.set_case(name, {"status": merged["status"], "stage": merged["status"],
                               "error": merged.get("error") or "", "finishedAt": merged["finishedAt"],
                               "ohosTest": merged.get("ohosTest"), "cloudTest": merged.get("cloudTest"),
-                              "whitebox": merged.get("whitebox"), "scoring": merged.get("scoring")})
-        if whitebox_evaluator:
+                              "whitebox": merged.get("whitebox"), "verifications": merged["verifications"],
+                              "scoring": merged.get("scoring")})
+        if whitebox_plugins:
             case_dir = Path(merged["resultPath"]).parent
             await asyncio.to_thread(cleanup_case, name, case_dir / "original", merged["projectDir"],
                                     merged.get("patchPath") or "", case_dir / "generate", False, True, False)
@@ -231,11 +171,11 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
         reporter.case_finished(merged)
         return merged
 
-    def schedule_post(case_info, agent_result, **options):
+    def schedule_post(case_info, agent_result):
         async def finish_post():
             nonlocal stop_queue
             try:
-                finished = await post_validate(case_info, agent_result, **options)
+                finished = await post_validate(case_info, agent_result)
             except Exception as error:
                 finished = {**agent_result, "status": "failed",
                             "error": f"后置评价/测试编排异常: {error}", "finishedAt": now()}
@@ -263,10 +203,11 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                 user_progress(name, f"开始执行（worker {index}）")
             try:
                 result = await run_case(item, root, server.client, model, execution, skill_runtime, store,
-                                        ohos_enabled=ohos["enabled"], cloud_enabled=cloud["enabled"],
-                                        whitebox_enabled=bool(whitebox_evaluator), progress=progress)
+                                        ohos_enabled=ohos_enabled, cloud_enabled=cloud_enabled,
+                                        whitebox_enabled=bool(whitebox_plugins), progress=progress,
+                                        verification_ids=[plugin.spec.id for plugin in verifiers])
                 reporter.case_agent_finished(result)
-                if ohos["enabled"] or cloud["enabled"] or whitebox_evaluator:
+                if any(plugin.should_run(result) for plugin in verifiers):
                     schedule_post(item, result)
                 else:
                     results[name] = result
@@ -276,10 +217,8 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
             except Exception as error:
                 result = getattr(error, "case_result", {"case": name, "status": "failed", "error": str(error)})
                 reporter.case_agent_finished(result)
-                if result.get("agentStatus") == "timed_out" and (ohos["enabled"] or cloud["enabled"]):
-                    schedule_post(item, result, run_whitebox=bool(whitebox_evaluator))
-                elif whitebox_evaluator and result.get("projectDir"):
-                    schedule_post(item, result, run_cloud=False, run_ohos=False)
+                if any(plugin.should_run(result) for plugin in verifiers):
+                    schedule_post(item, result)
                 else:
                     results[name] = result
                     reporter.case_finished(result)
@@ -311,9 +250,14 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                    "skipped": [{"case": item["name"], "reason": item["skipReason"]} for item in skipped],
                    "tokenUsage": add_token_usage(*(item.get("tokenUsage") for item in ordered)),
                    "agentCompile": add_compile_usage(*(item.get("agentCompile") for item in ordered)),
-                   "cloudTest": {"enabled": cloud["enabled"]},
-                   "whiteboxEvaluation": {"enabled": bool(whitebox_evaluator),
-                                          "judge": whitebox_evaluator.judge if whitebox_evaluator else None,
+                   "verifications": {plugin.spec.id: {"type": plugin.spec.type,
+                                     "completed": sum((item.get("verifications") or {}).get(plugin.spec.id, {}).get("status") ==
+                                                      "completed" for item in ordered),
+                                     "failed": sum((item.get("verifications") or {}).get(plugin.spec.id, {}).get("status") ==
+                                                   "failed" for item in ordered)} for plugin in verifiers},
+                   "cloudTest": {"enabled": cloud_enabled},
+                   "whiteboxEvaluation": {"enabled": bool(evaluator),
+                                          "judge": evaluator.judge if evaluator else None,
                                           "completed": sum((item.get("whitebox") or {}).get("status") == "completed" for item in ordered),
                                           "failed": sum(bool(item.get("whitebox")) and
                                                         (item["whitebox"].get("status") != "completed") for item in ordered)},

@@ -195,6 +195,7 @@ class ConsoleReporter:
     def case_test_queued(self, name, kind):
         row = self.rows[name]
         row[kind + "Status"] = "queued"
+        row["activity"] = f"{kind} 等待执行"
         if kind == "ohosTest":
             row["activity"] = "Agent 已完成，等待串行 ohosTest"
         self.render()
@@ -202,6 +203,7 @@ class ConsoleReporter:
     def case_test_running(self, name, kind):
         row = self.rows[name]
         row[kind + "Status"] = "running"
+        row["activity"] = f"{kind} 执行中"
         if kind == "ohosTest":
             row["activity"] = "ohosTest 执行中：拉起模拟器并运行用例"
         self.render()
@@ -209,6 +211,7 @@ class ConsoleReporter:
     def case_test_finished(self, name, kind, result):
         row = self.rows[name]
         row[kind + "Status"] = (result or {}).get("status") or "failed"
+        row["activity"] = f"{kind} {status(row[kind + 'Status'])}"
         if kind == "ohosTest":
             row["activity"] = "ohosTest 已完成，等待云测试" if row["cloudTestStatus"] in ("queued", "running") else (
                 "ohosTest 已完成" if row["ohosTestStatus"] == "completed" else

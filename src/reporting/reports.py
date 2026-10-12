@@ -45,17 +45,24 @@ def _case_page(result):
         sections.append(f'<div class="card fail">{esc(result["error"])}</div>')
     if rows:
         sections.append('<h2>执行产物</h2><div class="card tbl-wrap"><table>' + "".join(rows) + "</table></div>")
-    for title, detail in (("ohosTest", ohos), ("云测试", cloud), ("白盒评价", whitebox)):
+    verifications = result.get("verifications") or {}
+    display = [(identifier, detail) for identifier, detail in verifications.items()] if verifications else [
+        ("ohosTest", ohos), ("云测试", cloud), ("白盒评价", whitebox)]
+    for title, detail in display:
         if not detail:
             continue
         sections.append(f'<h2>{title}</h2><div class="card">{badge(detail.get("status"))} '
                         f'{esc(detail.get("error") or "")}</div>')
-        if title == "云测试" and detail.get("outputDir"):
-            report = Path(detail["outputDir"]) / "cloudtest-report.html"
+        original = detail.get("details") or detail
+        report_path = detail.get("reportPath") or original.get("resultPath") or ""
+        if report_path and Path(report_path).is_file():
+            sections.append(_link(Path(report_path).as_uri(), "查看原始报告"))
+        if title in ("云测试", "CloudTest") and original.get("outputDir"):
+            report = Path(original["outputDir"]) / "cloudtest-report.html"
             if report.is_file():
                 sections.append(_link(report.as_uri(), "查看云测试报告"))
-        if title == "白盒评价" and detail.get("outputDir"):
-            sections.append(f'<p class="muted">评分：{esc(detail.get("totalScore", "--"))}</p>')
+        if title in ("白盒评价", "Whitebox") and original.get("outputDir"):
+            sections.append(f'<p class="muted">评分：{esc(original.get("totalScore", "--"))}</p>')
     if result.get("scoring"):
         scores = []
         for dimension, item in result["scoring"].items():
@@ -86,6 +93,9 @@ def write_batch_report(batch_root, summary, upload_config=None, on_log=lambda _m
     subpage.mkdir(parents=True, exist_ok=True)
     rows = []
     has_scoring = bool((summary.get("harmonyEval") or {}).get("scores"))
+    verification_ids = list((summary.get("verifications") or {}).keys())
+    if not verification_ids:
+        verification_ids = ["ohosTest", "cloudTest", "whitebox"]
     for result in summary.get("results") or []:
         name = str(result.get("case") or "")
         filename = name + ".html"
@@ -94,11 +104,13 @@ def write_batch_report(batch_root, summary, upload_config=None, on_log=lambda _m
         case_scores = result.get("scoring") or {}
         score_text = ", ".join(f"{key}: {value['score']:.3f}" if value.get("status") == "scored"
                                else f"{key}: --" for key, value in case_scores.items())
+        verification_cells = []
+        for identifier in verification_ids:
+            detail = (result.get("verifications") or {}).get(identifier) or result.get(identifier) or {}
+            verification_cells.append(f'<td>{badge(detail.get("status"))}</td>')
         rows.append(f'<tr><td><a class="link" href="{esc(href)}">{esc(name)}</a></td>'
                     f'<td>{badge(result.get("agentStatus") or result.get("status"))}</td>'
-                    f'<td>{badge((result.get("ohosTest") or {}).get("status"))}</td>'
-                    f'<td>{badge((result.get("cloudTest") or {}).get("status"))}</td>'
-                    f'<td>{badge((result.get("whitebox") or {}).get("status"))}</td>'
+                    + ''.join(verification_cells)
                     + (f'<td>{esc(score_text)}</td>' if has_scoring else '')
                     + f'<td>{fmt_duration(result.get("elapsedSec"))}</td></tr>')
     scoring_header = '<th>评分</th>' if has_scoring else ''
@@ -118,7 +130,8 @@ def write_batch_report(batch_root, summary, upload_config=None, on_log=lambda _m
             f'<div class="stat"><div class="k">失败</div><div class="v">{summary.get("failed", 0)}</div></div>'
             f'<div class="stat"><div class="k">Token</div><div class="v">{(summary.get("tokenUsage") or {}).get("total", 0)}</div></div>'
             '</div><h2>用例</h2><div class="card tbl-wrap"><table><thead><tr>'
-            '<th>用例</th><th>Agent</th><th>ohosTest</th><th>云测试</th><th>白盒</th>'
+            '<th>用例</th><th>Agent</th>'
+            + ''.join(f'<th>{esc(identifier)}</th>' for identifier in verification_ids)
             + scoring_header + '<th>耗时</th>'
             + '</tr></thead><tbody>' + "".join(rows) + '</tbody></table></div>' + scoring_summary)
     overview = root / "overview.html"
