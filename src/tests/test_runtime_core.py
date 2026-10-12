@@ -378,7 +378,7 @@ class CloudPollTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             (Path(temp) / "agc-cookie.txt").write_text("test-cookie", encoding="utf-8")
             config = {"__baseDir": temp, "execution": {"outputRoot": temp},
-                      "cloudTest": {"teamId": "team", "projectId": "project"}}
+                      "cloudTest": {"teamId": "team", "projectId": "project", "cookieFile": "agc-cookie.txt"}}
             messages = []
             result = poll_existing_task(config, "123", on_log=messages.append, client=Client())
             self.assertEqual(result["status"], "completed")
@@ -445,7 +445,7 @@ class CloudPollTests(unittest.TestCase):
             app = Path(temp) / "demo.app"
             app.write_bytes(b"signed-app")
             config = {"__baseDir": temp, "execution": {"outputRoot": temp},
-                      "cloudTest": {"teamId": "team", "projectId": "project"}}
+                      "cloudTest": {"teamId": "team", "projectId": "project", "cookieFile": "agc-cookie.txt"}}
             client = Client()
             result = run_cloud_test(config, app_path=str(app), client=client, on_log=lambda _: None)
             self.assertEqual(result["status"], "completed")

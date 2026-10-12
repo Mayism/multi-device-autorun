@@ -149,7 +149,7 @@ def refresh_auth(state, timeout_ms=30000):
     )
     text = response["text"]
     if response["status"] >= 400:
-        detail = "refreshToken 已失效（可能已被其它端使用），请更新 AGC_AUTH_INFO 或任务旁的 agc-cookie.txt" if re.search(r"get refreshToken failed", text, re.I) else text[:200]
+        detail = "refreshToken 已失效（可能已被其它端使用），请更新 AGC_AUTH_INFO 或 src/cloud/agc-cookie.txt" if re.search(r"get refreshToken failed", text, re.I) else text[:200]
         raise RuntimeError(f"刷新登录态失败: HTTP {response['status']}: {detail}")
     try:
         payload = json.loads(text) if text else {}
@@ -220,7 +220,7 @@ def api_request(state, method, pathname, options):
             last_error = RuntimeError(f"HTTP {status}（已 refresh 轮换登录态重试）")
             continue
         if status in (401, 403):
-            hint = "csrfToken 校验失败" if "csrf" in text.lower() else "登录态失效且 refresh 轮换失败：请更新 AGC_AUTH_INFO 或任务旁的 agc-cookie.txt"
+            hint = "csrfToken 校验失败" if "csrf" in text.lower() else "登录态失效且 refresh 轮换失败：请更新 AGC_AUTH_INFO 或 src/cloud/agc-cookie.txt"
             raise RuntimeError(f"HTTP {status}（{hint}）: {text[:200]}")
         if status >= 400:
             last_error = RuntimeError(f"HTTP {status}: {text[:200]}")

@@ -1,11 +1,11 @@
-# Paths are resolved relative to this file. Set HARMONY_EVAL_API_KEY before running.
+# Paths are resolved relative to this file. Existing OpenCode provider credentials are used.
 scenario: MultiDev/AgentEval
 id: harmonybot-agent-example
 description: Run a HarmonyBot agent against the bundled one-to-many adaptation cases.
 
 dataset:
   type: swe-bench-hm-multi-dev
-  dir: ../../cases
+  dir: /Users/mayism/cases
 
 target:
   type: harmonybot_agent
@@ -15,22 +15,35 @@ harmonybot_agent:
   rounds: 1
   execution:
     agent_name: harmonyos-multi-device
+    server_url: http://127.0.0.1:61419
     model:
       api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: HARMONY_EVAL_API_KEY
+      provider_id: zhipuai-coding-plan
+      name: glm-5.3
     timeout: 900
-    concurrency: 1
+    concurrency: 3
     without_enable: false
   verification:
     - type: UITest
       deveco_home: /Applications/DevEco-Studio.app
-      # devices: [{id: phone, profile: Pura 90 Pro, target: "127.0.0.1:15001", hdcPort: 15001}]
-    # CloudTest requires AGC_TEAM_ID, AGC_PROJECT_ID and AGC_AUTH_INFO (or corresponding fields).
-    # - type: CloudTest
-    #   test_categories: [{category: 24, timeSpan: 60}]
-    # - type: Whitebox
+      emulator_deployed_dir: ~/.Huawei/Emulator/deployed
+      # Kept from the old config; update for local Flutter installations when evaluating Flutter cases.
+      flutter_home: E:/flutter/flutter_flutter
+      devices:
+        - {id: phone, profile: Pura 90 Pro, target: "127.0.0.1:15001", hdcPort: 15001, startEmulator: true}
+        - {id: foldable, profile: Mate X7, target: "127.0.0.1:15005", hdcPort: 15005, startEmulator: true}
+        - {id: tablet, profile: MatePad Pro 13, target: "127.0.0.1:15008", hdcPort: 15008, startEmulator: true}
+    - type: CloudTest
+      enabled: false
+      signingConfigs:
+        - name: default
+          type: HarmonyOS
+          material:
+            storeFile: ../../src/cloud/signing/test.p12
+            profile: ../../src/cloud/signing/test.p7b
+            certpath: ../../src/cloud/signing/test.cer
+    - type: Whitebox
+      enabled: false
   scoring:
     - dimension: L1
       name: BooleanScoring
@@ -40,5 +53,5 @@ harmonybot_agent:
     # - dimension: L3
     #   name: ImmediateValue
   report:
-    output_dir: ../../output/harmony-eval
+    output_dir: ../../output
     format: html

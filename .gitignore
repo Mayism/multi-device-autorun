@@ -8,6 +8,7 @@ src/whitebox_eval/ark_analyzer/.opencode/
 # Local autorun state
 /.harmonybot/
 /.local/
+/src/cloud/agc-cookie.txt
 
 # Python environments, caches and test output
 .venv/

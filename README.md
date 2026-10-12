@@ -12,19 +12,22 @@ Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 Harmo
 
 ```bash
 python3 -m pip install -e .
-export HARMONY_EVAL_API_KEY='<model API key>'
 harmony-eval run examples/harmonybot-agent/task.yaml --check
 harmony-eval run examples/harmonybot-agent/task.yaml
 ```
 
 `dataset.dir` 指向现有 Autorun 用例目录，`target.dir` 指向 HarmonyOS Dev Assistant 扩展目录或其父目录。
 `execution.agent_name` 是 `opencode.json` 的 Agent ID；`一多适配Agent` 也会映射为
-`harmonyos-multi-device`。模型配置会写入输出目录下的私有 OpenCode 资源快照，不修改已安装扩展。
-`execution.model.api_key` 可写环境变量名或字面值；推荐环境变量名。`UITest.deveco_home` 派生
+`harmonyos-multi-device`。示例中的 `execution.model.provider_id` 和 `name` 沿用已安装 OpenCode
+的 Provider 与模型。若需新增兼容 OpenAI API 的 Provider，可同时设置 `base_url` 和 `api_key`；
+密钥推荐写环境变量名。模型配置会写入输出目录下的私有 OpenCode 资源快照，不修改已安装扩展。
+`UITest.deveco_home` 派生
 SDK、Hvigor、ohpm、HDC、模拟器路径，`devices` 不填时沿用 phone/foldable/tablet 三种默认设备。
 云测试配置放在 `CloudTest` 节点，类别使用 AGC 数字 `test_categories`；白盒评价用 `Whitebox`
 或 `LLM_judge`。云测试凭据可使用 `AGC_TEAM_ID`、`AGC_PROJECT_ID`、`AGC_AUTH_INFO` 环境变量。
 需要签名时，在 `CloudTest.signingConfigs` 中配置材料路径；相对路径按 `task.yaml` 所在目录解析。
+迁移的签名材料在 `src/cloud/signing/`；本机的 `src/cloud/agc-cookie.txt` 被 Git 忽略，
+原文件为空，可以填入有效 cookie，或设置 `AGC_AUTH_INFO`。
 
 `scoring` 中的 `name` 通过 [`src/harmony_eval/scoring.py`](src/harmony_eval/scoring.py) 的
 `@register_scorer` 找到规则。当前临时规则为：`BooleanScoring` 读取 UITest JSON，所有实际执行的
@@ -77,7 +80,7 @@ Windows 需安装 Python 3.9 或更高版本，命令中的 `python3` 可换为 
 主配置是评测任务的 `task.yaml`，示例见 `examples/harmonybot-agent/task.yaml`：
 
 - `dataset.dir` 指向用例目录，`target.dir` 指向 HarmonyBot 扩展目录。
-- `harmonybot_agent.execution` 设置 Agent、模型和并发；模型密钥推荐使用环境变量名。
+- `harmonybot_agent.execution` 设置 Agent、已有 Provider/模型和并发；新增 Provider 时，模型密钥推荐使用环境变量名。
 - `harmonybot_agent.verification` 按 `type` 配置 UITest、CloudTest、Whitebox。UITest 的 `deveco_home` 派生其余 DevEco 路径。折叠屏开合脚本默认使用 `src/devices/fold-server.py`。
 - `harmonybot_agent.scoring` 用 `name` 选择报告评分规则；`report.output_dir` 设置产物目录。
 

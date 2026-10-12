@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from pyautorun.harmony_eval.scoring import score_case, summarize_scores, validate_scoring
-from pyautorun.harmony_eval.task import load_harmony_task
+from pyautorun.harmony_eval.task import _verification, load_harmony_task
 from pyautorun.orchestration.batch import run_batch
 from pyautorun.orchestration.case_run import write_json
 from pyautorun.reporting.batch_report import build_batch_report
@@ -152,6 +152,24 @@ harmonybot_agent:
             self.assertEqual((resources / "opencode.json").read_text(encoding="utf-8"), json.dumps({
                 "agent": {"harmonyos-multi-device": {"prompt": "harmonyos-ui-multi"}},
             }))
+
+            existing_provider_yaml = task.read_text(encoding="utf-8").replace(
+                "      base_url: https://example.test/v1\n      api_key: TEST_HARMONY_EVAL_KEY\n",
+                "      provider_id: existing-provider\n")
+            task.write_text(existing_provider_yaml, encoding="utf-8")
+            existing_config, _ = load_harmony_task(task)
+            self.assertEqual(existing_config["execution"]["providerId"], "existing-provider")
+            existing_source = resolve_opencode_source(existing_config["server"]["opencodeSource"])
+            existing_opencode = json.loads((Path(existing_source["resourcesDir"]) / "opencode.json").read_text())
+            self.assertNotIn("provider", existing_opencode)
+
+    def test_disabled_verifier_keeps_cloud_signing_settings(self):
+        verification = _verification([{"type": "CloudTest", "enabled": False,
+                                       "signingConfigs": [{"name": "default"}]},
+                                      {"type": "Whitebox", "enabled": False}], Path("."))
+        self.assertFalse(verification["cloudTest"]["enabled"])
+        self.assertEqual(verification["cloudTest"]["signingConfigs"], [{"name": "default"}])
+        self.assertFalse(verification["whiteboxEvaluation"]["enabled"])
 
     def test_named_rules_read_reports_and_do_not_zero_missing_reports(self):
         with tempfile.TemporaryDirectory() as directory:

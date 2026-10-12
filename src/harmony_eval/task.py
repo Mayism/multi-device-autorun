@@ -103,13 +103,14 @@ def _stage_agent_source(source_root, output_root, model, without=False):
     if without:
         (resources / "skills").mkdir(exist_ok=True)
     raw = json.loads((bundle / "opencode.json").read_text(encoding="utf-8"))
-    provider_id = model["provider_id"]
-    raw.setdefault("provider", {})[provider_id] = {
-        "npm": "@ai-sdk/openai-compatible",
-        "name": "Harmony Eval",
-        "options": {"baseURL": model["base_url"], "apiKey": model["api_key"]},
-        "models": {model["name"]: {"name": model["name"]}},
-    }
+    if model["base_url"]:
+        provider_id = model["provider_id"]
+        raw.setdefault("provider", {})[provider_id] = {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": "Harmony Eval",
+            "options": {"baseURL": model["base_url"], "apiKey": model["api_key"]},
+            "models": {model["name"]: {"name": model["name"]}},
+        }
     config_path = resources / "opencode.json"
     config_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     config_path.chmod(0o600)
@@ -143,7 +144,7 @@ def _verification(items, base):
                      "emulatorDeployedDir": str(Path(item.get("emulator_deployed_dir") or
                                                      "~/.Huawei/Emulator/deployed").expanduser()),
                      "flutter": str(item.get("flutter_home") or "")}
-            result["ohosTest"] = {"enabled": True, "paths": paths,
+            result["ohosTest"] = {"enabled": item.get("enabled") is not False, "paths": paths,
                                   "devices": item.get("devices") or _DEFAULT_DEVICES,
                                   "timeoutSec": int(item.get("timeout_sec") or 7200)}
             result["devecoHome"] = str(contents)
@@ -163,13 +164,14 @@ def _verification(items, base):
                                                not isinstance(category.get("category"), int)
                                                for category in categories)):
                 raise ValueError("CloudTest.test_categories 必须是含数字 category 的非空对象列表")
-            result["cloudTest"] = {**config, "enabled": True,
+            result["cloudTest"] = {**config, "enabled": item.get("enabled") is not False,
                                    "testCategories": categories or [{"category": 24, "timeSpan": 60}]}
         elif kind in ("whitebox", "whiteboxevaluation", "llm_judge"):
             if item.get("prompt_path"):
                 raise ValueError("当前白盒评价沿用原有内置提示词，不支持 LLM_judge.prompt_path")
             result["whiteboxEvaluation"] = {**{k: v for k, v in item.items() if k != "type"},
-                                            "enabled": True, "runtime": {"source": "harmonyBot"}}
+                                            "enabled": item.get("enabled") is not False,
+                                            "runtime": {"source": "harmonyBot"}}
         else:
             raise ValueError(f"暂不支持 verification[{index}].type={item.get('type')!r}；"
                              "当前支持 UITest、CloudTest、Whitebox/LLM_judge")
@@ -195,13 +197,18 @@ def load_harmony_task(task_path):
     model = _mapping(execution.get("model"), "harmonybot_agent.execution.model")
     model_name = str(model.get("name") or "").strip()
     base_url = str(model.get("base_url") or "").strip()
-    if not model_name or not base_url:
-        raise ValueError("execution.model.name 和 base_url 均不能为空")
+    if not model_name:
+        raise ValueError("execution.model.name 不能为空")
+    if bool(base_url) != bool(model.get("api_key")):
+        raise ValueError("execution.model.base_url 和 api_key 必须同时配置，或都省略以使用已有 Provider")
     if model.get("api_type", "openai_api") != "openai_api":
         raise ValueError("当前仅支持 execution.model.api_type=openai_api")
+    provider_id = str(model.get("provider_id") or ("harmony-eval" if base_url else "")).strip()
+    if not provider_id:
+        raise ValueError("使用已有模型配置时，execution.model.provider_id 不能为空")
     model_settings = {"name": model_name, "base_url": base_url,
-                      "api_key": _api_key(model.get("api_key")),
-                      "provider_id": str(model.get("provider_id") or "harmony-eval")}
+                      "api_key": _api_key(model.get("api_key")) if base_url else "",
+                      "provider_id": provider_id}
     report = _mapping(task.get("report"), "harmonybot_agent.report")
     if report.get("format", "html") != "html":
         raise ValueError("当前仅支持 harmonybot_agent.report.format=html")

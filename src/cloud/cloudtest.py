@@ -28,7 +28,10 @@ def load_config(payload):
     config = _obj(payload.get("config"))
     raw = _obj(config.get("cloudTest"))
     base_dir = _fallback(config.get("__baseDir"), os.getcwd())
-    default_cookie = Path(base_dir) / "agc-cookie.txt"
+    configured_cookie = str(raw.get("cookieFile") or "").strip()
+    default_cookie = Path(configured_cookie).expanduser() if configured_cookie else Path(__file__).with_name("agc-cookie.txt")
+    if configured_cookie and not default_cookie.is_absolute():
+        default_cookie = Path(base_dir) / default_cookie
     cookie_file = str(default_cookie) if default_cookie.exists() else ""
     file_cookie = ""
     if cookie_file:
@@ -82,7 +85,7 @@ def load_config(payload):
     missing = [key for key in ("teamId", "projectId", "agcAuthInfo") if not normalized[key]]
     if missing:
         raise ValueError("cloudTest 配置不完整，缺少: " + ", ".join(missing)
-                         + "（请在 config 中补齐或设置环境变量 AGC_TEAM_ID / AGC_PROJECT_ID / AGC_AUTH_INFO）")
+                         + "（请在 task.yaml 中补齐或设置环境变量 AGC_TEAM_ID / AGC_PROJECT_ID / AGC_AUTH_INFO）")
     return normalized
 
 
