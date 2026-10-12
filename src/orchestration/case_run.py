@@ -83,7 +83,7 @@ async def save_agent_logs(client, session_ids, generate_dir):
 
 async def run_case(case_info, batch_root, client, model, execution, skill_runtime, store,
                    ohos_enabled=False, cloud_enabled=False, whitebox_enabled=False, progress=None,
-                   verification_ids=None):
+                   verification_ids=None, server_process=None, server_log_path=""):
     name = case_info["name"]
     run_dir = Path(batch_root) / safe_name(name)
     layout = agent_case_layout(case_info, run_dir)
@@ -160,7 +160,8 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
             idle_timeout_sec=execution.get("idleTimeoutSec") or 600,
             max_runtime_sec=execution.get("maxRuntimeSec") or 6000,
             on_progress=on_progress,
-            on_quota_exceeded=lambda message, hard: console("quota", message))
+            on_quota_exceeded=lambda message, hard: console("quota", message),
+            server_process=server_process, server_log_path=server_log_path)
         (generate_dir / "output.txt").write_text(monitored.get("output") or "", encoding="utf-8")
         write_json(generate_dir / "final-message.json", monitored.get("message") or {})
         logs = await save_agent_logs(client, [session_id, *monitored["childSessionIds"]], generate_dir)

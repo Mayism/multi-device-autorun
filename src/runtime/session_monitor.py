@@ -271,7 +271,7 @@ class SessionMonitorError(RuntimeError):
 
 async def run_monitored_session(client, session_id, project_dir, payload, events_path, polling_path,
                                 idle_timeout_sec=600, max_runtime_sec=6000, on_progress=None,
-                                on_quota_exceeded=None):
+                                on_quota_exceeded=None, server_process=None, server_log_path=""):
     """Submit a prompt and wait for a stable terminal assistant message."""
     active_ids = {session_id}
     idle_sessions = set()
@@ -303,6 +303,15 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
         if on_progress:
             on_progress(kind, data)
 
+    def ensure_server_running():
+        if server_process is None:
+            return
+        exit_code = server_process.poll()
+        if exit_code is not None:
+            location = f"；日志: {server_log_path}" if server_log_path else ""
+            raise SessionMonitorError(f"OpenCode Server 进程已退出（code={exit_code}）{location}",
+                                      "OPENCODE_SERVER_EXITED")
+
     def basic_request(message, source_id):
         if not requests_basic_tests_reply(message):
             return None
@@ -312,9 +321,11 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
 
     try:
         await asyncio.sleep(0.3)
+        ensure_server_running()
         await client.prompt_async(session_id, payload, project_dir, 300)
         progress("prompt_submitted", {"sessionId": session_id})
         while True:
+            ensure_server_running()
             while not sse.queue.empty():
                 event = sse.queue.get_nowait()
                 data = _event_data(event)

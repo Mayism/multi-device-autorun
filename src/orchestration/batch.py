@@ -205,7 +205,9 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                 result = await run_case(item, root, server.client, model, execution, skill_runtime, store,
                                         ohos_enabled=ohos_enabled, cloud_enabled=cloud_enabled,
                                         whitebox_enabled=bool(whitebox_plugins), progress=progress,
-                                        verification_ids=[plugin.spec.id for plugin in verifiers])
+                                        verification_ids=[plugin.spec.id for plugin in verifiers],
+                                        server_process=getattr(server, "process", None),
+                                        server_log_path=getattr(server, "log_path", ""))
                 reporter.case_agent_finished(result)
                 if any(plugin.should_run(result) for plugin in verifiers):
                     schedule_post(item, result)

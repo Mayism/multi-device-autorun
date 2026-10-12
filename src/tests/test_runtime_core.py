@@ -24,7 +24,8 @@ from pyautorun.runtime.skill_runtime import discover_runtime_skills, discover_lo
 from pyautorun.cloud.cloudtest_poll import poll_existing_task
 from pyautorun.cloud.cloudtest_submit import run_cloud_test, apply_signing_overrides, read_app_profile
 from pyautorun.devices.json5_lite import parse_loose_json5
-from pyautorun.runtime.session_monitor import run_monitored_session, requests_basic_tests_reply, hard_quota_cap
+from pyautorun.runtime.session_monitor import (SessionMonitorError, run_monitored_session,
+                                                requests_basic_tests_reply, hard_quota_cap)
 from pyautorun.runtime.opencode_server import OwnedServer, prepare_software_runtime
 from pyautorun.orchestration.cases import discover_cases
 
@@ -350,6 +351,33 @@ class OpenCodeProtocolTests(unittest.TestCase):
             self.assertTrue(hard_quota_cap("每周使用上限将在明天重置"))
             self.assertTrue(requests_basic_tests_reply({"parts": [{"type": "text", "text":
                 "当前模型未通过图片理解探测，请回复**仅基础测试**"}]}))
+
+    def test_session_monitor_stops_when_owned_server_exits(self):
+        class Process:
+            checks = 0
+
+            def poll(self):
+                self.checks += 1
+                return None if self.checks == 1 else -5
+
+        class Client:
+            base_url = "http://127.0.0.1:1"
+
+            async def prompt_async(self, *_args):
+                return {}
+
+            async def abort_session(self, *_args):
+                return {}
+
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaises(SessionMonitorError) as raised:
+                asyncio.run(run_monitored_session(
+                    Client(), "session", temp, {"parts": [{"type": "text", "text": "work"}]},
+                    Path(temp) / "events.jsonl", Path(temp) / "polling.jsonl",
+                    server_process=Process(), server_log_path="/tmp/opencode-server.log"))
+        self.assertEqual(raised.exception.code, "OPENCODE_SERVER_EXITED")
+        self.assertIn("code=-5", str(raised.exception))
+        self.assertIn("/tmp/opencode-server.log", str(raised.exception))
 
 
 class CloudPollTests(unittest.TestCase):
