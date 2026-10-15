@@ -51,6 +51,7 @@ import {
   GENERATED_ARTIFACT_GIT_EXCLUDES,
   pruneGeneratedArtifacts,
 } from "./src/artifacts/generated-artifact-filter.mjs";
+import { generateAgentChangePatch } from "./src/artifacts/agent-change-patch.mjs";
 import {
   bindHarmonyBotWhiteboxRuntime,
   createWhiteboxOrchestrator,
@@ -1434,14 +1435,7 @@ async function initializeGitBaseline(projectDir) {
 }
 
 async function generatePatch(projectDir, baseline, patchPath) {
-  await runCommand("git", ["add", "-A", "--", "."], { cwd: projectDir });
-  const diff = await runCommand("git", ["diff", "--binary", baseline], { cwd: projectDir, allowFailure: true });
-  if (![0, 1].includes(diff.code)) {
-    throw new Error(`生成 patch 失败: ${diff.stderr.toString("utf8")}`);
-  }
-  await fs.mkdir(path.dirname(patchPath), { recursive: true });
-  const filteredPatch = filterGeneratedArtifactPatch(diff.stdout.toString("utf8"));
-  await fs.writeFile(patchPath, filteredPatch, "utf8");
+  await generateAgentChangePatch(projectDir, baseline, patchPath);
 }
 
 const GENERATED_PROJECT_DIRS = new Set([".git", ".hvigor", "build", "node_modules"]);
