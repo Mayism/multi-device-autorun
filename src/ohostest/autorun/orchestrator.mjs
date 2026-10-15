@@ -439,17 +439,13 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
 export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, deviceLeasePath, signal }) {
   const startedAt = new Date();
   const stagedCase = await prepareGeneratedCase({ caseInfo, caseRunDir, patchPath });
-  try {
-    return await runPreparedOhosTest({
-      settings,
-      caseInfo,
-      caseRunDir,
-      deviceLeasePath,
-      signal,
-      startedAt,
-      stagedCase,
-    });
-  } finally {
-    await fsp.rm(stagedCase.goldenPatchPath, { force: true }).catch(() => {});
-  }
+  return await runPreparedOhosTest({
+    settings,
+    caseInfo,
+    caseRunDir,
+    deviceLeasePath,
+    signal,
+    startedAt,
+    stagedCase,
+  });
 }

@@ -5,6 +5,12 @@
 本文档格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
 本项目遵循[语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.6.0] - 2026-10-15
+
+### 新增
+
+- Autorun 在 Agent 完成后将 `golden_patch.patch` 复制到用例产物目录，并在 ohosTest 结束后保留，便于在本地产物和用例 ZIP 中查看参考补丁。Agent 执行期间仍不暴露该文件。
+
 ## [0.5.1] - 2026-09-17
 
 ### 修复
