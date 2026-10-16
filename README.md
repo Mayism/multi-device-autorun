@@ -543,6 +543,7 @@ output/<batchId>/
             ├── final-message.json # OpenCode 最终消息
             ├── agent-console.log  # 执行期间可实时跟踪的关键进度
             ├── agent-output.log   # 主/子 Session 的完整可读输出与工具记录
+            ├── agent-output.html  # 可搜索、筛选和展开工具输入输出的离线执行轨迹
             ├── all-messages.json  # 主/子 Session 的完整原始消息
             ├── opencode-sse.jsonl # 仅 Agent 失败、超时或中断时保留
             ├── opencode-polling.jsonl # 仅 Agent 失败、超时或中断时保留
@@ -570,7 +571,7 @@ ohosTest 日志生成结构化根因。证据和结果保存在 `<caseName>/fail
 
 Agent 成功生成 `changes.patch` 后会删除临时 `original/`；Agent 成功时还会删除 SSE、轮询日志。ohosTest 结束后会从最终 `base/` 或 `task/` 工程中清理 `.git`、`.hvigor`、`build` 和 `node_modules` 等可再生成目录，但始终保留 `all-messages.json` 以及 `work/` 或 `ohostest-workdir/`。`golden_patch.patch` 仅在 SWE 启动校验期间临时复制，Runner 结束后删除。
 
-`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径；Web 用例的 `projectDir` 指向同时包含 `base/` 与 `web/` 的父级工作目录，并额外用 `buildProjectDir` 指向可构建的鸿蒙 `base/`。结果还直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出和原始消息路径，Agent 异常时还会列出 SSE、轮询日志路径。`summary.json` 同时保存批次使用的 `agent`、`providerId`、`modelId`、全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；查看 `generate/agent-output.log` 即可阅读完整 Agent 过程。
+`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径；Web 用例的 `projectDir` 指向同时包含 `base/` 与 `web/` 的父级工作目录，并额外用 `buildProjectDir` 指向可构建的鸿蒙 `base/`。结果还直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、HTML 轨迹和原始消息路径，Agent 异常时还会列出 SSE、轮询日志路径。`summary.json` 同时保存批次使用的 `agent`、`providerId`、`modelId`、全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；打开 `generate/agent-output.html` 可按 Session 查看、搜索和筛选 Agent 过程，用例详情页也提供入口；`generate/agent-output.log` 保留原始可读文本。
 
 执行期间单独跟踪某个用例：
 

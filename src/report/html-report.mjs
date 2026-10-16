@@ -13,6 +13,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { failureIdentity } from "../agent/uitest-failure-analysis.mjs";
+import { writeAgentOutputHtml } from "./agent-output-html.mjs";
 
 async function readJson(filePath) {
   if (!filePath) return null;
@@ -757,7 +758,7 @@ export function buildOverview({
 
 // ============ 详情页 ============
 
-function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testRows, executionInfo, failureAnalysis }) {
+function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testRows, executionInfo, failureAnalysis, agentTraceHref }) {
   const r = caseResult || {};
   const am = agentMetrics || {};
   const agentType = text(r.agent || executionInfo?.agent);
@@ -783,6 +784,7 @@ function buildCasePage({ caseName, caseResult, agentMetrics, runnerResult, testR
         <div class="row"><span class="k">Agent执行耗时</span><span>${fmtDuration(deriveAgentElapsedSec(r) ?? am.elapsedSec)}</span></div>
         <div class="row"><span class="k">用例执行耗时</span><span>${fmtDuration(r.ohosTest?.elapsedSec)}</span></div>
         <div class="row"><span class="k">模型/工具调用</span><span>${am.modelCalls ?? "--"} / ${am.toolCalls ?? "--"}</span></div>
+        ${agentTraceHref ? `<div class="row"><span class="k">Agent 过程</span><span><a class="link" href="${esc(agentTraceHref)}">查看执行轨迹</a></span></div>` : ""}
         <div class="row"><span class="k">输入 Token</span><span>${fmtToken(r.tokenUsage?.input)}</span></div>
         <div class="row"><span class="k">输出 Token</span><span>${fmtToken(r.tokenUsage?.output)}</span></div>
         <div class="row"><span class="k">推理 Token</span><span>${fmtToken(r.tokenUsage?.reasoning)}</span></div>
@@ -922,9 +924,29 @@ export async function writeHtmlReport({ batchRoot, summary }) {
   );
 
   const caseRows = [];
+  const agentTraceByCase = new Map();
   for (const result of results) {
     const caseName = text(result.case);
     const am = agentByCase.get(caseName) || {};
+    let agentTracePath = text(result?.logs?.htmlPath);
+    if (!agentTracePath || !await pathExists(agentTracePath)) {
+      const messagesPath = text(result?.logs?.messagesPath);
+      const relative = messagesPath ? path.relative(batchRoot, path.resolve(messagesPath)) : "";
+      const insideBatch = relative && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+      if (insideBatch && await pathExists(messagesPath)) {
+        agentTracePath = await writeAgentOutputHtml({
+          messagesPath,
+          caseName,
+          agentStatus: result.agentStatus || result.status,
+          agentError: result.agentError,
+          model: [result.providerId || executionInfo.providerId, result.modelId || executionInfo.modelId].filter(Boolean).join("/"),
+          startedAt: result.startedAt,
+          finishedAt: result.agentFinishedAt || result.finishedAt,
+          tokenUsage: result.tokenUsage,
+        }).catch(() => "");
+      }
+    }
+    if (agentTracePath && await pathExists(agentTracePath)) agentTraceByCase.set(caseName, agentTracePath);
     const runnerResult = await readJson(result?.ohosTest?.resultPath || "");
     const testRows = flattenRunnerTests(runnerResult);
     const ts = summarizeTestRows(testRows);
@@ -1003,6 +1025,7 @@ export async function writeHtmlReport({ batchRoot, summary }) {
       testRows,
       executionInfo,
       failureAnalysis,
+      agentTraceHref: agentTraceByCase.has(caseName) ? relHref(subpageDir, agentTraceByCase.get(caseName)) : "",
     });
     const filePath = path.join(subpageDir, `${caseName}.html`);
     await fs.writeFile(filePath, html, "utf8");

@@ -28,6 +28,7 @@ import { addCompileUsage, collectCompileAttempts, emptyCompileUsage } from "./sr
 import { loadOhosTestConfig, runOhosTest } from "./src/ohostest/autorun/orchestrator.mjs";
 import { loadCloudTestConfig, submitCloudTestForProject, finishCloudTestPolling } from "./src/cloudtest/cloudtest-orchestrator.mjs";
 import { writeBatchReport } from "./src/report/batch-report.mjs";
+import { writeAgentOutputHtml } from "./src/report/agent-output-html.mjs";
 import { OPENCODE_SOURCE_MODES, resolveOpenCodeSource } from "./src/opencode/opencode-installation.mjs";
 import { mergeOverview } from "./src/report/merge-overview.mjs";
 import { serverAllowsEverything, serverAllowsExecution } from "./src/agent/permission-policy.mjs";
@@ -1738,6 +1739,18 @@ async function runCase({
       ...(cloudTestEnabled ? { cloudTest: { status: "queued" } } : {}),
       ...(preserveForWhitebox ? { whitebox: { status: "queued" } } : {}),
     };
+    result.logs.htmlPath = await writeAgentOutputHtml({
+      messagesPath: agentLogs.messagesPath,
+      caseName,
+      agentStatus: result.agentStatus,
+      model: [result.providerId, result.modelId].filter(Boolean).join("/"),
+      startedAt: result.startedAt,
+      finishedAt: result.agentFinishedAt,
+      tokenUsage,
+    }).catch((htmlError) => {
+      console.error(`[${caseName}] Agent HTML 日志生成失败: ${htmlError.message}`);
+      return "";
+    });
     const finalPreview = compactPreview(monitored.output, 500);
     if (finalPreview) await writeAgentConsole("final", finalPreview);
     await writeAgentConsole("complete", `执行完成；完整输出=${agentLogs.transcriptPath}`);
@@ -1825,6 +1838,21 @@ async function runCase({
         consolePath: agentConsolePath,
       },
     };
+    if (agentLogs?.messagesPath) {
+      result.logs.htmlPath = await writeAgentOutputHtml({
+        messagesPath: agentLogs.messagesPath,
+        caseName,
+        agentStatus: status,
+        agentError: result.agentError,
+        model: [model.providerId, model.modelId].filter(Boolean).join("/"),
+        startedAt: result.startedAt,
+        finishedAt: result.finishedAt,
+        tokenUsage,
+      }).catch((htmlError) => {
+        console.error(`[${caseName}] Agent HTML 日志生成失败: ${htmlError.message}`);
+        return "";
+      });
+    }
     await writeAgentConsole(status, error.message).catch(() => {});
     await agentConsoleWriteChain.catch(() => {});
     await atomicWriteJson(resultPath, result);
@@ -1908,6 +1936,7 @@ async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, s
     logs: {
       transcriptPath: previousResult.logs?.transcriptPath || "",
       messagesPath: previousResult.logs?.messagesPath || "",
+      htmlPath: previousResult.logs?.htmlPath || "",
       compileAttemptsPath: previousResult.logs?.compileAttemptsPath || "",
       consolePath: previousResult.logs?.consolePath || "",
       sourceResultPath: previousResult.resultPath || "",
