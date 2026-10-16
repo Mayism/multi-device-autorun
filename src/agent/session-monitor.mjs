@@ -4,10 +4,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { TokenUsageTracker } from "./token-usage.mjs";
 import { CompileUsageTracker } from "./compile-usage.mjs";
 import { handlePendingInteractions } from "./interaction-policy.mjs";
+import { requestsBasicTestsConfirmation } from "./multimodal-fallback.mjs";
+import { automaticTextReply } from "./text-confirmation.mjs";
 
 const TERMINAL_FINISH_EXCLUSIONS = new Set(["", "tool-calls", "unknown"]);
 const ACTIVE_TODO_STATES = new Set(["pending", "in_progress", "in-progress", "running", "active", "doing", "todo"]);
-const BASIC_TESTS_REPLY = "仅基础测试";
 
 function walk(value, visitor) {
   if (!value || typeof value !== "object") return;
@@ -101,20 +102,15 @@ function extractText(message) {
 }
 
 export function requestsBasicTestsReply(message) {
-  const text = extractText(message)
-    .normalize("NFKC")
-    // Skill 文档可能用 Markdown 强调回复词，例如“**仅基础测试**”。
-    .replace(/\*\*|__|`/g, "")
-    .replace(/[ \t]+/g, " ");
-  return text.includes("当前模型未通过图片理解探测")
-    && text.includes("仅基础测试")
-    && /请回复\s*[“\"'‘]?\s*仅基础测试\s*[”\"'’]?/.test(text);
+  return requestsBasicTestsConfirmation(extractText(message));
 }
 
-function basicTestsReplyRequest(message, sourceSessionId) {
-  if (!requestsBasicTestsReply(message)) return null;
+function automaticTextReplyRequest(message, sourceSessionId) {
+  const reply = automaticTextReply(extractText(message));
+  if (!reply) return null;
   const messageId = String(message?.info?.id || message?.id || "");
   return {
+    ...reply,
     sourceSessionId,
     sourceMessageId: messageId,
     key: `${sourceSessionId}:${messageId || messageActivitySignature(message)}`,
@@ -122,11 +118,13 @@ function basicTestsReplyRequest(message, sourceSessionId) {
   };
 }
 
-function mergeBasicTestsReplyRequest(current, incoming) {
+function mergeTextReplyRequest(current, incoming) {
   if (!incoming) return current;
+  if (current?.key === incoming.key) return incoming;
+  if (incoming.ready && incoming.reason === "multimodal_unavailable"
+    && current?.reason !== "multimodal_unavailable") return incoming;
   if (current?.ready) return current;
-  if (!current || current.key !== incoming.key) return incoming;
-  return { ...current, ready: current.ready || incoming.ready };
+  return incoming;
 }
 
 function followUpPayload(payload, text) {
@@ -186,7 +184,8 @@ function summarizedValue(value) {
 }
 
 function finishReason(message) {
-  return String(message?.info?.finish || "").trim().toLowerCase();
+  const finishedPart = messageParts(message).findLast((part) => part?.type === "step-finish");
+  return String(message?.info?.finish || finishedPart?.reason || "").trim().toLowerCase();
 }
 
 function hasStepFinish(message) {
@@ -194,7 +193,15 @@ function hasStepFinish(message) {
 }
 
 function terminalMessage(message) {
-  return Boolean(message && hasStepFinish(message) && !TERMINAL_FINISH_EXCLUSIONS.has(finishReason(message)));
+  // 兼容用 completed 时间标记结束、或仅在 step-finish 中提供原因的快照。
+  const completed = hasStepFinish(message) || Number(message?.info?.time?.completed) > 0;
+  const activeTool = messageParts(message).some(part => part?.type === "tool"
+    && ["pending", "running"].includes(part.state?.status));
+  return Boolean(message && completed && !activeTool && !TERMINAL_FINISH_EXCLUSIONS.has(finishReason(message)));
+}
+
+function messageKey(message) {
+  return String(message?.info?.id || message?.id || messageActivitySignature(message));
 }
 
 function messageActivitySignature(message) {
@@ -437,10 +444,39 @@ export async function runMonitoredSession({
   let interactionRequested = true;
   let fatalSessionError = null;
   let quotaLimited = false;
-  let basicTestsReplyInjected = false;
-  let pendingBasicTestsReply = null;
+  const repliedTextRequests = new Set();
+  let pendingTextReply = null;
+  let awaitingAssistantAfterReply = null;
   const startedAt = Date.now();
   const onActivity = () => { lastActivityAt = Date.now(); };
+  const waitForResumedAssistant = () => {
+    // 回复被接受后仍可能读到旧终态，直到出现新 assistant 消息才允许完成。
+    awaitingAssistantAfterReply = messageKey(latestMessage);
+    idleSessions.delete(sessionId);
+    latestMessage = null;
+    latestTodoActive = false;
+    childActive = false;
+    stableTerminalCount = 0;
+    unchangedMessageCount = 0;
+    messagePollMs = 2000;
+    lastMessagePollAt = 0;
+    lastChildrenPollAt = 0;
+    lastTodoPollAt = 0;
+    onActivity();
+  };
+  const pollInteractions = async () => {
+    const result = await handlePendingInteractions({
+      client, projectDir, repliedQuestions, repliedPermissions, onActivity, onProgress,
+    });
+    // Question 回复也会恢复 Agent，不能把提问前的终态当作最终结果。
+    if (result.questionsReplied) {
+      // 同一询问可能同时出现在文本和 Question 中，工具已回答时不要再续发。
+      if (pendingTextReply) repliedTextRequests.add(pendingTextReply.key);
+      pendingTextReply = null;
+      waitForResumedAssistant();
+    }
+    return result;
+  };
   const sse = startSseCapture({
     baseUrl: client.baseUrl,
     projectDir,
@@ -487,11 +523,15 @@ export async function runMonitoredSession({
         try {
           const raw = await client.listMessages(sessionId, 1);
           latestMessage = latestAssistantMessage(raw) || latestMessage;
-          const rootBasicTestsRequest = basicTestsReplyRequest(latestMessage, sessionId);
-          if (rootBasicTestsRequest && !basicTestsReplyInjected) {
-            pendingBasicTestsReply = mergeBasicTestsReplyRequest(
-              pendingBasicTestsReply,
-              rootBasicTestsRequest,
+          if (latestMessage && awaitingAssistantAfterReply !== null
+            && messageKey(latestMessage) !== awaitingAssistantAfterReply) {
+            awaitingAssistantAfterReply = null;
+          }
+          const rootTextRequest = automaticTextReplyRequest(latestMessage, sessionId);
+          if (rootTextRequest && !repliedTextRequests.has(rootTextRequest.key)) {
+            pendingTextReply = mergeTextReplyRequest(
+              pendingTextReply,
+              rootTextRequest,
             );
           }
           const tokenUsageChanged = tokenUsageTracker.update(sessionId, latestMessage);
@@ -549,11 +589,11 @@ export async function runMonitoredSession({
             try {
               const childMessages = await client.listMessages(childId, 1);
               const childMessage = latestAssistantMessage(childMessages);
-              const childBasicTestsRequest = basicTestsReplyRequest(childMessage, childId);
-              if (childBasicTestsRequest && !basicTestsReplyInjected) {
-                pendingBasicTestsReply = mergeBasicTestsReplyRequest(
-                  pendingBasicTestsReply,
-                  childBasicTestsRequest,
+              const childTextRequest = automaticTextReplyRequest(childMessage, childId);
+              if (childTextRequest && !repliedTextRequests.has(childTextRequest.key)) {
+                pendingTextReply = mergeTextReplyRequest(
+                  pendingTextReply,
+                  childTextRequest,
                 );
               }
               const tokenUsageChanged = tokenUsageTracker.update(childId, childMessage);
@@ -608,74 +648,53 @@ export async function runMonitoredSession({
       if (interactionRequested || now - lastInteractionPollAt >= 2000) {
         interactionRequested = false;
         lastInteractionPollAt = now;
-        await handlePendingInteractions({
-          client,
-          projectDir,
-          repliedQuestions,
-          repliedPermissions,
-          onActivity,
-          onProgress,
-        });
+        const interactions = await pollInteractions();
+        if (interactions.questionsReplied) continue;
       }
 
-      // 「仅基础测试」是对 Agent 等待用户输入状态的续话，不是会话完成后的
+      // 自动确认是对 Agent 等待用户输入状态的续话，不是会话完成后的
       // 收尾操作。只要该条提示消息已完整结束，且没有待处理的权限/Question，
       // 就续发到根会话；不等待 Todo 清空、子 Agent 结束或整个会话进入 complete。
-      if (!basicTestsReplyInjected && pendingBasicTestsReply?.ready) {
-        const pendingInteractions = await handlePendingInteractions({
-          client,
-          projectDir,
-          repliedQuestions,
-          repliedPermissions,
-          onActivity,
-          onProgress,
-        });
+      if (pendingTextReply?.ready && awaitingAssistantAfterReply === null) {
+        const pendingInteractions = await pollInteractions();
+        if (pendingInteractions.questionsReplied) continue;
         if (pendingInteractions.pending || pendingInteractions.errors.length) {
           await delay(500);
           continue;
         }
-        const replyRequest = pendingBasicTestsReply;
+        const replyRequest = pendingTextReply;
         await waitWithInterruption(
           client.promptAsync(
             sessionId,
-            followUpPayload(payload, BASIC_TESTS_REPLY),
+            followUpPayload(payload, replyRequest.text),
             projectDir,
             300,
           ),
           signal,
         );
-        basicTestsReplyInjected = true;
-        pendingBasicTestsReply = null;
-        idleSessions.delete(sessionId);
-        latestMessage = null;
-        latestTodoActive = false;
-        childActive = false;
-        stableTerminalCount = 0;
-        unchangedMessageCount = 0;
-        messagePollMs = 2000;
-        lastMessagePollAt = 0;
-        lastChildrenPollAt = 0;
-        lastTodoPollAt = 0;
-        onActivity();
+        // 同一询问只回复一次；后续新消息再次询问时仍可继续。
+        repliedTextRequests.add(replyRequest.key);
+        pendingTextReply = null;
+        waitForResumedAssistant();
         await appendJsonl(pollingPath, {
           timestamp: new Date().toISOString(),
           kind: "automatic_text_reply",
           sessionId,
-          text: BASIC_TESTS_REPLY,
+          text: replyRequest.text,
           sourceSessionId: replyRequest.sourceSessionId,
           sourceMessageId: replyRequest.sourceMessageId,
         });
         onProgress?.("text_replied", {
           sessionId,
-          text: BASIC_TESTS_REPLY,
-          reason: "multimodal_unavailable",
+          text: replyRequest.text,
+          reason: replyRequest.reason,
           sourceSessionId: replyRequest.sourceSessionId,
           sourceMessageId: replyRequest.sourceMessageId,
         });
         continue;
       }
 
-      const complete = terminalMessage(latestMessage)
+      const complete = awaitingAssistantAfterReply === null && terminalMessage(latestMessage)
         && !latestTodoActive
         && !childActive
         && (idleSessions.has(sessionId) || stableTerminalCount >= 2);
@@ -684,14 +703,8 @@ export async function runMonitoredSession({
         throw new Error("OpenCode session 已 idle，但模型 finish reason 为 unknown");
       }
       if (complete) {
-        const finalInteractions = await handlePendingInteractions({
-          client,
-          projectDir,
-          repliedQuestions,
-          repliedPermissions,
-          onActivity,
-          onProgress,
-        });
+        const finalInteractions = await pollInteractions();
+        if (finalInteractions.questionsReplied) continue;
         if (finalInteractions.pending || finalInteractions.errors.length) {
           await delay(500);
           continue;

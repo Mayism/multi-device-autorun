@@ -4,10 +4,19 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { CONTINUE_TASK_REPLY } from "./text-confirmation.mjs";
 import {
   requestsBasicTestsReply,
   runMonitoredSession,
 } from "./session-monitor.mjs";
+
+const MULTIMODAL_FALLBACK = "当前模型未通过图片理解探测（无法读取图片附件），请选择后续测试方式：\n\n1. **仅基础测试（默认方案）**：保留构建和静态检查结果，多模态测试（设备截图视觉判定）标记为未验证，继续生成报告。请回复“**仅基础测试**”。\n2. **继续多模态测试**：请先切换到支持图片理解的模型，再回复“**切换完，继续执行多模态测试**”。";
+
+const MULTIMODAL_PROBE_FAILURE = `多模态探测未通过（当前模型不支持图片理解）。按验证流程需要您选择后续测试方式：
+
+> **1. 仅基础测试（默认方案）**：保留构建和静态检查结果，多模态测试标记为未验证，继续生成报告。请回复“仅基础测试”。
+>
+> **2. 继续多模态测试**：请先切换到支持图片理解的模型，再回复“切换完，继续执行多模态测试”。`;
 
 async function createTestWorkspace(t) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "autorun-session-monitor-"));
@@ -191,13 +200,181 @@ test("requestsBasicTestsReply matches only the multimodal fallback guidance", ()
     true,
   );
   assert.equal(requestsBasicTestsReply(message("仅基础测试已经执行完成。")), false);
+  assert.equal(requestsBasicTestsReply(message(MULTIMODAL_FALLBACK)), true);
+  assert.equal(requestsBasicTestsReply(message(MULTIMODAL_PROBE_FAILURE)), true);
+  assert.equal(requestsBasicTestsReply(message("多模态探测未通过，请回复“仅基础测试”。")), true);
+  assert.equal(requestsBasicTestsReply(message("当前模型不支持图片理解，请回复“仅基础测试”。")), true);
+  assert.equal(requestsBasicTestsReply(message("多模态探测已通过。请回复“仅基础测试”。")), false);
+  assert.equal(requestsBasicTestsReply(message("构建未通过，请回复“仅基础测试”。")), false);
   assert.equal(
     requestsBasicTestsReply(message("当前模型未通过图片理解探测，但无需用户回复。")),
     false,
   );
 });
 
-test("multimodal fallback text receives one basic-tests reply in the same session", async (t) => {
+test("multimodal fallback recognizes varied confirmation wording without a fixed reply instruction", () => {
+  const matches = text => requestsBasicTestsReply({ parts: [{ type: "text", text }] });
+  for (const text of [
+    "多模态探测未通过，请选择：1. 仅基础测试；2. 切换模型后继续。",
+    "当前模型不支持图片理解，是否继续基础测试？",
+    "图片理解能力不足，是否降级为基础验证？",
+    "无法读取图片附件。请选择后续测试方式：\n> 1. 基础测试\n> 2. 多模态测试",
+    "图片看不了，要不要先跑不依赖截图的检查？",
+    "无法看图，只做基础检查可以吗？",
+    "当前模型无法理解截图。是否仅保留构建和静态检查？",
+    "图像理解检测失败，需要您确认后续方案：\n只执行基础测试\n切换模型",
+    "模型不具备视觉理解能力，您是否同意仅做基础测试并生成报告？",
+    "当前模型不支持图片输入，继续基础测试？",
+    "无法看图，您想继续基础检查吗？",
+    "多模态探测失败。是否继续？\n1. 基础测试\n2. 切换模型进行多模态测试",
+  ]) assert.equal(matches(text), true, text);
+  for (const text of [
+    "图片理解能力不足，已降级为基础测试并生成报告。",
+    "当前模型不支持图片理解。基础测试已经完成。请选择报告格式。",
+    "当前模型不支持图片理解。基础测试已经完成。请选择报告方案。",
+    "当前模型不支持图片理解，是否切换模型？",
+    "多模态探测已通过，是否继续基础测试？",
+    "编译失败，是否继续基础测试？",
+    "图片加载失败，是否继续基础测试？",
+    "如果当前模型不支持图片理解，请选择仅基础测试。",
+    "当前模型不支持图片理解，无需确认是否继续基础测试，我将自动生成报告。",
+    "当前模型不支持图片理解，不用回复仅基础测试。",
+  ]) assert.equal(matches(text), false, text);
+});
+
+for (const completionShape of ["completed-time", "part-reason"]) {
+  test(`multimodal reply accepts ${completionShape} completion metadata`, async (t) => {
+    const { tempDir, projectDir } = await createTestWorkspace(t);
+    const sessionId = `fallback-${completionShape}`;
+    const fake = await startFakeEventServer(projectDir, [{
+      type: "session.idle", properties: { sessionID: sessionId },
+    }]);
+    t.after(() => fake.close());
+    const prompts = [];
+    fake.client.promptAsync = async (_id, payload) => prompts.push(payload);
+    fake.client.listMessages = async () => [{
+      info: {
+        id: prompts.length === 1 ? "request" : "done", role: "assistant",
+        ...(completionShape === "completed-time" ? { finish: "stop", time: { completed: 123 } } : {}),
+      },
+      parts: [
+        { type: "text", text: prompts.length === 1 ? MULTIMODAL_FALLBACK : "基础测试完成。" },
+        ...(completionShape === "part-reason" ? [{ type: "step-finish", reason: "stop" }] : []),
+      ],
+    }];
+    fake.client.listChildren = async () => [];
+    fake.client.listTodos = async () => [];
+    fake.client.listQuestions = async () => [];
+    fake.client.listPermissions = async () => [];
+    fake.client.abortSession = async () => {};
+    const result = await runMonitoredSession({
+      client: fake.client, sessionId, projectDir,
+      payload: { parts: [{ type: "text", text: "执行适配" }] },
+      eventsPath: path.join(tempDir, "events.jsonl"),
+      pollingPath: path.join(tempDir, "polling.jsonl"),
+      idleTimeoutSec: 3, maxRuntimeSec: 10,
+    });
+    assert.equal(prompts.length, 2);
+    assert.equal(prompts[1].parts[0].text, "仅基础测试");
+    assert.equal(result.output, "基础测试完成。");
+  });
+}
+
+for (const workflow of [false, true]) {
+test(`${workflow ? "workflow" : "multimodal"} requests are answered per message and stale polls cannot finish the resumed session`, async (t) => {
+  const { tempDir, projectDir } = await createTestWorkspace(t);
+  const sessionId = "repeated-fallback";
+  const fake = await startFakeEventServer(projectDir, []);
+  t.after(() => fake.close());
+  const prompts = [];
+  let stalePolls = 0;
+  fake.client.promptAsync = async (_id, payload) => prompts.push(payload);
+  fake.client.listMessages = async () => {
+    const id = prompts.length === 1 || (prompts.length === 2 && stalePolls++ < 2)
+      ? "request-one" : prompts.length === 2 ? "request-two" : "done";
+    return [{
+      info: { id, role: "assistant", finish: "stop" },
+      parts: [
+        { type: "text", text: id === "done" ? "适配报告已完成。" : workflow ? "是否继续进入下一阶段？" : MULTIMODAL_FALLBACK },
+        { type: "step-finish" },
+      ],
+    }];
+  };
+  fake.client.listChildren = async () => [];
+  fake.client.listTodos = async () => [];
+  fake.client.listQuestions = async () => [];
+  fake.client.listPermissions = async () => [];
+  fake.client.abortSession = async () => {};
+  const result = await runMonitoredSession({
+    client: fake.client, sessionId, projectDir,
+    payload: { parts: [{ type: "text", text: "执行适配" }] },
+    eventsPath: path.join(tempDir, "events.jsonl"),
+    pollingPath: path.join(tempDir, "polling.jsonl"),
+    idleTimeoutSec: 10, maxRuntimeSec: 20,
+  });
+  assert.equal(prompts.length, 3);
+  const expectedReply = workflow ? CONTINUE_TASK_REPLY : "仅基础测试";
+  assert.deepEqual(prompts.slice(1).map(p => p.parts[0].text), [expectedReply, expectedReply]);
+  assert.equal(result.output, "适配报告已完成。");
+});
+}
+
+for (const workflow of [false, true]) {
+test(`answering a ${workflow ? "workflow" : "multimodal"} Question waits for the resumed Agent result without another text reply`, async (t) => {
+  const { tempDir, projectDir } = await createTestWorkspace(t);
+  const sessionId = "question-fallback";
+  const fake = await startFakeEventServer(projectDir, [{
+    type: "session.idle", properties: { sessionID: sessionId },
+  }]);
+  t.after(() => fake.close());
+  let answered = false;
+  let stalePolls = 0;
+  let promptCalls = 0;
+  fake.client.promptAsync = async () => { promptCalls += 1; };
+  const questionText = workflow ? "是否先生成高保真预览？" : "当前模型不支持图片理解，是否继续基础测试？";
+  fake.client.listMessages = async () => {
+    const done = answered && stalePolls++ >= 2;
+    return [{
+      info: { id: done ? "done" : "waiting", role: "assistant", finish: "stop" },
+      parts: [
+        { type: "text", text: done ? "基础测试报告已完成。" : questionText },
+        { type: "step-finish" },
+      ],
+    }];
+  };
+  fake.client.listChildren = async () => [];
+  fake.client.listTodos = async () => [];
+  fake.client.listQuestions = async () => answered ? [] : [{
+    id: "fallback-question", questions: [{
+      question: questionText,
+      options: workflow ? [{ label: "先生成高保真预览（推荐）" }, { label: "取消" }]
+        : [{ label: "继续多模态测试" }, { label: "仅基础测试" }],
+    }],
+  }];
+  fake.client.replyQuestion = async (_id, answers) => {
+    assert.deepEqual(answers, [[workflow ? "先生成高保真预览（推荐）" : "仅基础测试"]]);
+    answered = true;
+  };
+  fake.client.listPermissions = async () => [];
+  fake.client.abortSession = async () => {};
+  const result = await runMonitoredSession({
+    client: fake.client, sessionId, projectDir,
+    payload: { parts: [{ type: "text", text: "执行适配" }] },
+    eventsPath: path.join(tempDir, "events.jsonl"),
+    pollingPath: path.join(tempDir, "polling.jsonl"),
+    idleTimeoutSec: 10, maxRuntimeSec: 15,
+  });
+  assert.equal(result.output, "基础测试报告已完成。");
+  assert.equal(promptCalls, 1, "Question reply must not be followed by a duplicate text reply");
+});
+}
+
+for (const scenario of [
+  { name: "multimodal fallback", question: "图片看不了，要不要先跑不依赖截图的检查？", reply: "仅基础测试", reason: "multimodal_unavailable" },
+  { name: "workflow confirmation", question: "1. 是否继续进入 **B02 导航框架**（全局 Tabs 导航栏 SM/MD 底部 ↔ LG/XL 左侧竖向 + 追剧页编辑按钮挪移）的 SPEC 生成与高保真预览？", reply: CONTINUE_TASK_REPLY, reason: "workflow_confirmation" },
+  { name: "default confirmation without an action keyword", question: "是否采用推荐方案？", reply: CONTINUE_TASK_REPLY, reason: "workflow_confirmation" },
+]) {
+test(`${scenario.name} text receives one reply in the same session`, async (t) => {
   const { tempDir, projectDir } = await createTestWorkspace(t);
   const sessionId = "session-multimodal-fallback";
   const fake = await startFakeEventServer(projectDir, [{
@@ -224,7 +401,7 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
   fake.client.listMessages = async () => {
     messagePolls += 1;
     if (prompts.length !== 1) return [terminalMessage("second", "基础测试已完成。")];
-    const text = "当前模型未通过图片理解探测，请选择后续测试方式：\n1. 仅基础测试（默认方案）。请回复“仅基础测试”。\n2. 继续多模态测试。";
+    const text = scenario.question;
     if (messagePolls === 1) {
       return [{
         info: { id: "first", role: "assistant", finish: "tool-calls" },
@@ -263,14 +440,14 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
   assert.ok(replySubmittedAtPoll >= 2, "must wait until the matching assistant message is terminal");
   assert.deepEqual(prompts[1], {
     ...initialPayload,
-    parts: [{ type: "text", text: "仅基础测试" }],
+    parts: [{ type: "text", text: scenario.reply }],
   });
   assert.deepEqual(
     progress.filter(({ event }) => event === "text_replied").map(({ data }) => data),
     [{
       sessionId,
-      text: "仅基础测试",
-      reason: "multimodal_unavailable",
+      text: scenario.reply,
+      reason: scenario.reason,
       sourceSessionId: sessionId,
       sourceMessageId: "first",
     }],
@@ -278,6 +455,7 @@ test("multimodal fallback text receives one basic-tests reply in the same sessio
   const polling = await fs.readFile(path.join(tempDir, "polling.jsonl"), "utf8");
   assert.equal((polling.match(/"kind":"automatic_text_reply"/g) ?? []).length, 1);
 });
+}
 
 test("multimodal fallback emitted by a child is replied through the root session once", async (t) => {
   const { tempDir, projectDir } = await createTestWorkspace(t);
@@ -318,7 +496,7 @@ test("multimodal fallback emitted by a child is replied through the root session
         : terminalMessage("child-finished", "其他子任务已完成。")];
     }
     return [promptCalls.length === 1
-      ? terminalMessage("root-waiting", "子任务已返回，等待用户选择测试范围。")
+      ? terminalMessage("root-waiting", "子任务已返回，是否继续进入下一阶段？")
       : terminalMessage("root-finished", "已按基础测试完成报告。")];
   };
   fake.client.listChildren = async () => [{ id: childSessionId }, { id: workingChildSessionId }];

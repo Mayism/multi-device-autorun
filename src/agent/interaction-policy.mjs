@@ -1,7 +1,22 @@
+import { BASIC_TESTS_REPLY, hasBasicTestsOption, requestsBasicTestsConfirmation } from "./multimodal-fallback.mjs";
+import { requiresManualConfirmation } from "./text-confirmation.mjs";
+
+export { BASIC_TESTS_REPLY } from "./multimodal-fallback.mjs";
+
 const AFFIRMATIVE = /(?:允许|同意|确认|继续|执行|应用|保存|覆盖|启用|接受|推荐|默认|好的|可以|是|\b(?:allow|approve|confirm|continue|proceed|accept|recommended|default|yes|ok)\b)/i;
 const NEGATIVE = /(?:取消|拒绝|停止|终止|放弃|跳过|稍后|不允许|不同意|否|\b(?:cancel|reject|deny|stop|abort|skip|later|no)\b)/i;
 
 export const AUTOMATIC_CONFIRMATION_TEXT = "允许，请继续执行；如需选择，请采用推荐或默认方案。";
+
+function basicTestsAnswer(question, options) {
+  const context = [question?.question, question?.prompt, question?.header, ...options.map(optionText)]
+    .filter(Boolean).join("\n");
+  if (!requestsBasicTestsConfirmation(context, { structuredQuestion: true })) return null;
+  // 模型能力不足时遵循基础测试降级策略，不让“继续”选项的通用分数覆盖它。
+  const option = options.find(item => hasBasicTestsOption(item?.label || item?.value));
+  if (option) return String(option.label || option.value).trim();
+  return !options.length ? BASIC_TESTS_REPLY : null;
+}
 
 function optionText(option) {
   return `${String(option?.label || option?.value || "")} ${String(option?.description || "")}`.trim();
@@ -19,6 +34,14 @@ export function buildAutomaticQuestionAnswers(questions) {
   const answers = [];
   for (const question of Array.isArray(questions) ? questions : []) {
     const options = Array.isArray(question?.options) ? question.options : [];
+    const basicAnswer = basicTestsAnswer(question, options);
+    if (basicAnswer) {
+      answers.push([basicAnswer]);
+      continue;
+    }
+    const questionText = [question?.question, question?.prompt].filter(Boolean).join("\n");
+    // 一次 Question 请求的答案需要完整提交；包含人工验收时保留整组问题。
+    if (requiresManualConfirmation(questionText, { hasOptions: options.length > 0 })) return [];
     if (!options.length) {
       answers.push([AUTOMATIC_CONFIRMATION_TEXT]);
       continue;
@@ -52,6 +75,7 @@ export async function handlePendingInteractions({
 }) {
   let pending = 0;
   let replied = 0;
+  let questionsReplied = 0;
   const errors = [];
 
   try {
@@ -62,11 +86,15 @@ export async function handlePendingInteractions({
       pending += 1;
       try {
         const answers = buildAutomaticQuestionAnswers(item?.questions || []);
-        if (!answers.length) throw new Error("question 请求未包含可回答的问题");
+        if (!answers.length) {
+          if (Array.isArray(item?.questions) && item.questions.length) continue;
+          throw new Error("question 请求未包含可回答的问题");
+        }
         await client.replyQuestion(id, answers, projectDir);
         repliedQuestions.add(id);
         pending -= 1;
         replied += 1;
+        questionsReplied += 1;
         onActivity?.();
         onProgress?.("question_replied", { requestId: id, answers });
       } catch (error) {
@@ -103,5 +131,5 @@ export async function handlePendingInteractions({
     onProgress?.("interaction_error", { kind: "permission_list", error: error.message });
   }
 
-  return { pending, replied, errors };
+  return { pending, replied, questionsReplied, errors };
 }
