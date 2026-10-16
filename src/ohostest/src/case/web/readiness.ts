@@ -19,6 +19,20 @@ export async function assertPortFree(readyUrl: string): Promise<void> {
   });
 }
 
+export async function waitForPortRelease(readyUrl: string): Promise<void> {
+  const deadline = performance.now() + 1000;
+  while (true) {
+    try {
+      await assertPortFree(readyUrl);
+      return;
+    } catch (error) {
+      if (performance.now() >= deadline)
+        throw new Error(`web_port_not_released: ${readyUrl}`, { cause: error });
+      await sleep(25);
+    }
+  }
+}
+
 export async function waitForWebReady(input: {
   process: OwnedProcess;
   url: string;

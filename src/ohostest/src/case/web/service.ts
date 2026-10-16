@@ -7,7 +7,11 @@ import {
   validateWebProject,
   webEnvironment,
 } from "./npm.js";
-import { assertPortFree, waitForWebReady } from "./readiness.js";
+import {
+  assertPortFree,
+  waitForPortRelease,
+  waitForWebReady,
+} from "./readiness.js";
 import { WEB_STARTUP_TIMEOUT_MS } from "./constants.js";
 import {
   startProcess,
@@ -171,6 +175,7 @@ async function startServer(session: WebSession): Promise<OwnedProcess> {
 }
 
 async function cleanupSession(session: WebSession): Promise<void> {
+  const started = Date.now();
   const failures: unknown[] = [];
   for (const owned of [...session.processes].reverse()) {
     try {
@@ -179,9 +184,17 @@ async function cleanupSession(session: WebSession): Promise<void> {
       failures.push(error);
     }
   }
+  if (process.platform === "win32" && session.processes.length) {
+    try {
+      // Verify release after terminating owned Jobs; never kill a port's occupant.
+      await waitForPortRelease(session.input.readyUrl);
+    } catch (error) {
+      failures.push(error);
+    }
+  }
   session.input.logger.recordCommand("stop owned web processes", {
     exitCode: failures.length ? 1 : 0,
-    durationMs: 0,
+    durationMs: Date.now() - started,
     stdout: "",
     stderr: failures.map(String).join("; "),
   });

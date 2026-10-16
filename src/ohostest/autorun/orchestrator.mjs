@@ -3,12 +3,14 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { withDeviceLease } from "./device-lease.mjs";
 import {
   checkConfiguredEmulatorPorts,
   formatEmulatorPortConflict,
 } from "../../platform/emulator-hdc-port-check.mjs";
+import { detectRnProject } from "../../shared/rn-project-detect.mjs";
 
 const RESULT_POLL_INTERVAL_MS = 500;
 const RESULT_EXIT_GRACE_MS = 10_000;
@@ -34,14 +36,17 @@ async function readJson(filePath) {
   }
 }
 
-async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs = 500) {
-  if (!await exists(source)) return "";
+// rename 带重试：Windows 上进程树刚退出时，hvigor daemon 等子进程释放 work 目录
+// 句柄可能有延迟（EBUSY/EPERM），短暂重试后通常即可移动。跨卷 EXDEV 是确定性
+// 错误，不重试直接抛给调用方走复制分支。
+async function renameWithRetry(source, destination, attempts = 10, delayMs = 500) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       await fsp.rename(source, destination);
-      return destination;
+      return;
     } catch (error) {
+      if (error?.code === "EXDEV") throw error;
       lastError = error;
       if (attempt < attempts) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -49,6 +54,38 @@ async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs =
     }
   }
   throw lastError;
+}
+
+async function retainRunnerWorkdir(source, destination, attempts = 10, delayMs = 500) {
+  if (!await exists(source)) return "";
+  await renameWithRetry(source, destination, attempts, delayMs);
+  return destination;
+}
+
+// RN 迁移运行的 work 不迁回：<out>/work/project 是纯临时构建目录（常为 GB 级且
+// 跨卷复制昂贵），运行结束随临时根清理；失败排查依据 .ohostest-runs 内的
+// result.json / summary.md / commands 日志。非迁移运行仍保留 work 为
+// <caseRunDir>/ohostest-workdir（上游既有行为，同卷 rename 开销极小）。
+
+// 迁移到短根的输出目录迁回 caseRunDir/.ohostest-runs/<ts>：必须在 runner 进程树
+// 完全退出之后调用（runProcess 于 close 后才 resolve）。work 由 runner 在
+// --keep-workdir false 下自行删除，此处删除仅兜底（runner 清理失败遗留时基本也
+// 会因文件锁失败，进而保留整个临时目录供人工处置）——迁回的只有报告等小文件。
+// rename 前必须先建目标父目录（.ohostest-runs 可能尚不存在，rename 不会自动创建）。
+async function restoreRelocatedOutput(outputDir, caseRunDir, startedAt) {
+  const destination = runnerOutputDir(caseRunDir, startedAt);
+  if (!await exists(outputDir)) return destination;
+  await fsp.rm(path.join(outputDir, "work"), { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  await fsp.mkdir(path.dirname(destination), { recursive: true });
+  await fsp.rm(destination, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  try {
+    await fsp.rename(outputDir, destination);
+  } catch (error) {
+    if (error?.code !== "EXDEV") throw error;
+    await fsp.cp(outputDir, destination, { recursive: true, force: true, errorOnExist: true });
+    await fsp.rm(outputDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  }
+  return destination;
 }
 
 export async function loadOhosTestConfig(config) {
@@ -72,6 +109,17 @@ export async function loadOhosTestConfig(config) {
   const machineConfig = { ...raw };
   delete machineConfig.enabled;
   delete machineConfig.timeoutSec;
+  delete machineConfig.rnWorkRoot;
+  // RN 用例构建目录迁移根：显式配置优先（任意平台生效）；未配置时仅 Windows 默认
+  // 启用尽量短的数据盘根（runner 构建目录固定为 <out>/work/project/harmony，根越
+  // 短越不容易撞 hvigor 259 字符限制）；配置为 false 可显式关闭。
+  const rawRnWorkRoot = raw.rnWorkRoot;
+  let rnWorkRoot = "";
+  if (typeof rawRnWorkRoot === "string" && rawRnWorkRoot.trim()) {
+    rnWorkRoot = path.resolve(config.__baseDir || process.cwd(), rawRnWorkRoot.trim());
+  } else if (rawRnWorkRoot !== false && process.platform === "win32") {
+    rnWorkRoot = path.win32.join("D:", "rn");
+  }
   if (machineConfig.paths && typeof machineConfig.paths === "object") {
     machineConfig.paths = { ...machineConfig.paths };
     const foldServerScript = String(machineConfig.paths.foldServerScript || "").trim();
@@ -87,6 +135,7 @@ export async function loadOhosTestConfig(config) {
     enabled,
     runnerDir: REPO_ROOT,
     timeoutSec,
+    rnWorkRoot,
     machineConfig,
     runnerEnv,
     runMode: "swe",
@@ -177,18 +226,65 @@ async function prepareGeneratedCase({ caseInfo, caseRunDir, patchPath }) {
   return { inputDir, metadataPath, testPatchPath, goldenPatchPath };
 }
 
-function runnerOutputDir(caseDir, startedAt) {
-  // 与 autorun 批次 ID 同格式：本地时间 yyyymmddHHmmss
+// 与 autorun 批次 ID 同格式：本地时间 yyyymmddHHmmss
+function batchLocalTimestamp(date) {
   const pad = (value) => String(value).padStart(2, "0");
-  const timestamp = [
-    startedAt.getFullYear(),
-    pad(startedAt.getMonth() + 1),
-    pad(startedAt.getDate()),
-    pad(startedAt.getHours()),
-    pad(startedAt.getMinutes()),
-    pad(startedAt.getSeconds()),
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds()),
   ].join("");
-  return path.join(caseDir, ".ohostest-runs", timestamp);
+}
+
+function runnerOutputDir(caseDir, startedAt) {
+  return path.join(caseDir, ".ohostest-runs", batchLocalTimestamp(startedAt));
+}
+
+// 迁移目录里的用例段名：临时目录追求最短，直接用用例名的 8 位哈希——定长、
+// 不同用例天然互不冲突，也避免长用例名吃掉路径预算。临时目录名与最终产物
+// 目录无关（迁回后仍是 <caseRunDir>/ohostest-workdir 与 .ohostest-runs/<ts>），
+// 用例 ↔ 临时目录的对应关系在运行日志中打印。
+function rnTempSegment(caseName) {
+  return createHash("sha1").update(String(caseName || "case")).digest("hex").slice(0, 8);
+}
+
+// 准备迁移输出目录：临时目录路径越短越好，优先复用固定短路径
+// <rnWorkRoot>/<用例哈希>。先清理本用例在迁移根下的全部历史残留（上次崩溃遗留
+// 的时间戳变体等）；固定路径存在且清不掉（文件被占用等）时，才退回加时间戳的
+// 变体区分。
+async function prepareRelocatedOutDir(rnWorkRoot, caseName, startedAt) {
+  const segment = rnTempSegment(caseName);
+  const primary = path.join(rnWorkRoot, segment);
+  await sweepRelocatedOutDirs(rnWorkRoot, caseName);
+  try {
+    await fsp.rm(primary, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  } catch {
+    const variant = path.join(rnWorkRoot, `${segment}__${batchLocalTimestamp(startedAt)}`);
+    console.warn(`[ohosTest] ${caseName}: 短路径 ${primary} 清理失败，本次运行改用 ${variant}`);
+    return variant;
+  }
+  return primary;
+}
+
+// 清理同一用例在迁移根下的全部历史目录（上次运行崩溃遗留等），失败忽略
+//（清不掉的由 prepareRelocatedOutDir 退回时间戳变体规避）。
+async function sweepRelocatedOutDirs(rnWorkRoot, caseName) {
+  const segment = rnTempSegment(caseName);
+  const prefix = `${segment}__`;
+  let entries;
+  try {
+    entries = await fsp.readdir(rnWorkRoot);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    entries
+      .filter((entry) => entry === segment || entry.startsWith(prefix))
+      .map((entry) => fsp.rm(path.join(rnWorkRoot, entry), { recursive: true, force: true }).catch(() => {})),
+  );
 }
 
 async function readFinalRunnerResult(resultPath) {
@@ -334,15 +430,20 @@ async function runProcess({
   });
 }
 
-async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLeasePath, signal, startedAt, stagedCase }) {
+async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, relocatedOut = "", deviceLeasePath, signal, startedAt, stagedCase }) {
   const { inputDir } = stagedCase;
-  const runnerWorkDir = path.join(inputDir, "work");
-  const retainedWorkDir = path.join(inputDir, RETAINED_WORKDIR_NAME);
+  // runner 的构建目录是 <out>/work/project：RN 迁移时 --out 直接指向短根（D 盘）
+  // 下的 relocatedOut，构建路径全程在短根，规避 Windows 259 字符限制；用例输入
+  // 目录不变。保留目录与最终报告始终锚定 caseRunDir，迁移输出结束后整体迁回。
+  const outputDir = relocatedOut || runnerOutputDir(inputDir, startedAt);
+  // Archive the project root itself so native and Web layouts remain usable directly.
+  const runnerWorkDir = path.join(outputDir, "work", "project");
+  const retainedWorkDir = path.join(caseRunDir, RETAINED_WORKDIR_NAME);
   await Promise.all([
     fsp.rm(runnerWorkDir, { recursive: true, force: true }),
     fsp.rm(retainedWorkDir, { recursive: true, force: true }),
+    fsp.rm(path.join(caseRunDir, "work"), { recursive: true, force: true }),
   ]);
-  const outputDir = runnerOutputDir(inputDir, startedAt);
   const resultWatchPath = path.join(outputDir, "result.json");
   const machineConfigPath = path.join(outputDir, "machine.json");
   await fsp.mkdir(outputDir, { recursive: true });
@@ -366,8 +467,11 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     settings.runMode,
     "--keep-emulators",
     "false",
+    // 迁移运行不保留 work：让 runner 自行清理（先停 hvigor daemon 释放 Windows
+    // 文件锁再删 <out>/work，比外部删除可靠）；非迁移运行保留 work 供移作
+    // ohostest-workdir（上游既有行为）。
     "--keep-workdir",
-    "true",
+    relocatedOut ? "false" : "true",
   ];
   const invocation = npmInvocation(npmArgs);
   let processResult;
@@ -387,22 +491,48 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
       resultWatchPath,
     }));
   } finally {
-    try {
-      await retainRunnerWorkdir(runnerWorkDir, retainedWorkDir);
-    } catch (error) {
-      workPreserveError = error instanceof Error ? error.message : String(error);
+    // runner 进程树已完全退出（runProcess 在 close 后才 resolve）。迁移运行的 work
+    // 是纯临时构建目录、不迁回（见上方说明）；非迁移运行保留 work 为
+    // <caseRunDir>/ohostest-workdir。
+    if (!relocatedOut) {
+      try {
+        await retainRunnerWorkdir(runnerWorkDir, retainedWorkDir);
+      } catch (error) {
+        workPreserveError = error instanceof Error ? error.message : String(error);
+      }
     }
   }
   const finishedAt = new Date();
-  const runnerResultPath = await exists(resultWatchPath) ? resultWatchPath : "";
-  const summaryCandidate = path.join(outputDir, "summary.md");
+  let finalOutputDir = outputDir;
+  if (relocatedOut && !stagedCase.keepRelocatedOut) {
+    // 迁移输出整体迁回 caseRunDir/.ohostest-runs/<ts>（报告等小文件）；迁回失败时
+    // 保留短根目录，报告继续指向短根路径兜底。
+    try {
+      finalOutputDir = await restoreRelocatedOutput(outputDir, caseRunDir, startedAt);
+    } catch (error) {
+      const message = `迁移输出目录迁回失败: ${error instanceof Error ? error.message : String(error)}`;
+      workPreserveError = workPreserveError || message;
+      console.warn(`[ohosTest] ${caseInfo.name}: ${message}，结果暂存于 ${outputDir}`);
+      stagedCase.keepRelocatedOut = true;
+    }
+  }
+  const resultPath = path.join(finalOutputDir, "result.json");
+  const runnerResultPath = await exists(resultPath) ? resultPath : "";
+  const summaryCandidate = path.join(finalOutputDir, "summary.md");
   const runnerSummaryPath = await exists(summaryCandidate) ? summaryCandidate : "";
   const runnerResult = await readJson(runnerResultPath);
-  const workDir = await exists(retainedWorkDir)
-    ? retainedWorkDir
-    : await exists(runnerWorkDir)
-      ? runnerWorkDir
-      : "";
+  // 迁移运行不迁回 work（纯临时，随临时根清理），仅当迁回失败保留临时目录时
+  // 指向其内的 work 便于排查；非迁移运行保留为 ohostest-workdir。
+  let workDir = "";
+  if (!relocatedOut) {
+    workDir = await exists(retainedWorkDir)
+      ? retainedWorkDir
+      : await exists(runnerWorkDir)
+        ? runnerWorkDir
+        : "";
+  } else if (stagedCase.keepRelocatedOut && await exists(runnerWorkDir)) {
+    workDir = runnerWorkDir;
+  }
   const timedOut = processResult.stopReason.includes("总运行时间超过");
   const interrupted = processResult.stopReason.includes("Autorun 中断");
   const completed = runnerResult?.status === "completed";
@@ -411,7 +541,7 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     || processResult.stopReason
     || (processResult.code !== 0
       ? `ohostest:case 退出码 ${processResult.code}`
-      : `ohostest:case 未在 ${path.join(inputDir, ".ohostest-runs")} 生成 completed 结果`);
+      : `ohostest:case 未在 ${finalOutputDir} 生成 completed 结果`);
 
   return {
     status,
@@ -426,9 +556,9 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
     error: completed ? "" : String(diagnostic),
     inputCaseDir: inputDir,
     metadataPath: stagedCase.metadataPath,
-    machineConfigPath,
+    machineConfigPath: path.join(finalOutputDir, "machine.json"),
     testPatchPath: stagedCase.testPatchPath,
-    outputDir,
+    outputDir: finalOutputDir,
     resultPath: runnerResultPath,
     summaryPath: runnerSummaryPath,
     workDir,
@@ -438,14 +568,35 @@ async function runPreparedOhosTest({ settings, caseInfo, caseRunDir, deviceLease
 
 export async function runOhosTest({ settings, caseInfo, caseRunDir, patchPath, deviceLeasePath, signal }) {
   const startedAt = new Date();
+  // 仅 RN 用例且配置了迁移根时，runner 的 --out 直接指向短根（D 盘）下的固定迁移
+  // 输出目录，规避 Windows 259 字符路径限制；构建目录 <out>/work/project 全程在
+  // 短根，用例输入不变。运行结束后仅结果目录迁回 caseRunDir，work 临时目录随之
+  // 清理，报告与打包路径不变。
+  const isRnCase = Boolean(settings.rnWorkRoot)
+    && await detectRnProject(path.join(caseRunDir, caseInfo.projectName));
+  const relocatedOut = isRnCase
+    ? await prepareRelocatedOutDir(settings.rnWorkRoot, caseInfo.name, startedAt)
+    : "";
+  if (relocatedOut) {
+    console.log(`[ohosTest] ${caseInfo.name}: RN 工程，ohosTest 输出目录使用短路径 ${relocatedOut}，运行结束后结果迁回 ${caseRunDir}，work 临时目录清理`);
+  }
   const stagedCase = await prepareGeneratedCase({ caseInfo, caseRunDir, patchPath });
-  return await runPreparedOhosTest({
-    settings,
-    caseInfo,
-    caseRunDir,
-    deviceLeasePath,
-    signal,
-    startedAt,
-    stagedCase,
-  });
+  try {
+    return await runPreparedOhosTest({
+      settings,
+      caseInfo,
+      caseRunDir,
+      relocatedOut,
+      deviceLeasePath,
+      signal,
+      startedAt,
+      stagedCase,
+    });
+  } finally {
+    if (relocatedOut && !stagedCase.keepRelocatedOut) {
+      // 正常/异常/手动停止路径统一在此清理临时目录（含不迁回的 work）；结果已迁回
+      // （rename 整体移走或复制后删除），无法清理的残留留待下次运行清扫。
+      await fsp.rm(relocatedOut, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 }).catch(() => {});
+    }
+  }
 }

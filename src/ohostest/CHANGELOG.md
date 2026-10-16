@@ -11,6 +11,22 @@
 
 - Autorun 在 Agent 完成后将 `golden_patch.patch` 复制到用例产物目录，并在 ohosTest 结束后保留，便于在本地产物和用例 ZIP 中查看参考补丁。Agent 执行期间仍不暴露该文件。
 
+## [0.5.3] - 2026-09-28
+
+### 新增
+
+- Windows Web 依赖安装和开发服务改由 Runner 持有的 Job Object 管理，清理后确认端口释放；随附源码、许可证和各 Windows 架构预编译模块。
+- Windows 下 Runner 生成的 HDC 命令统一从系统临时目录执行，避免 HDC 后台服务继承 Case 工作副本目录；相对 HDC 路径仍按原工作目录解析。
+- `aa test` 支持流式输出和失败用例截图：每台设备按失败用例保留诊断截图，并在设备结果和矩阵摘要中列出路径；保留 AutoRun 现有宿主机超时与解锁重试行为。
+- 清理临时工作目录未完全成功时提示残留目录和诊断位置，测试结果仍按已保存结果处理。
+
+## [0.5.2] - 2026-09-20
+
+### 修复
+
+- AutoRun 从 Runner 当前输出目录的 `work/project` 归档实际测试工程到用例的 `ohostest-workdir`，修复仍读取旧 `Case/work` 导致工作副本未归档、`ohosTest.workDir` 为空的问题；Web 用例的 `base` 与 `web` 子工程一并保留，归档失败时返回仍存在的原工作目录。
+- Runner 初始化失败时，结果中的 `artifacts.workdir` 与正常执行统一指向输出目录的 `work/project`。
+
 ## [0.5.1] - 2026-09-17
 
 ### 修复

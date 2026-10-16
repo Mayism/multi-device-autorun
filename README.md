@@ -198,6 +198,7 @@ devecocli --version
 | `ohosTest.enabled` | 配置了 `ohosTest` 节点时默认启用，并在 Agent 适配完成后自动执行测试；显式配置为 `false` 时关闭。不配置整个 `ohosTest` 节点时不执行测试。 |
 | `ohosTest.timeoutSec` | 单个 ohosTest 用例的最大运行时间，默认 `7200` 秒，超时后终止 Runner 及其子进程。 |
 | `ohosTest.paths` | Runner 使用的 Hvigor、ohpm、hdc、模拟器和折叠屏服务脚本路径。 |
+| `ohosTest.rnWorkRoot` | RN 用例 ohosTest 构建目录迁移根，用于规避 Windows 259 字符路径限制。未配置时仅 Windows 默认 `D:\rn`；显式配置任意平台生效；配置为 `false` 关闭迁移。详见「Windows/Hvigor 输出路径建议」。 |
 | `ohosTest.devices` | 测试设备矩阵。设备 ID、模拟器 profile、HDC 目标和端口均在此维护。 |
 | `cloudTest.enabled` | 云测试是否作为主流程的一部分默认执行（Agent → ohosTest → 云测试）。默认 `true`；设为 `false` 关闭整个云测试流程（主批次与独立指令均不可用）。配置不完整时主批次会告警并跳过该阶段，独立指令则直接报错。 |
 | `cloudTest.teamId` / `cloudTest.projectId` | AGC 云测试团队 ID 与项目 ID（请求头 `agcTeamId` / `productId`）。可用环境变量 `AGC_TEAM_ID` / `AGC_PROJECT_ID` 覆盖。 |
@@ -264,7 +265,21 @@ devecocli --version
 
 ### Windows/Hvigor 输出路径建议
 
-Autorun 会在 `outputRoot/<batchId>/<agentId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，因此 Windows 下建议将 `execution.outputRoot` 配置成短的绝对路径：
+Autorun 会在 `outputRoot/<batchId>/<agentId>/<caseName>/<base|task>` 下创建实际参与 Agent 编译的工程。Hvigor 对部分构建路径执行 259 字符限制检查；工程中的 `build/cache/oh_modules/.ohpm` 会继续扩展多层目录，RN（rnoh）用例的 `oh_modules/@react-native-ohos/...`、`generated/ts` 等层级尤其深。
+
+**RN 用例自动迁移构建目录**：Windows 下未显式配置 `ohosTest.rnWorkRoot` 时，Autorun 默认让 RN 用例的 Runner `--out` 直接指向数据盘短根下的固定目录 `D:\rn\<用例名哈希>`（在 Agent 产物工程的 `oh-package.json5`、`package.json` 或一层模块的 `oh-package.json5` 中发现 `react-native` / `@rnoh` 依赖即判定为 RN 工程）：Runner 的构建目录 `<out>/work/project` 全程在短根下完成构建与设备测试，用例输入目录不变，Runner 无需感知迁移。临时目录仅为缩短路径而存在，名字与用例最终产物目录无关（用例 ↔ 临时目录的对应关系在运行日志中打印；路径仍超长时可通过 `ohosTest.rnWorkRoot` 配置更短的根）。开始前自动清理该用例在短根下的全部历史残留（含异常退出遗留），固定目录清理失败（文件被占用等）时本次运行才改用 `<哈希>__<时间戳>` 变体。Runner 进程完全退出后：构建 work 是纯临时目录，**不迁移**、不产生 `ohostest-workdir`，直接删除；仅结果目录（result.json、summary、截图等小文件）整体迁回 `<caseRunDir>/.ohostest-runs/<时间戳>`，迁移用例的失败排查依据该目录内的 result.json / summary.md / commands 日志。正常结束、异常结束与手动停止均会清理短根下的临时目录，运行成功后迁移根内不残留该用例的任何目录。批次报告、失败用例打包等所有路径均不变；其他用例不受影响。macOS/Linux 显式配置 `ohosTest.rnWorkRoot` 后同样生效。
+
+可用 `ohosTest.rnWorkRoot` 覆盖迁移根（相对路径以 `config/autorun.config.json` 所在目录为基准，任意平台显式配置均生效；配置为 `false` 可在 Windows 上显式关闭迁移）：
+
+```json
+{
+  "ohosTest": {
+    "rnWorkRoot": "D:/rn-work"
+  }
+}
+```
+
+非 RN 用例如遇路径超长，仍建议将 `execution.outputRoot` 配置成短的绝对路径（如 `D:/out`）：
 
 ```json
 {
@@ -275,11 +290,11 @@ Autorun 会在 `outputRoot/<batchId>/<agentId>/<caseName>/<base|task>` 下创建
 }
 ```
 
-修改后，批次报告和详细结果会写入 `D:/out/<batchId>/<agentId>/`，根级总览位于 `D:/out/<batchId>/overview.html`。OpenCode 运行数据默认按 `<batchId>/<agentId>` 隔离写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。
+修改后，批次报告和详细结果会写入 `D:/out/<batchId>/<agentId>/`，根级总览位于 `D:/out/<batchId>/overview.html`。OpenCode 运行数据默认按 `<batchId>/<agentId>` 隔离写入 `D:/out/_runtime/opencode/`。仅开启 Windows 长路径或设置 `git core.longpaths` 不能绕过 Hvigor 自身的 Specification Limit 检查；如果用例名、模块名或依赖内部路径本身很长，应继续缩短 `outputRoot`，并尽量缩短用例、模块和 target 名称。用例输出路径接近上限时，Autorun 会在启动阶段打印告警提示调整；如果有外部脚本按绝对路径直接读取仓库内 `output/` 产物，应改为从 `config/autorun.config.json` 的 `execution.outputRoot` 解析。
 
-ohosTest 不会在 `.ohostest-runs/<runId>` 下编译工程，而是将 Agent 输出的 `base/task`
-复制到同一用例目录下的浅层临时目录，应用隐藏测试 patch 后在该目录构建。报告仍写入
-`.ohostest-runs/<runId>`。测试完成、失败、超时或中断后，Autorun 会将实际编译工程保留为
+ohosTest 将 Agent 输出工程复制到 `.ohostest-runs/<runId>/work/project/`，应用隐藏测试
+patch 后在该工作副本构建；Web 用例的工作副本同时包含 `base/` 和 `web/`。
+报告写入 `.ohostest-runs/<runId>`。测试完成、失败、超时或中断后，Autorun 会将已生成的实际测试工程保留为
 `<caseName>/ohostest-workdir/`，用于复现构建结果和定位问题，不会修改 Agent 输出工程。
 Autorun 会通过 Runner 的 `--out` 参数指定唯一输出目录并监视其中的最终 `result.json`；
 结果生成后若 npm 进程在 10 秒内仍未退出，会结束本次进程树并继续下一个 ohosTest。
@@ -542,8 +557,9 @@ Agent 结束后，Autorun 会在业务 Patch 和白盒 Sandbox 边界排除 `.on
 
 生成 Agent 的 Hvigor 编译尝试会以结构化 `agentBuild` 输入交给白盒评价，保留每次真实任务、命令、退出码和顺序。白盒以最后一次有效尝试作为最终编译结果，报告来源显示为“生成 Agent 编译结果”，与 ohosTest 状态独立。
 
-ohosTest 执行期间会先创建 `<caseName>/work/` 作为实际编译工程；执行结束后统一重命名并保留为
+ohosTest 执行期间会先创建 `<caseName>/.ohostest-runs/<runId>/work/project/` 作为测试工程根目录；执行结束后统一重命名并保留为
 `<caseName>/ohostest-workdir/`。用例 `result.json` 的 `ohosTest.workDir` 会记录其绝对路径。
+归档失败时保留原工作副本，`ohosTest.workDir` 指向仍存在的原工作目录并记录 `workPreserveError`；如果尚未生成工作副本，该路径为空。
 
 当 UITest 出现失败或错误测试项时，Autorun 会在生成 Agent 之外创建独立的只分析会话，综合原始
 `PROMPT.md`、`metadata.json`、`diff/changes.patch`、`test_patch.patch`、最终修改源码以及关联的

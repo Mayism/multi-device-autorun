@@ -657,6 +657,19 @@ async function resolveBatchModeDirectoryName(source) {
   return entries.length ? OPENCODE_SOURCE_MODES.SOFTWARE_ENGINEERING : "baseModel";
 }
 
+// hvigor 对构建路径做 259 字符检查，work 目录下 RN 依赖（oh_modules/@react-native-ohos 等）
+// 还会再展开约 110 字符；接近上限时提前给出可操作提示，每进程只警告一次。
+let warnedLongCaseRunDir = false;
+function warnIfCaseRunDirLong(caseRunDir) {
+  if (process.platform !== "win32" || warnedLongCaseRunDir) return;
+  if (caseRunDir.length + 110 <= 259) return;
+  warnedLongCaseRunDir = true;
+  console.warn(
+    `[config] 用例输出路径偏长（${caseRunDir.length} 字符）：${caseRunDir}\n` +
+    `[config] hvigor 构建产物会继续加深目录，可能触发 259 字符限制；建议将 execution.outputRoot 配置为更短的绝对路径（如 D:/mda-output），或缩短用例名。`,
+  );
+}
+
 async function exists(target) {
   try {
     await fs.access(target);
@@ -1520,6 +1533,7 @@ async function runCase({
 }) {
   const caseName = caseInfo.name;
   const caseRunDir = path.join(batchRoot, safeName(caseName));
+  warnIfCaseRunDirLong(caseRunDir);
   const caseLayout = agentCaseLayout(caseInfo, caseRunDir);
   const { originalDir, projectDir, buildProjectDir } = caseLayout;
   const generateDir = path.join(caseRunDir, "generate");

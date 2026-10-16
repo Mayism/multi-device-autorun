@@ -847,7 +847,9 @@ function failedCaseResult(
       result: path.relative(caseDir, path.join(outDir, "result.json")),
       summary: path.relative(caseDir, path.join(outDir, "summary.md")),
       commandLog: "commands.jsonl",
-      ...(input.keepWorkdir ? { workdir: path.join(caseDir, "work") } : {}),
+      ...(input.keepWorkdir
+        ? { workdir: path.join(outDir, "work", "project") }
+        : {}),
     },
     diagnostics: [message],
   };
@@ -905,7 +907,7 @@ async function cleanupCaseWorkdir(
     } catch (error) {
       const message = `cleanup_failed: ${error instanceof Error ? error.message : String(error)}`;
       console.warn(
-        `警告：清理 work 目录失败（${path.join(context.outDir, "work")}）：${message}`,
+        `提示：临时工作目录未完全删除，已保留剩余文件。本次测试结果已保存，不受此次目录清理影响；后续可使用新的输出目录继续测试。\n残留目录：${path.join(context.outDir, "work")}\n清理详情：${context.out}（diagnostics）`,
       );
       result.diagnostics.push(message);
       await fs.writeFile(

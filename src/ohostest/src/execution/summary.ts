@@ -54,18 +54,36 @@ function renderDeviceRow(device: DeviceRunResult): string {
 }
 
 function renderDeviceSection(device: DeviceRunResult): string[] {
-  if (device.suiteResults.length === 0) {
+  const screenshots = device.screenshots ?? [];
+  if (device.suiteResults.length === 0 && screenshots.length === 0) {
     return [];
   }
   return [
     `### ${device.id}`,
     "",
     ...renderFoldServerPort(device),
-    "| Suite | Status | Tests | Failures | Errors | Passes | Ignored | Report |",
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ...device.suiteResults.map(renderSuiteRow),
+    ...(device.suiteResults.length > 0
+      ? [
+          "| Suite | Status | Tests | Failures | Errors | Passes | Ignored | Report |",
+          "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+          ...device.suiteResults.map(renderSuiteRow),
+          "",
+          ...device.suiteResults.flatMap(renderCaseSection),
+        ]
+      : []),
+    ...renderScreenshotLines(screenshots),
+  ];
+}
+
+function renderScreenshotLines(screenshots: string[]): string[] {
+  if (screenshots.length === 0) {
+    return [];
+  }
+  return [
+    `Screenshots (${screenshots.length}):`,
     "",
-    ...device.suiteResults.flatMap(renderCaseSection),
+    ...screenshots.map((shot) => `- ${shot}`),
+    "",
   ];
 }
 

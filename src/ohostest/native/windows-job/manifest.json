@@ -1,0 +1,73 @@
+{
+  "compiler": "Zig 0.15.2",
+  "nodeApiVersion": 8,
+  "headers": "https://github.com/nodejs/node/tree/v22.15.0/src",
+  "inputs": {
+    "job.c": "1e0f84f0d0c0429fa64363a59b619149291e78da40cfd60f33805dba20d9cc07",
+    "build.ps1": "9fe8ebc7438108f335e1fd45ddeba6ef34685f8675532af8c6b9cd783234d5b3",
+    "include/node_api.h": "d14db85d16f182045c42745a6e44b96e932dfe6e3bfcaac7a1096fae8412c579",
+    "include/node_api_types.h": "8d5d854088d5725fec9775510e0aeeeb790a41ad083c49bb721d950b86e6bd61",
+    "include/js_native_api.h": "048b4efdcd823f30afd323d61c8aba5be285077f9d790feb52a6fa6382df2541",
+    "include/js_native_api_types.h": "0410c31e227f81e2981363c4d543f4832ac3df785343ec64cee621742ff8a034"
+  },
+  "binaries": {
+    "x64": {
+      "path": "prebuilds/win32-x64/web-job.node",
+      "sha256": "57348f74376e19e0229b09dc8b098b9ab5090ff438dce887bf8be56cfe5f4157",
+      "bytes": 24064,
+      "machine": "0x8664",
+      "imports": [
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "KERNEL32.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll"
+      ],
+      "exports": [
+        "napi_register_module_v1",
+        "node_api_module_get_api_version_v1"
+      ]
+    },
+    "arm64": {
+      "path": "prebuilds/win32-arm64/web-job.node",
+      "sha256": "50b9efa027ccdf122ba3689135d9e676e6cf0f67ce18e1fad2cb4d58df074850",
+      "bytes": 20992,
+      "machine": "0xaa64",
+      "imports": [
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "KERNEL32.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll"
+      ],
+      "exports": [
+        "napi_register_module_v1",
+        "node_api_module_get_api_version_v1"
+      ]
+    },
+    "ia32": {
+      "path": "prebuilds/win32-ia32/web-job.node",
+      "sha256": "98576e1dd71e9142a5715131fbcfde6bff3fada9be5e0c09bd83b677392c4480",
+      "bytes": 20480,
+      "machine": "0x14c",
+      "imports": [
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "KERNEL32.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll"
+      ],
+      "exports": [
+        "napi_register_module_v1",
+        "node_api_module_get_api_version_v1"
+      ]
+    }
+  },
+  "runtimeValidated": [
+    "Windows x64 / Node 24.18.0"
+  ],
+  "crossCompiledOnly": [
+    "arm64",
+    "ia32"
+  ]
+}

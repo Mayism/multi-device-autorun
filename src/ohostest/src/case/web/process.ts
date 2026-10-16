@@ -1,7 +1,7 @@
-import { spawn, execFile, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
-import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
+import { startWindowsProcess } from "./windowsProcess.js";
 
 export interface ProcessExit {
   code: number | null;
@@ -10,19 +10,23 @@ export interface ProcessExit {
 }
 
 export interface OwnedProcess {
-  child: ChildProcess;
+  child: Pick<ChildProcess, "pid" | "exitCode" | "signalCode">;
   exit?: ProcessExit;
   closed: Promise<ProcessExit>;
   stopping?: Promise<void>;
+  windowsJob?: { refresh(): unknown; stop(): Promise<void> };
 }
 
-export function startProcess(input: {
+export interface ProcessInput {
   file: string;
   args: string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
   log: string;
-}): OwnedProcess {
+}
+
+export function startProcess(input: ProcessInput): OwnedProcess {
+  if (process.platform === "win32") return startWindowsProcess(input);
   const logFd = openSync(input.log, "w");
   let child: ChildProcess;
   try {
@@ -30,7 +34,7 @@ export function startProcess(input: {
       cwd: input.cwd,
       env: input.env,
       stdio: ["ignore", logFd, logFd],
-      detached: process.platform !== "win32",
+      detached: true,
       windowsHide: true,
     });
   } finally {
@@ -77,6 +81,7 @@ export async function waitForExit(
 }
 
 export function assertRunning(owned: OwnedProcess): void {
+  owned.windowsJob?.refresh();
   if (
     owned.exit ||
     owned.child.exitCode !== null ||
@@ -89,29 +94,27 @@ export function assertRunning(owned: OwnedProcess): void {
 }
 
 export function stopProcess(owned: OwnedProcess): Promise<void> {
-  owned.stopping ??= terminateProcessTree(owned);
+  if (!owned.stopping) {
+    const stopping = terminateProcessTree(owned);
+    owned.stopping = stopping;
+    if (owned.windowsJob) {
+      void stopping.catch(() => {
+        if (owned.stopping === stopping) owned.stopping = undefined;
+      });
+    }
+  }
   return owned.stopping;
 }
 
 async function terminateProcessTree(owned: OwnedProcess): Promise<void> {
+  if (owned.windowsJob) return owned.windowsJob.stop();
+  if (process.platform === "win32")
+    throw new Error("web_job_ownership_missing");
   const pid = owned.child.pid;
   if (pid === undefined) return;
-  if (process.platform === "win32") {
-    if (owned.exit) return;
-    try {
-      await promisify(execFile)(
-        "taskkill.exe",
-        ["/PID", String(pid), "/T", "/F"],
-        { windowsHide: true, timeout: 5000 },
-      );
-    } catch (error) {
-      if (!owned.exit) throw error;
-    }
-  } else {
-    signalGroup(pid, "SIGTERM");
-    await sleep(200);
-    signalGroup(pid, "SIGKILL");
-  }
+  signalGroup(pid, "SIGTERM");
+  await sleep(200);
+  signalGroup(pid, "SIGKILL");
   const deadline = Date.now() + 5000;
   while (!owned.exit && Date.now() < deadline) await sleep(50);
   if (!owned.exit) throw new Error(`web_process_stop_timeout: ${pid}`);

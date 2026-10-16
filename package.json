@@ -19,7 +19,7 @@
     "whitebox:evaluate": "node src/whitebox/dist/localCli.js",
     "whitebox:dev": "tsx src/whitebox/src/localCli.ts",
     "test": "npm run test:autorun && npm run test:ohostest && npm run test:whitebox && npm run test:python",
-    "test:autorun": "node --test src/agent/*.test.mjs src/artifacts/*.test.mjs src/opencode/*.test.mjs src/platform/*.test.mjs src/report/*.test.mjs src/whitebox/autorun/*.test.mjs",
+    "test:autorun": "node --test src/agent/*.test.mjs src/shared/*.test.mjs src/artifacts/*.test.mjs src/opencode/*.test.mjs src/platform/*.test.mjs src/report/*.test.mjs src/whitebox/autorun/*.test.mjs",
     "test:ohostest": "node --import tsx --test src/ohostest/tests/*.test.ts",
     "test:whitebox": "npm run build:whitebox && node --test src/whitebox/dist/commons/io/patchGenerator.test.js src/whitebox/dist/agents/runners/protocolRetry.test.js",
     "test:python": "node --import tsx src/ohostest/scripts/runPythonTests.ts",
