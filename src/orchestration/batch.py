@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from pyautorun.orchestration.artifacts import cleanup_case
+from pyautorun.orchestration.artifact_cleanup import cleanup_case_metadata
 from pyautorun.orchestration.batch_state import BatchStateStore
 from pyautorun.orchestration.case_run import now, run_case, safe_name, write_json
 from pyautorun.orchestration.console_reporter import ConsoleReporter
@@ -70,7 +71,7 @@ def _cloud_case_summary(result):
 
 
 async def run_batch(config, server, skill_runtime, run_id, target_root, target_id,
-                    whitebox_evaluator=None, retry_plan=None, ohostest_runner=None, progress=_report):
+                    whitebox_evaluator=None, environment=None, ohostest_runner=None, progress=_report):
     source = config["server"]["opencodeSource"]
     execution = deepcopy(config["execution"])
     execution["agent"] = "build" if source["mode"] == "softwareEngineering" else str(execution.get("agent") or source["agent"])
@@ -92,19 +93,13 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
     discovered = discover_cases(execution["casesRoot"], require_ohostest=ohos["enabled"])
     cases = discovered["runnable"]
     skipped = discovered["skipped"]
-    if retry_plan:
-        lookup = {item["name"]: item for item in cases}
-        missing = [name for name in retry_plan["selectedCaseNames"] if name not in lookup]
-        if missing:
-            raise ValueError(f"重试用例在当前 casesRoot 中不可执行: {', '.join(missing)}")
-        cases = [lookup[name] for name in retry_plan["selectedCaseNames"]]
-        skipped = []
     model = await validate_server_config(server.client, execution, server.server_config, source["mode"])
     root = Path(target_root)
     root.mkdir(parents=True, exist_ok=True)
     state = {"batchId": run_id, "targetId": target_id, "status": "running", "createdAt": now(),
              "updatedAt": now(), "agent": execution["agent"], "opencodeSourceMode": source["mode"],
              "providerId": model["providerId"], "modelId": model["modelId"],
+             **({"environment": environment} if environment else {}),
              "concurrency": execution["concurrency"],
              "ohosTest": {"enabled": ohos["enabled"], "concurrency": 1 if ohos["enabled"] else 0},
              "cloudTest": {"enabled": cloud["enabled"], "testCategories":
@@ -118,9 +113,6 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                                       "projectDir": item["projectDir"],
                                       **({"skipReason": item["skipReason"]} if item.get("skipReason") else {}),
                                       "updatedAt": now()} for item in [*cases, *skipped]}}
-    if retry_plan:
-        state["retry"] = {"sourceBatchId": retry_plan["sourceBatchId"],
-                          "requestedCaseName": retry_plan["requestedCaseName"]}
     reporter = ConsoleReporter([*cases, *skipped])
     store = BatchStateStore(root / "batch.json", state, reporter.case_usage)
     (root / "batch.pid").write_text(str(os.getpid()) + "\n", encoding="utf-8")
@@ -298,6 +290,7 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                    "status": "completed_with_failures" if failed else "completed", "finishedAt": now(),
                    "agent": execution["agent"], "opencodeSourceMode": source["mode"],
                    "providerId": model["providerId"], "modelId": model["modelId"],
+                   **({"environment": environment} if environment else {}),
                    "total": len(cases), "completed": len(cases) - failed, "failed": failed,
                    "skipped": [{"case": item["name"], "reason": item["skipReason"]} for item in skipped],
                    "tokenUsage": add_token_usage(*(item.get("tokenUsage") for item in ordered)),
@@ -309,15 +302,16 @@ async def run_batch(config, server, skill_runtime, run_id, target_root, target_i
                                           "failed": sum(bool(item.get("whitebox")) and
                                                         (item["whitebox"].get("status") != "completed") for item in ordered)},
                    "results": ordered}
-        if retry_plan:
-            summary["retry"] = state["retry"]
         try:
-            summary["reports"] = write_batch_report(root, summary, config.get("upload"),
+            summary["reports"] = write_batch_report(root, summary,
                                                     lambda message: progress("archive", message))
         except Exception as error:
             summary["reportError"] = str(error)
         write_json(root / "summary.json", summary)
+        for failure in cleanup_case_metadata(root, summary):
+            progress("cleanup", failure)
         store.set_batch({"status": summary["status"], "finishedAt": summary["finishedAt"]})
+        store.remove()
         reporter.finish()
         return summary
     except BaseException as error:

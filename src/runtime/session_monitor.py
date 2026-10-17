@@ -8,17 +8,16 @@ from pathlib import Path
 import re
 import threading
 import time
-import unicodedata
 from urllib.parse import urlencode
 from urllib.request import Request
 
 from pyautorun.orchestration.interaction import handle_pending_interactions
+from pyautorun.runtime.text_confirmation import automatic_text_reply, requests_basic_tests_confirmation
 from pyautorun.runtime.usage import TokenUsageTracker, CompileUsageTracker
 
 
 ACTIVE_TODO_STATES = {"pending", "in_progress", "in-progress", "running", "active", "doing", "todo"}
 TERMINAL_EXCLUSIONS = {"", "tool-calls", "unknown"}
-BASIC_TESTS_REPLY = "仅基础测试"
 
 
 def quota_exceeded_message(value):
@@ -189,15 +188,12 @@ def _extract_text(message):
 
 
 def requests_basic_tests_reply(message):
-    text = unicodedata.normalize("NFKC", _extract_text(message))
-    text = re.sub(r"\*\*|__|`", "", text)
-    text = re.sub(r"[ \t]+", " ", text)
-    return ("当前模型未通过图片理解探测" in text and "仅基础测试" in text and
-            bool(re.search(r"请回复\s*[“\"'‘]?\s*仅基础测试\s*[”\"'’]?", text)))
+    return requests_basic_tests_confirmation(_extract_text(message))
 
 
 def _finish_reason(message):
-    return str((message or {}).get("info", {}).get("finish") or "").strip().lower()
+    finished = next((part for part in reversed(_parts(message)) if part.get("type") == "step-finish"), {})
+    return str((message or {}).get("info", {}).get("finish") or finished.get("reason") or "").strip().lower()
 
 
 def _has_step_finish(message):
@@ -205,7 +201,14 @@ def _has_step_finish(message):
 
 
 def _terminal(message):
-    return bool(message and _has_step_finish(message) and _finish_reason(message) not in TERMINAL_EXCLUSIONS)
+    completed = bool(_has_step_finish(message) or ((message or {}).get("info") or {}).get("time", {}).get("completed"))
+    active_tool = any(part.get("type") == "tool" and (part.get("state") or {}).get("status") in ("pending", "running")
+                      for part in _parts(message))
+    return bool(message and completed and not active_tool and _finish_reason(message) not in TERMINAL_EXCLUSIONS)
+
+
+def _message_key(message):
+    return str(((message or {}).get("info") or {}).get("id") or (message or {}).get("id") or _signature(message))
 
 
 def _summarized(value):
@@ -288,8 +291,10 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
     last_signature = ""
     latest_message = None
     todo_active = child_active = False
-    pending_basic = None
-    basic_injected = quota_limited = False
+    pending_text = None
+    replied_text = set()
+    awaiting_assistant = None
+    quota_limited = False
     interaction_requested = True
     fatal = None
     sse = SseCapture(client.base_url, project_dir, active_ids, events_path,
@@ -303,12 +308,38 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
         if on_progress:
             on_progress(kind, data)
 
-    def basic_request(message, source_id):
-        if not requests_basic_tests_reply(message):
+    def text_request(message, source_id):
+        reply = automatic_text_reply(_extract_text(message))
+        if not reply:
             return None
         identifier = str((message.get("info") or {}).get("id") or message.get("id") or "")
-        return {"sourceSessionId": source_id, "sourceMessageId": identifier,
+        return {**reply, "sourceSessionId": source_id, "sourceMessageId": identifier,
                 "key": f"{source_id}:{identifier or _signature(message)}", "ready": _terminal(message)}
+
+    def wait_for_resumed_assistant():
+        nonlocal awaiting_assistant, latest_message, todo_active, child_active
+        nonlocal stable_terminal, unchanged_count, message_poll_sec, next_message, next_children, next_todo
+        awaiting_assistant = _message_key(latest_message)
+        idle_sessions.discard(session_id)
+        latest_message = None
+        todo_active = child_active = False
+        stable_terminal = unchanged_count = 0
+        message_poll_sec = 2
+        next_message = next_children = next_todo = 0
+        activity()
+
+    async def poll_interactions():
+        nonlocal pending_text
+        result = await handle_pending_interactions(client, project_dir, replied_questions, replied_permissions,
+                                                   activity, progress)
+        if result.get("questionsReplied"):
+            if pending_text:
+                replied_text.add(pending_text["key"])
+            if latest_message:
+                replied_text.add(f"{session_id}:{_message_key(latest_message)}")
+            pending_text = None
+            wait_for_resumed_assistant()
+        return result
 
     try:
         await asyncio.sleep(0.3)
@@ -356,9 +387,15 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
                 try:
                     raw = await client.list_messages(session_id, 1)
                     latest_message = _latest_assistant(raw) or latest_message
-                    request = basic_request(latest_message, session_id)
-                    if request and not basic_injected and (pending_basic is None or not pending_basic["ready"]):
-                        pending_basic = request
+                    if latest_message and awaiting_assistant is not None and _message_key(latest_message) != awaiting_assistant:
+                        awaiting_assistant = None
+                    request = text_request(latest_message, session_id)
+                    if request and request["key"] not in replied_text:
+                        if not pending_text or pending_text["key"] == request["key"] or not pending_text["ready"]:
+                            pending_text = request
+                        elif request["ready"] and request["reason"] == "multimodal_unavailable" and \
+                                pending_text["reason"] != "multimodal_unavailable":
+                            pending_text = request
                     usage_changed = token_tracker.update(session_id, latest_message)
                     compile_changed = compile_tracker.update(session_id, latest_message)
                     if usage_changed or compile_changed:
@@ -399,9 +436,13 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
                         try:
                             child_messages = await client.list_messages(child_id, 1)
                             child_message = _latest_assistant(child_messages)
-                            request = basic_request(child_message, child_id)
-                            if request and not basic_injected and (pending_basic is None or not pending_basic["ready"]):
-                                pending_basic = request
+                            request = text_request(child_message, child_id)
+                            if request and request["key"] not in replied_text:
+                                if not pending_text or pending_text["key"] == request["key"] or not pending_text["ready"]:
+                                    pending_text = request
+                                elif request["ready"] and request["reason"] == "multimodal_unavailable" and \
+                                        pending_text["reason"] != "multimodal_unavailable":
+                                    pending_text = request
                             token_changed = token_tracker.update(child_id, child_message)
                             compile_changed = compile_tracker.update(child_id, child_message)
                             if token_changed or compile_changed:
@@ -434,39 +475,39 @@ async def run_monitored_session(client, session_id, project_dir, payload, events
             if interaction_requested or now >= next_interaction:
                 interaction_requested = False
                 next_interaction = now + 2
-                await handle_pending_interactions(client, project_dir, replied_questions, replied_permissions,
-                                                  activity, progress)
-            if not basic_injected and pending_basic and pending_basic["ready"]:
-                pending = await handle_pending_interactions(client, project_dir, replied_questions,
-                                                            replied_permissions, activity, progress)
+                interactions = await poll_interactions()
+                if interactions.get("questionsReplied"):
+                    continue
+            if pending_text and pending_text["ready"] and awaiting_assistant is None:
+                pending = await poll_interactions()
+                if pending.get("questionsReplied"):
+                    continue
                 if pending["pending"] or pending["errors"]:
                     await asyncio.sleep(0.5)
                     continue
-                reply = pending_basic
-                await client.prompt_async(session_id, {**payload, "parts": [{"type": "text", "text": BASIC_TESTS_REPLY}]},
+                reply = pending_text
+                await client.prompt_async(session_id, {**payload, "parts": [{"type": "text", "text": reply["text"]}]},
                                           project_dir, 300)
-                basic_injected = True
-                pending_basic = None
-                idle_sessions.discard(session_id)
-                latest_message = None
-                todo_active = child_active = False
-                stable_terminal = unchanged_count = 0
-                message_poll_sec = 2
-                next_message = next_children = next_todo = 0
-                activity()
+                replied_text.add(reply["key"])
+                pending_text = None
+                wait_for_resumed_assistant()
                 _append_jsonl(polling_path, {"timestamp": _iso(), "kind": "automatic_text_reply",
-                                             "sessionId": session_id, "text": BASIC_TESTS_REPLY,
+                                             "sessionId": session_id, "text": reply["text"],
                                              "sourceSessionId": reply["sourceSessionId"],
                                              "sourceMessageId": reply["sourceMessageId"]})
+                progress("text_replied", {"sessionId": session_id, "text": reply["text"],
+                                          "reason": reply["reason"], "sourceSessionId": reply["sourceSessionId"],
+                                          "sourceMessageId": reply["sourceMessageId"]})
                 continue
-            complete = (_terminal(latest_message) and not todo_active and not child_active and
+            complete = (awaiting_assistant is None and _terminal(latest_message) and not todo_active and not child_active and
                         (session_id in idle_sessions or stable_terminal >= 2))
             if (latest_message and _has_step_finish(latest_message) and _finish_reason(latest_message) == "unknown"
                     and session_id in idle_sessions):
                 raise SessionMonitorError("OpenCode session 已 idle，但模型 finish reason 为 unknown")
             if complete:
-                pending = await handle_pending_interactions(client, project_dir, replied_questions,
-                                                            replied_permissions, activity, progress)
+                pending = await poll_interactions()
+                if pending.get("questionsReplied"):
+                    continue
                 if pending["pending"] or pending["errors"]:
                     await asyncio.sleep(0.5)
                     continue

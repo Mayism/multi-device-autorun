@@ -110,7 +110,7 @@ def _sanitized_hash(value):
     return sha256(json.dumps(clean(value), ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
-async def write_target_environment(target_root, target, target_config, server, model):
+async def create_target_environment(target, target_config, server, model):
     skills = await wait_for_skills(server.client, target_config["execution"]["casesRoot"])
     skills = skills if isinstance(skills, list) else []
     registered = sorted({str(item.get("name") or item.get("id") or "").strip() for item in skills
@@ -151,5 +151,4 @@ async def write_target_environment(target_root, target, target_config, server, m
                 "skills": {"sourceDirectories": source_skills, "loaded": [name for name in registered if name in source_skills],
                            "blocked": [name for name in registered if name not in source_skills]},
                 "skillRuntime": summarize_agent_skill_runtime(runtime), "createdAt": _iso()}
-    write_json(Path(target_root) / "environment.json", manifest)
     return manifest, runtime

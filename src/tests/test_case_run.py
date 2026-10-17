@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from pyautorun.orchestration.artifacts import excluded, filter_patch, initialize_git_baseline, generate_patch, prune_project
-from pyautorun.orchestration.batch_state import BatchStateStore, load_retry_plan, recover_interrupted_runs
+from pyautorun.orchestration.batch_state import BatchStateStore, recover_interrupted_runs
 from pyautorun.orchestration.case_run import run_case, write_json
 
 
@@ -75,8 +75,13 @@ class CaseRunTests(unittest.TestCase):
             self.assertFalse((batch / "WebCase" / "original").exists())
             self.assertEqual((batch / "WebCase" / "web" / "index.html").read_text(), "adapted")
             self.assertEqual(json.loads(Path(result["resultPath"]).read_text())["sessionId"], "session")
+            self.assertTrue((batch / "WebCase" / "generate" / "agent-output.html").is_file())
+            for name in ("input.txt", "last-message.json", "skill-runtime.json", "output.txt", "final-message.json"):
+                self.assertFalse((batch / "WebCase" / "generate" / name).exists())
+            self.assertNotIn("outputPath", result)
+            self.assertNotIn("finalMessagePath", result["logs"])
 
-    def test_retry_recovery_marks_dead_batch_and_selects_case(self):
+    def test_recovery_cleans_transient_files_and_removes_batch_state(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             batch = root / "run" / "target"
@@ -87,10 +92,9 @@ class CaseRunTests(unittest.TestCase):
             write_json(batch / "batch.json", state)
             (batch / "batch.pid").write_text("999999999")
             self.assertEqual(recover_interrupted_runs(root), [str(batch)])
-            recovered = json.loads((batch / "batch.json").read_text())
-            self.assertEqual(recovered["cases"]["a"]["status"], "interrupted")
-            self.assertEqual(recovered["cases"]["b"]["status"], "cancelled")
-            plan = load_retry_plan(root, "run")
-            self.assertEqual(plan["selectedCaseNames"], ["a", "b"])
-            with self.assertRaisesRegex(ValueError, "无效的重试批次"):
-                load_retry_plan(root, "../elsewhere")
+            recovered = json.loads((batch / "summary.json").read_text())
+            self.assertEqual(recovered["results"][0]["status"], "interrupted")
+            self.assertEqual(recovered["results"][1]["status"], "cancelled")
+            self.assertFalse((batch / "batch.json").exists())
+            self.assertFalse((batch / "a" / "result.json").exists())
+            self.assertFalse((batch / "a" / "state.json").exists())

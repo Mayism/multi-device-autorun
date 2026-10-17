@@ -7,7 +7,7 @@ from pathlib import Path
 import traceback
 
 from pyautorun.orchestration.batch import run_batch
-from pyautorun.orchestration.batch_state import load_retry_plan, recover_interrupted_runs
+from pyautorun.orchestration.batch_state import recover_interrupted_runs
 from pyautorun.orchestration.case_run import safe_name, write_json
 from pyautorun.orchestration.config import load_autorun_config
 from pyautorun.devices.ohostest import normalize_config as normalize_ohostest_config
@@ -20,7 +20,7 @@ from pyautorun.reporting.l1_report import write_l1_reports
 from pyautorun.reporting.reports import merge_overview, write_comparison_report
 from pyautorun.orchestration.target_runtime import (allocate_run_directory, config_for_target,
                              create_shared_cases_snapshot, prepare_shared_generation_provider,
-                             write_target_environment)
+                             create_target_environment)
 from pyautorun.whitebox_eval.runtime.adapter import WhiteboxEvaluator, resolve_judge_runtime
 
 
@@ -45,7 +45,7 @@ async def _whitebox_evaluator(config, workspace):
             await server.stop()
 
 
-async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False, on_log=print):
+async def run_autorun(config_path, check=False, on_log=print):
     config = load_autorun_config(config_path)
     if check:
         result = await check_environment(config, on_log)
@@ -53,9 +53,6 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
     recover_interrupted_runs(config["execution"]["outputRoot"])
     targets = config["server"]["opencodeTargets"]["targets"]
     multiple = config["server"]["opencodeTargets"]["multiple"]
-    if retry_batch_id and multiple:
-        raise ValueError("多 Agent 对比暂不支持 --retry；请使用单 Agent 配置重试指定目标")
-    retry = load_retry_plan(config["execution"]["outputRoot"], retry_batch_id, retry_case) if retry_batch_id else None
     ohos = normalize_ohostest_config({"config": config})
     if ohos["enabled"]:
         machine = ohos["machineConfig"]
@@ -69,6 +66,7 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
     cases_root = create_shared_cases_snapshot(config, run_id, run_root) if multiple else config["execution"]["casesRoot"]
     evaluator = await _whitebox_evaluator(config, cases_root) if config["whiteboxEvaluation"]["enabled"] else None
     target_results = []
+    target_environments = {}
     if multiple:
         fingerprints = []
         for target in targets:
@@ -83,7 +81,8 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
                                             provider_overlay=overlay, log=on_log)
                 model = await validate_server_config(server.client, prepared["execution"],
                                                      server.server_config, target["mode"])
-                environment, _ = await write_target_environment(target_root, target, prepared, server, model)
+                environment, _ = await create_target_environment(target, prepared, server, model)
+                target_environments[target["id"]] = environment
                 fingerprints.append(environment["generationModel"]["configFingerprint"])
             finally:
                 if server:
@@ -98,16 +97,19 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
         workspace = runtime / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
         server = None
+        environment = target_environments.get(target["id"])
         try:
             server = await start_server(prepared, workspace, reuse_existing=False,
                                         provider_overlay=overlay, log=on_log)
             model = await validate_server_config(server.client, prepared["execution"],
                                                  server.server_config, target["mode"])
-            _, skill_runtime = await write_target_environment(target_root, target, prepared, server, model)
+            environment, skill_runtime = await create_target_environment(target, prepared, server, model)
+            target_environments[target["id"]] = environment
             summary = await run_batch(prepared, server, skill_runtime, run_id, target_root, target["id"],
-                                      whitebox_evaluator=evaluator, retry_plan=retry,
+                                      whitebox_evaluator=evaluator, environment=environment,
                                       ohostest_runner=run_ohostest_for_batch)
-            target_results.append({**target, "targetRoot": str(target_root), "summary": summary})
+            target_results.append({**target, "targetRoot": str(target_root), "summary": summary,
+                                   "environment": environment})
             if summary["failed"]:
                 exit_code = 1
         except Exception as error:
@@ -116,7 +118,8 @@ async def run_autorun(config_path, retry_batch_id="", retry_case="", check=False
             write_json(target_root / "target-error.json", {"targetId": target["id"],
                        "status": "failed", "error": str(error),
                        "finishedAt": datetime.now().astimezone().isoformat()})
-            target_results.append({**target, "targetRoot": str(target_root), "error": str(error)})
+            target_results.append({**target, "targetRoot": str(target_root),
+                                   "environment": environment, "error": str(error)})
         finally:
             if server and config["server"].get("stopWhenFinished") is not False:
                 await server.stop()

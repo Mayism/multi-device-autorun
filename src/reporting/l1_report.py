@@ -90,7 +90,8 @@ def load_l1_target(run_root, target):
     target_root = target.get("targetRoot") or str(Path(run_root) / _text(target.get("id")))
     summary = target.get("summary") or _read_json(Path(target_root) / "summary.json")
     report = _read_json(Path(target_root) / "report.json")
-    environment = _read_json(Path(target_root) / "environment.json")
+    environment = (target.get("environment") or _obj(summary).get("environment")
+                   or _read_json(Path(target_root) / "environment.json"))
     mode = _text(target.get("mode") or _obj(summary).get("opencodeSourceMode")).strip()
     test_cases = {item.get("case"): item for item in
                   _obj(_obj(report).get("ohosTest")).get("caseResults", [])

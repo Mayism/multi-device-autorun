@@ -6,7 +6,9 @@ import shutil
 import subprocess
 
 
-GIT_EXCLUDES = (".onemulti/", "__pycache__/", "*.pyc", "**/evidence/tmp/")
+GIT_EXCLUDES = (".onemulti/", ".hvigor/", "oh_modules/", "build/", "node_modules/",
+                "local.properties", "/layout_[0-9]*.json", "/screenshots/",
+                "__pycache__/", "*.pyc", "**/evidence/tmp/")
 BUILD_DIRS = {".git", ".hvigor", "build", "node_modules"}
 
 
@@ -16,7 +18,11 @@ def _parts(relative):
 
 def excluded(relative):
     parts = _parts(relative)
-    return (".onemulti" in parts or "__pycache__" in parts or
+    return (any(part in parts for part in (".onemulti", ".hvigor", "oh_modules", "build",
+                                          "node_modules", "__pycache__")) or
+            bool(parts and parts[-1] == "local.properties") or
+            bool(len(parts) == 1 and re.fullmatch(r"layout_\d+\.json", parts[0])) or
+            bool(parts and parts[0] == "screenshots") or
             bool(parts and parts[-1].lower().endswith(".pyc")) or
             any(parts[index:index + 2] == ["evidence", "tmp"] for index in range(len(parts) - 1)))
 
@@ -38,7 +44,9 @@ def filter_patch(patch):
         references = re.findall(r"^diff --git a/(.+?) b/(.+)$", section, flags=re.M)
         markers = re.findall(r"^(?:---|\+\+\+) (?:a|b)/(.+)$", section, flags=re.M)
         paths = [path for pair in references for path in pair] + markers
-        if not any(excluded(path) for path in paths):
+        empty_root_layout = ("diff --git a/layout.json b/layout.json" in section and
+                             "new file mode 100644" in section and "index 0000000..e69de29" in section)
+        if not empty_root_layout and not any(excluded(path) for path in paths):
             kept.append(section)
     return "".join(kept)
 
@@ -65,7 +73,32 @@ def initialize_git_baseline(project_dir):
 
 def generate_patch(project_dir, baseline, patch_path):
     _git(project_dir, "add", "-A", "--", ".")
-    result = _git(project_dir, "diff", "--binary", baseline, check=False)
+    changed = _git(project_dir, "diff", "--cached", "--name-only", "-z", baseline).stdout
+    for relative_bytes in filter(None, changed.split(b"\0")):
+        relative = relative_bytes.decode("utf-8", errors="surrogateescape")
+        if Path(relative).name != "BuildProfile.ets":
+            continue
+        original = _git(project_dir, "show", f"{baseline}:{relative}", check=False)
+        if original.returncode:
+            continue
+        source = Path(project_dir) / relative
+        if not source.is_file():
+            continue
+        current = source.read_text(encoding="utf-8")
+        pattern = re.compile(r"^export const BUILD_MODE_NAME = '([^']+)';$", re.M)
+        before = pattern.search(original.stdout.decode("utf-8"))
+        after = pattern.search(current)
+        if not before or before.group(1) != "test" or not after or after.group(1) != "debug":
+            continue
+        sanitized = pattern.sub("export const BUILD_MODE_NAME = 'test';", current, count=1)
+        staged = _git(project_dir, "ls-files", "--stage", "-z", "--", relative).stdout
+        mode = re.match(rb"(\d{6}) [0-9a-f]+ 0\t", staged)
+        if not mode:
+            raise RuntimeError(f"无法读取 {relative} 的 Git 文件模式")
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=project_dir,
+                              input=sanitized.encode("utf-8"), capture_output=True, check=True).stdout.decode().strip()
+        _git(project_dir, "update-index", "--cacheinfo", f"{mode.group(1).decode()},{blob},{relative}")
+    result = _git(project_dir, "diff", "--cached", "--binary", baseline, check=False)
     if result.returncode not in (0, 1):
         raise RuntimeError("生成 patch 失败: " + result.stderr.decode("utf-8", errors="replace"))
     target = Path(patch_path)

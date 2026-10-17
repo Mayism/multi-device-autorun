@@ -10,9 +10,10 @@ from pyautorun.orchestration.agent_case_workspace import (agent_case_layout, mat
                                    prepare_agent_case_workspace)
 from pyautorun.orchestration.artifacts import cleanup_case, generate_patch, initialize_git_baseline
 from pyautorun.runtime.session_monitor import quota_exceeded_message, run_monitored_session
-from pyautorun.runtime.skill_runtime import install_project_skill, inspect_skill_workflow, summarize_agent_skill_runtime
+from pyautorun.runtime.skill_runtime import install_project_skill, inspect_skill_workflow
 from pyautorun.runtime.usage import (aggregate_session_messages, collect_compile_attempts, empty_compile_usage,
                     empty_token_usage)
+from pyautorun.reporting.agent_trace import write_agent_trace
 
 
 def now():
@@ -121,9 +122,8 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
             raise ValueError(f"PROMPT.md 内容为空: {case_info['promptPath']}")
         await asyncio.to_thread(prepare_agent_case_workspace, case_info, layout)
         installed = await asyncio.to_thread(install_project_skill, skill_runtime, project_dir)
-        write_json(generate_dir / "skill-runtime.json", {**summarize_agent_skill_runtime(skill_runtime),
-                                                        "installedSkill": installed})
-        (generate_dir / "input.txt").write_text(prompt, encoding="utf-8")
+        if installed:
+            console("skill_prepared", f"{installed.get('name') or 'Skill'} 已预装")
         baseline = await asyncio.to_thread(initialize_git_baseline, project_dir)
         update({"stage": "session_creating", "baseline": baseline})
         notify("工程沙箱已就绪，正在创建 Agent 会话")
@@ -160,8 +160,6 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
             max_runtime_sec=execution.get("maxRuntimeSec") or 6000,
             on_progress=on_progress,
             on_quota_exceeded=lambda message, hard: console("quota", message))
-        (generate_dir / "output.txt").write_text(monitored.get("output") or "", encoding="utf-8")
-        write_json(generate_dir / "final-message.json", monitored.get("message") or {})
         logs = await save_agent_logs(client, [session_id, *monitored["childSessionIds"]], generate_dir)
         usage = logs["tokenUsage"] if logs["tokenUsage"]["total"] else monitored["tokenUsage"]
         update({"stage": "artifacting", "childSessionIds": monitored["childSessionIds"]})
@@ -186,15 +184,21 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
                   "projectName": case_info["projectName"], "platform": case_info["platform"],
                   "projectDir": project_dir, "buildProjectDir": layout["buildProjectDir"],
                   "patchPath": str(patch_path), "resultPath": str(result_path),
-                  "outputPath": str(generate_dir / "output.txt"), "output": monitored.get("output") or "",
+                  "output": monitored.get("output") or "",
                   "logs": {"transcriptPath": logs["transcriptPath"], "messagesPath": logs["messagesPath"],
                            "compileAttemptsPath": logs["compileAttemptsPath"],
-                           "finalMessagePath": str(generate_dir / "final-message.json"),
                            "consolePath": str(console_path)}}
         if not pending:
             result.update({"finishedAt": now(), "elapsedSec": elapsed})
         if workflow:
             result["skillWorkflow"] = workflow
+        try:
+            result["logs"]["htmlPath"] = write_agent_trace(
+                logs["messagesPath"], case_name=name, agent_status=result["agentStatus"],
+                model=f"{model['providerId']}/{model['modelId']}",
+                started_at=result["startedAt"], finished_at=result["agentFinishedAt"], token_usage=usage)
+        except Exception as error:
+            console("trace-error", f"Agent HTML 日志生成失败: {error}")
         for key, enabled in (("ohosTest", ohos_enabled), ("cloudTest", cloud_enabled),
                              ("whitebox", whitebox_enabled)):
             if enabled:
@@ -219,8 +223,6 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
             await asyncio.to_thread(materialize_agent_case_projects, case_info, layout, run_dir)
         except Exception:
             pass
-        if getattr(error, "last_message", None):
-            write_json(generate_dir / "last-message.json", error.last_message)
         failed_ids = [getattr(error, "session_id", session_id),
                       *getattr(error, "child_session_ids", [])]
         try:
@@ -251,6 +253,14 @@ async def run_case(case_info, batch_root, client, model, execution, skill_runtim
                            "compileAttemptsPath": logs["compileAttemptsPath"] if logs else "",
                            "ssePath": str(sse_path), "pollingPath": str(generate_dir / "opencode-polling.jsonl"),
                            "consolePath": str(console_path)}}
+        if logs and logs.get("messagesPath"):
+            try:
+                result["logs"]["htmlPath"] = write_agent_trace(
+                    logs["messagesPath"], case_name=name, agent_status=status,
+                    agent_error=str(error), model=f"{model['providerId']}/{model['modelId']}",
+                    started_at=result["startedAt"], finished_at=result["finishedAt"], token_usage=result["tokenUsage"])
+            except Exception as trace_error:
+                console("trace-error", f"Agent HTML 日志生成失败: {trace_error}")
         console(status, str(error))
         write_json(result_path, result)
         update({"status": status, "stage": status, "error": str(error), "finishedAt": result["finishedAt"],

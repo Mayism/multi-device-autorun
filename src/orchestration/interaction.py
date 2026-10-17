@@ -2,6 +2,10 @@
 
 import re
 
+from pyautorun.runtime.text_confirmation import (BASIC_TESTS_REPLY, has_basic_tests_option,
+                                                   requests_basic_tests_confirmation,
+                                                   requires_manual_confirmation)
+
 
 AUTOMATIC_CONFIRMATION_TEXT = "允许，请继续执行；如需选择，请采用推荐或默认方案。"
 AFFIRMATIVE = re.compile(r"允许|同意|确认|继续|执行|应用|保存|覆盖|启用|接受|推荐|默认|好的|可以|是|\b(?:allow|approve|confirm|continue|proceed|accept|recommended|default|yes|ok)\b", re.I)
@@ -12,6 +16,18 @@ def automatic_question_answers(questions):
     answers = []
     for question in questions if isinstance(questions, list) else []:
         options = question.get("options") or []
+        context = "\n".join(str(value) for value in (question.get("question"), question.get("prompt"),
+                            question.get("header"), *(f"{item.get('label') or item.get('value') or ''} "
+                            f"{item.get('description') or ''}" for item in options)) if value)
+        if requests_basic_tests_confirmation(context, structured=True):
+            basic = next((str(item.get("label") or item.get("value") or "").strip()
+                          for item in options if has_basic_tests_option(item.get("label") or item.get("value"))), None)
+            if basic or not options:
+                answers.append([basic or BASIC_TESTS_REPLY])
+                continue
+        if requires_manual_confirmation("\n".join(str(question.get(key) or "")
+                                                  for key in ("question", "prompt")), bool(options)):
+            return []
         if not options:
             answers.append([AUTOMATIC_CONFIRMATION_TEXT])
             continue
@@ -29,6 +45,7 @@ async def handle_pending_interactions(client, project_dir, replied_questions, re
                                       on_activity=None, on_progress=None):
     pending = 0
     replied = 0
+    questions_replied = 0
     errors = []
 
     def progress(kind, details):
@@ -45,11 +62,14 @@ async def handle_pending_interactions(client, project_dir, replied_questions, re
             try:
                 answers = automatic_question_answers(item.get("questions") or [])
                 if not answers:
+                    if item.get("questions"):
+                        continue
                     raise ValueError("question 请求未包含可回答的问题")
                 await client.reply_question(identifier, answers, project_dir)
                 replied_questions.add(identifier)
                 pending -= 1
                 replied += 1
+                questions_replied += 1
                 if on_activity:
                     on_activity()
                 progress("question_replied", {"requestId": identifier, "answers": answers})
@@ -85,7 +105,7 @@ async def handle_pending_interactions(client, project_dir, replied_questions, re
         detail = {"kind": "permission_list", "error": str(error)}
         errors.append(detail)
         progress("interaction_error", detail)
-    return {"pending": pending, "replied": replied, "errors": errors}
+    return {"pending": pending, "replied": replied, "questionsReplied": questions_replied, "errors": errors}
 
 
 AGENT_AUTO_APPROVAL_POLICY_MARKER = "# 无人值守确认策略（强制）"

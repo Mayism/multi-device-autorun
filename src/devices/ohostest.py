@@ -32,7 +32,11 @@ def normalize_config(payload):
     raw = raw_value if has_config else {}
     enabled = has_config and raw.get("enabled") is not False
     timeout = _numeric(raw.get("timeoutSec")) or 7200
-    machine_config = {key: value for key, value in raw.items() if key not in ("enabled", "timeoutSec")}
+    machine_config = {key: value for key, value in raw.items() if key not in ("enabled", "timeoutSec", "rnWorkRoot")}
+    raw_rn_root = raw.get("rnWorkRoot")
+    rn_root = (os.path.abspath(os.path.join(_fallback(config.get("__baseDir"), os.getcwd()), raw_rn_root.strip()))
+               if isinstance(raw_rn_root, str) and raw_rn_root.strip() else
+               "D:\\rn" if raw_rn_root is not False and os.name == "nt" else "")
     paths = machine_config.get("paths")
     if isinstance(paths, dict):
         paths = paths.copy()
@@ -49,7 +53,8 @@ def normalize_config(payload):
         overrides.update({key: sdk_home for key in ("DEVECO_SDK_HOME", "HOS_SDK_HOME", "OHOS_SDK_HOME")})
     if java_home:
         overrides["JAVA_HOME"] = java_home
-    return {"enabled": enabled, "timeoutSec": max(1, timeout), "machineConfig": machine_config,
+    return {"enabled": enabled, "timeoutSec": max(1, timeout), "rnWorkRoot": rn_root,
+            "machineConfig": machine_config,
             "runnerEnvOverrides": overrides, "runMode": "swe"}
 
 

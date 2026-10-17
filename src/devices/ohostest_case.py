@@ -4,6 +4,7 @@ import asyncio
 import argparse
 from contextlib import nullcontext
 from datetime import datetime, timezone
+from hashlib import sha1
 import json
 import os
 from pathlib import Path
@@ -29,6 +30,42 @@ from pyautorun.devices.ohostest_web import WEB_PORT, web_service
 
 class _SkippedCase(Exception):
     pass
+
+
+def _is_rn_project(project_dir):
+    root = Path(project_dir)
+    if not root.is_dir():
+        return False
+    manifests = [root / name for name in ("oh-package.json5", "package.json", "hvigor-config.json5")]
+    manifests.extend(child / "oh-package.json5" for child in root.iterdir() if child.is_dir())
+    for manifest in manifests:
+        try:
+            with manifest.open("rb") as stream:
+                content = stream.read(512 * 1024).decode("utf-8", errors="replace")
+            if re.search(r"react-native|@rnoh", content, re.I):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _rn_output_dir(root, case_name, started):
+    parent = Path(root)
+    parent.mkdir(parents=True, exist_ok=True)
+    segment = sha1(str(case_name or "case").encode("utf-8")).hexdigest()[:8]
+    for child in parent.iterdir():
+        if child.name == segment or child.name.startswith(segment + "__"):
+            try:
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
+            except OSError:
+                pass
+    primary = parent / segment
+    if primary.exists():
+        return parent / f"{segment}__{started.astimezone().strftime('%Y%m%d%H%M%S')}"
+    return primary
 
 
 def _relative_or_absolute(path, root):
@@ -296,13 +333,18 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
     started = datetime.now(timezone.utc)
     case_dir = Path(agent_result["resultPath"]).parent
     staged = await asyncio.to_thread(stage_generated_case, case_info, case_dir, agent_result["patchPath"])
-    output = case_dir / ".ohostest-runs" / started.astimezone().strftime("%Y%m%d%H%M%S")
+    final_output = case_dir / ".ohostest-runs" / started.astimezone().strftime("%Y%m%d%H%M%S")
+    rn_root = settings.get("rnWorkRoot") or ""
+    relocated = bool(rn_root) and _is_rn_project(case_dir / case_info["projectName"])
+    output = _rn_output_dir(rn_root, case_info["name"], started) if relocated else final_output
+    if relocated:
+        print(f"[ohosTest] {case_info['name']}: RN 短路径 {output}，运行结束后仅保留结果目录")
     output.mkdir(parents=True, exist_ok=True)
     machine_path = output / "machine.json"
     write_json(machine_path, settings["machineConfig"])
     work = output / "work"
     retained = case_dir / "ohostest-workdir"
-    for path in (work, retained):
+    for path in ((work,) if relocated else (work, retained)):
         if path.exists():
             shutil.rmtree(path)
     def execute_child():
@@ -313,7 +355,7 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
             runner_env.update(settings.get("runnerEnvOverrides") or {})
             process = subprocess.Popen([sys.executable, "-m", "pyautorun.devices.ohostest_case", "--case", str(case_dir),
                                         "--out", str(output), "--machine-config", str(machine_path),
-                                        "--run", "swe", "--keep-workdir"],
+                                        "--run", "swe", *(("--keep-workdir",) if not relocated else ())],
                                        cwd=Path(__file__).resolve().parents[2], env=runner_env,
                                        stdin=subprocess.DEVNULL,
                                        stdout=stream, stderr=stream, start_new_session=(os.name != "nt"))
@@ -335,19 +377,31 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
                     process.wait()
                 return process.returncode, f"ohosTest 总运行时间超过 {settings['timeoutSec']} 秒"
     exit_code, stop_reason, runner = 1, "", None
+    preserve_error = ""
     try:
         exit_code, stop_reason = await asyncio.to_thread(execute_child)
-        if (output / "result.json").is_file():
-            try:
-                runner = json.loads((output / "result.json").read_text(encoding="utf-8"))
-            except (OSError, ValueError) as error:
-                stop_reason = f"ohosTest 结果文件损坏: {error}"
     except Exception as error:
         stop_reason = f"ohosTest 运行异常: {error}"
     finally:
-        if work.exists():
+        if relocated:
+            try:
+                if work.exists():
+                    shutil.rmtree(work)
+                final_output.parent.mkdir(parents=True, exist_ok=True)
+                if final_output.exists():
+                    shutil.rmtree(final_output)
+                shutil.move(str(output), str(final_output))
+                output = final_output
+            except OSError as error:
+                preserve_error = f"迁移输出目录迁回失败: {error}"
+                print(f"[ohosTest] {case_info['name']}: {preserve_error}，结果暂存于 {output}")
+        elif work.exists():
             work.rename(retained)
-        Path(staged["goldenPatchPath"]).unlink(missing_ok=True)
+    if (output / "result.json").is_file():
+        try:
+            runner = json.loads((output / "result.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            stop_reason = f"ohosTest 结果文件损坏: {error}"
     finished = datetime.now(timezone.utc)
     outcome = classify_result({"runnerStatus": runner.get("status") if runner else "",
                                "firstDiagnostic": (runner.get("diagnostics") or [""])[0] if runner else "",
@@ -359,11 +413,13 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
             "finishedAt": finished.isoformat(timespec="milliseconds").replace("+00:00", "Z"),
             "elapsedSec": round((finished - started).total_seconds()), "exitCode": exit_code,
             "signal": "", "error": outcome["error"], "inputCaseDir": str(case_dir),
-            "metadataPath": staged["metadataPath"], "machineConfigPath": str(machine_path),
+            "metadataPath": staged["metadataPath"], "machineConfigPath": str(output / "machine.json"),
             "testPatchPath": staged["testPatchPath"], "outputDir": str(output),
             "resultPath": str(output / "result.json") if (output / "result.json").is_file() else "",
             "summaryPath": str(output / "summary.md") if (output / "summary.md").is_file() else "",
-            "workDir": str(retained) if retained.exists() else ""}
+            "workDir": str(work) if relocated and preserve_error and work.exists() else
+                       str(retained) if not relocated and retained.exists() else "",
+            **({"workPreserveError": preserve_error} if preserve_error else {})}
 
 
 def main(argv=None):

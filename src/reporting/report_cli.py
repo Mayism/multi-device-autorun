@@ -1,4 +1,4 @@
-"""Regenerate batch HTML and ZIP/upload artifacts from saved results."""
+"""Regenerate batch HTML and local ZIP artifacts from saved results."""
 
 import argparse
 from pathlib import Path

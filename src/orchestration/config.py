@@ -48,6 +48,4 @@ def load_autorun_config(config_path="./config/autorun.config.json"):
     config["whiteboxEvaluation"] = bind_runtime({"config": whitebox,
                                                   "targets": target_config["targets"],
                                                   "baseDir": str(base_dir)})
-    config["upload"] = {**(config.get("upload") or {}),
-                        "enabled": (config.get("upload") or {}).get("enabled") is True}
     return config

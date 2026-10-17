@@ -58,7 +58,8 @@ def _target(run_root, target):
     target_root = Path(_fallback(target.get("targetRoot"), str(Path(run_root) / target_id)))
     summary = _fallback(target.get("summary"), _read_json(target_root / "summary.json"))
     report = _fallback(target.get("report"), _read_json(target_root / "report.json"))
-    environment = _read_json(target_root / "environment.json")
+    environment = _fallback(target.get("environment"), _obj(summary).get("environment"),
+                            _read_json(target_root / "environment.json"))
     summary, report, environment = map(_obj, (summary, report, environment))
     agent_report = _obj(report.get("agent"))
     ohos_report = _obj(report.get("ohosTest"))

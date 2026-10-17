@@ -5,6 +5,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 from pyautorun.reporting.batch_report import build_batch_report
+from pyautorun.reporting.agent_trace import write_agent_trace
+from pyautorun.reporting.archive_cases import archive_cases
 from pyautorun.orchestration.batch_state import read_json
 from pyautorun.orchestration.case_run import write_json
 from pyautorun.reporting.comparison_report import build_comparison_report
@@ -25,11 +27,11 @@ def _case_page(result):
     name = result.get("case") or ""
     logs = result.get("logs") or {}
     rows = []
-    for label, key in (("Agent 输出", "outputPath"), ("工程差异", "patchPath")):
+    for label, key in (("工程差异", "patchPath"),):
         value = result.get(key) or ""
         if value:
             rows.append(f"<tr><th>{esc(label)}</th><td>{_link(Path(value).as_uri(), Path(value).name)}</td></tr>")
-    for label, key in (("Agent 会话", "transcriptPath"), ("模型消息", "messagesPath"),
+    for label, key in (("Agent 执行过程", "htmlPath"), ("Agent 会话", "transcriptPath"), ("模型消息", "messagesPath"),
                        ("编译记录", "compileAttemptsPath")):
         value = logs.get(key) or ""
         if value:
@@ -61,16 +63,32 @@ def _case_page(result):
     return page_shell(f"Autorun · {name}", "\n".join(sections))
 
 
-def write_batch_report(batch_root, summary, upload_config=None, on_log=lambda _message: None):
+def write_batch_report(batch_root, summary, on_log=lambda _message: None):
     root = Path(batch_root)
+    for result in summary.get("results") or []:
+        logs = result.get("logs") or {}
+        messages_path = logs.get("messagesPath")
+        if not messages_path or not Path(messages_path).is_file():
+            continue
+        try:
+            logs["htmlPath"] = write_agent_trace(
+                messages_path, case_name=result.get("case") or "",
+                agent_status=result.get("agentStatus") or result.get("status") or "",
+                agent_error=result.get("agentError") or "",
+                model="/".join(filter(None, (result.get("providerId"), result.get("modelId")))),
+                started_at=result.get("startedAt") or "",
+                finished_at=result.get("agentFinishedAt") or result.get("finishedAt") or "",
+                token_usage=result.get("tokenUsage") or {})
+            result["logs"] = logs
+        except Exception as error:
+            on_log(f"{result.get('case')}: Agent HTML 日志生成失败: {error}")
     report = build_batch_report({"summary": summary, "generatedAt": _iso()})
     json_path = root / "report.json"
     write_json(json_path, report)
-    from .upload import archive_and_upload
     try:
-        archive_and_upload(root, summary, report, upload_config, on_log)
+        archive_cases(root, summary, on_log)
     except Exception as error:
-        on_log(f"批量打包/上传失败: {error}")
+        on_log(f"批量打包失败: {error}")
     subpage = root / "subpage"
     subpage.mkdir(parents=True, exist_ok=True)
     rows = []

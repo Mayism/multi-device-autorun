@@ -95,8 +95,12 @@ class BatchTests(unittest.TestCase):
             output = io.StringIO()
             with patch("pyautorun.orchestration.batch.validate_server_config", validate), \
                  patch("pyautorun.orchestration.batch.run_case", case_run), redirect_stdout(output):
-                summary = asyncio.run(run_batch(config, Server(), {}, "run", target, "agent"))
+                summary = asyncio.run(run_batch(config, Server(), {}, "run", target, "agent",
+                                                environment={"generationModel": {"configFingerprint": "fp"},
+                                                             "skills": {"loaded": ["sample"]}}))
             self.assertEqual(summary["completed"], 2)
+            self.assertEqual(summary["environment"]["skills"]["loaded"], ["sample"])
+            self.assertFalse((target / "environment.json").exists())
             self.assertEqual(output.getvalue().count("生成状态"), 1)
             self.assertIn("CaseA", output.getvalue())
             self.assertIn("CaseB", output.getvalue())
@@ -105,6 +109,9 @@ class BatchTests(unittest.TestCase):
             self.assertTrue((target / "overview.html").is_file())
             self.assertTrue((target / "subpage" / "CaseA.html").is_file())
             self.assertFalse((target / "batch.pid").exists())
+            self.assertFalse((target / "batch.json").exists())
+            self.assertFalse((target / "CaseA" / "result.json").exists())
+            self.assertTrue((target / "summary.json").is_file())
             comparison = write_comparison_report(root / "out" / "run", "run",
                                                  {"providerId": "p", "modelId": "m"},
                                                  [{"id": "agent", "label": "Agent", "mode": "harmonyBot",

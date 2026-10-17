@@ -18,7 +18,6 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Autorun Python 运行入口")
     parser.add_argument("--config", "-c", default="./config/autorun.config.json")
     parser.add_argument("--check", action="store_true")
-    parser.add_argument("--retry")
     parser.add_argument("--merge", nargs="?", const="")
     parser.add_argument("--l1", "--l1-report", nargs="?", const="", dest="l1_report")
     parser.add_argument("--cloud-test", action="store_true")
@@ -30,8 +29,8 @@ def main(argv=None):
     parser.add_argument("--task-name")
     args = parser.parse_args(argv)
     if args.cloud_test or args.poll_task:
-        if args.retry or args.merge is not None or args.check or args.l1_report is not None:
-            parser.error("云测试独立命令不能和 --retry、--merge、--l1 或 --check 一起使用")
+        if args.merge is not None or args.check or args.l1_report is not None:
+            parser.error("云测试独立命令不能和 --merge、--l1 或 --check 一起使用")
         forwarded = ["--config", args.config]
         if args.cloud_test:
             forwarded.append("--cloud-test")
@@ -44,8 +43,8 @@ def main(argv=None):
                 forwarded.extend((name, value))
         return cloudtest_main(forwarded)
     if args.l1_report is not None:
-        if args.retry or args.merge is not None or args.check or args.case_name:
-            parser.error("--l1 不能和 --check、--retry、--case 或 --merge 一起使用")
+        if args.merge is not None or args.check or args.case_name:
+            parser.error("--l1 不能和 --check、--case 或 --merge 一起使用")
         config = load_autorun_config(args.config)
         run_root, targets = collect_l1_report_targets(args.l1_report, config["execution"]["outputRoot"])
         summaries = [read_json(Path(target["targetRoot"]) / "summary.json") for target in targets]
@@ -66,20 +65,18 @@ def main(argv=None):
         print(f"[l1] L1 评分报告已生成: {l1['indexPagePath']}")
         return 0
     if args.merge is not None:
-        if args.check or args.retry or args.case_name:
-            parser.error("--merge 不能和 --check、--retry 或 --case 一起使用")
+        if args.check or args.case_name:
+            parser.error("--merge 不能和 --check 或 --case 一起使用")
         config = load_autorun_config(args.config)
         merged = merge_overview(args.merge or config["execution"]["outputRoot"])
         print(f"[merge] 已合并 {merged['batchCount']} 个批次 → {merged['overviewPath']}")
         return 0
-    if args.case_name and not args.retry:
-        parser.error("--case 只能和 --retry 或 --cloud-test 一起使用")
-    if args.check and args.retry:
-        parser.error("--check 不能和 --retry 一起使用")
+    if args.case_name:
+        parser.error("--case 只能和 --cloud-test 一起使用")
     if any((args.project, args.project_dir, args.app, args.task_name)):
         parser.error("--project/--project-dir/--app/--task-name 只能和 --cloud-test 一起使用")
     try:
-        result = asyncio.run(run_autorun(args.config, args.retry or "", args.case_name or "", args.check))
+        result = asyncio.run(run_autorun(args.config, args.check))
         if result.get("overviewPath"):
             print(f"批次报告：{result['overviewPath']}")
         return result["exitCode"]
