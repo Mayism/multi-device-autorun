@@ -11,6 +11,9 @@ async function target(root, id, modelId = "glm-5.2") {
   const summary = {
     batchId: "20260827143000", agent: id, providerId: "zhipuai-coding-plan", modelId,
     status: "completed", total: 1, completed: 1, failed: 0,
+    environment: {
+      generationModel: { providerId: "zhipuai-coding-plan", modelId, configFingerprint: "same-fingerprint" },
+    },
     tokenUsage: { total: 10 }, results: [{ case: "CaseA", status: "completed", elapsedSec: 2, tokenUsage: { total: 10 } }],
   };
   const report = {
@@ -20,9 +23,6 @@ async function target(root, id, modelId = "glm-5.2") {
   };
   await fs.writeFile(path.join(dir, "summary.json"), JSON.stringify(summary));
   await fs.writeFile(path.join(dir, "report.json"), JSON.stringify(report));
-  await fs.writeFile(path.join(dir, "environment.json"), JSON.stringify({
-    generationModel: { providerId: "zhipuai-coding-plan", modelId, configFingerprint: "same-fingerprint" },
-  }));
   return { id, label: id, targetRoot: dir };
 }
 
@@ -31,22 +31,41 @@ test("single target writes only root overview", async () => {
   const a = await target(root, "harmonybot");
   const result = await writeAgentComparisonReport({ runRoot: root, runId: "20260827143000", generationModel: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2" }, targets: [a] });
   assert.equal(result.comparisonPath, "");
+  assert.equal(result.comparison.targets[0].modelConfigFingerprint, "same-fingerprint");
   assert.match(await fs.readFile(result.overviewPath, "utf8"), /harmonybot/);
 });
 
-test("failed targets still validate the preflight model from environment manifests", async () => {
+test("failed targets still validate the preflight model from in-memory environment snapshots", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "autorun-comparison-failed-"));
   const targets = [];
   for (const id of ["harmonybot", "software-engineering"]) {
     const dir = path.join(root, id);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, "environment.json"), JSON.stringify({
-      generationModel: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2", configFingerprint: "same" },
-    }));
-    targets.push({ id, targetRoot: dir, error: "no cases" });
+    targets.push({
+      id, targetRoot: dir, error: "no cases",
+      environment: {
+        generationModel: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2", configFingerprint: "same" },
+      },
+    });
   }
   const result = await writeAgentComparisonReport({ runRoot: root, runId: "20260827143000", generationModel: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2" }, targets });
   assert.equal(result.comparison.sameModelValidated, true);
+});
+
+test("old batches can still read standalone environment.json", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "autorun-comparison-legacy-"));
+  const a = await target(root, "harmonybot");
+  const summaryPath = path.join(a.targetRoot, "summary.json");
+  const summary = JSON.parse(await fs.readFile(summaryPath, "utf8"));
+  const { environment, ...legacySummary } = summary;
+  await fs.writeFile(summaryPath, JSON.stringify(legacySummary));
+  await fs.writeFile(path.join(a.targetRoot, "environment.json"), JSON.stringify(environment));
+  const result = await writeAgentComparisonReport({
+    runRoot: root, runId: "20260827143000",
+    generationModel: { providerId: "zhipuai-coding-plan", modelId: "glm-5.2" },
+    targets: [a],
+  });
+  assert.equal(result.comparison.targets[0].modelConfigFingerprint, "same-fingerprint");
 });
 
 test("multiple targets write comparison and validate exact same model", async () => {

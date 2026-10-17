@@ -27,7 +27,7 @@ Autorun 是一个面向 OpenCode Agent 的批量自动执行工具。它会为�
 - 自动建立 Git 基线并生成 `changes.patch`。
 - 保存批次状态、单用例状态、Agent 输出、SSE 事件和轮询记录。
 - 批次完成后自动生成 HTML 报告（总览页 + 每用例详情页），总览页支持导出 Excel，并含白盒评价（状态/总分/裁判模型 + 详情直链）与云测试（统计卡片 + 报告直链）章节。
-- 失败用例产物可打包上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示。
+- 批次结束后将用例产物打包为本地 ZIP，保存在对应的用例目录。
 - 支持合并多个批次的报告：把多轮回归的总览页数值自动求和、用例行汇总，生成跨批次总览页（`node autorun.mjs --merge`）。
 - 支持集成 AGC 云测试：本地构建签名包 → 上传云测试 → 提交真机任务 → 轮询结果（`node autorun.mjs --cloud-test`）。
 
@@ -56,7 +56,7 @@ autorun/
 │   ├── whitebox/               # 白盒评价子系统与编排
 │   ├── cloudtest/              # AGC 云测试客户端、编排和报告
 │   ├── report/                 # 批次、合并及 HTML 报告
-│   ├── artifacts/              # 产物过滤、ZIP 和上传
+│   ├── artifacts/              # 产物过滤和本地 ZIP
 │   ├── platform/               # DevEco 等平台工具适配
 │   ├── runtime/                # 工程沙箱复制和控制台运行时
 │   └── shared/                 # 无业务归属的轻量公共能力
@@ -261,7 +261,7 @@ devecocli --version
 }
 ```
 
-每个目标使用独立 OpenCode Server、配置资产副本、数据库、状态、缓存、日志和 workspace。批次级 Provider 配置只包含统一生成模型及其连接配置，不会携带来源的 Agent、Plugin 或 Skill；它会以权限受限的快照文件注入所有目标。`softwareEngineering` 会在 Agent Session 创建前校验来源 Skill 与权限白名单完全一致；OpenCode 固定注册但已被拒绝的内置 Skill 只记录在 `environment.json` 的 `skills.blocked`，不会进入 `skills.loaded` 或模型会话。多个目标还会共用一份启动时冻结的用例输入快照，保证后执行的 Agent 不会读取前一个 Agent 修改后的工程。
+每个目标使用独立 OpenCode Server、配置资产副本、数据库、状态、缓存、日志和 workspace。批次级 Provider 配置只包含统一生成模型及其连接配置，不会携带来源的 Agent、Plugin 或 Skill；它会以权限受限的快照文件注入所有目标。`softwareEngineering` 会在 Agent Session 创建前校验来源 Skill 与权限白名单完全一致；OpenCode 固定注册但已被拒绝的内置 Skill 只记录在 `summary.json` 的 `environment.skills.blocked`，不会进入 `skills.loaded` 或模型会话。多个目标还会共用一份启动时冻结的用例输入快照，保证后执行的 Agent 不会读取前一个 Agent 修改后的工程。
 
 ### Windows/Hvigor 输出路径建议
 
@@ -345,23 +345,7 @@ node autorun.mjs --config ./config/another.config.json
 
 执行过程中会显示 Worker 领取用例、Agent 输出进度、用例完成情况和最终批次汇总。
 
-### 3. 重试失败用例
-
-重试历史批次中所有失败、中断或未执行的用例（新布局传 `<mode>/<batchId>`，如 `harmonyBot/20260821114859`；只传 `batchId` 时会在各模式目录下自动查找，旧版扁平批次 ID 仍然可用）：
-
-```bash
-node autorun.mjs --retry harmonyBot/20260821114859
-```
-
-只重试该批次中的某一个用例：
-
-```bash
-node autorun.mjs --retry harmonyBot/20260821114859 --case CaseAtomic
-```
-
-重试会创建一个新批次，不覆盖原批次。若历史结果中 Agent 已成功且工程、`changes.patch` 仍然存在，则复用 Agent 结果并只重新执行 ohosTest；Agent 未成功或历史产物已不存在时会重新执行 Agent，成功后再进入 ohosTest。显式指定 `--case` 时允许重试已成功用例，此时同样优先复用成功的 Agent 结果，只重新执行 ohosTest。
-
-### 4. 单任务调试
+### 3. 单任务调试
 
 确保 OpenCode Server 已运行，然后执行：
 
@@ -375,7 +359,7 @@ node src/opencode/ask-opencode.mjs "帮我把当前工程下的文件名列出�
 node src/opencode/ask-opencode.mjs --help
 ```
 
-### 5. 单独启动 OpenCode Server
+### 4. 单独启动 OpenCode Server
 
 通常不需要手工启动 Server。如果需要排查 Server 启动问题，可以执行：
 
@@ -393,40 +377,23 @@ node src/opencode/run-opencode-serve.mjs --source "C:\Users\HW\.vscode\extension
 node src/opencode/run-opencode-serve.mjs --help
 ```
 
-### 6. 打包与上传用例产物
+### 5. 本地打包用例产物
 
-批次完成后，**所有用例**（含 completed/skipped）的产物都会自动打包为 ZIP 保存到各用例目录下，用于归档与结果分发。`upload.enabled` 设为 `true` 时，失败或错误用例（整体状态非完成或测试项有失败/错误）的 ZIP 同时上传到 AGC 云存储，生成下载链接并在 HTML 报告中展示；设为 `false`（默认）时仅保留本地 ZIP，不上传、不写 `upload-results.json`、HTML 不显示下载按钮。
+批次完成后，所有已有用例目录的产物都会自动打包为 ZIP，保存在对应的用例目录下。ZIP 包含工程、Agent 日志、差异文件和测试报告；`build`、`oh_modules`、`.hvigor`、`node_modules`、`__pycache__` 等可再生成目录由打包器排除。ZIP 文件名为 `{CaseName}_{batchId}.zip`。
 
-**手动补打包/上传**（对已有批次）：
-
-```bash
-node src/artifacts/upload-results.mjs output/<batchId>/<agentId>
-```
-
-上传行为：
-
-- **所有用例**都会生成本地 ZIP；只上传**失败或错误**的用例到 AGC 云存储（整体通过且无测试失败的用例仅保留本地 ZIP）。
-- 打包用例目录下的全部内容为 ZIP：包括 `base/`（或 `task/`）、工程内的 `.onemulti/`（Skill 脚本、账本、正式证据和适配 HTML 报告）、`generate/`、`diff/`、`.ohostest-runs/`、`ohostest-workdir/`、`whitebox/`、`cloudtest/` 等产物（ZIP 输出文件本身不重复入包；DEFLATE 压缩，仍排除 `build`、`oh_modules`、`.hvigor`、`node_modules`、`__pycache__`、`*.pyc` 和 `**/evidence/tmp/` 等可再生成或临时内容）。
-- ZIP 文件名为 `{CaseName}_{batchId}.zip`，上传路径为 `ohostest/{CaseName}_{batchId}.zip`。
-- 上传支持重试（默认 3 次），每次失败记录原因。每个用例上传后立即写 `upload-results.json`，再次执行仍重建本地 ZIP，但已有上传链接的用例不重复上传。旧 ZIP 不会自动迁移；手动补打包可把本地仍保留的 `.onemulti` 加入归档，已有云端 ZIP 不会随本地重建自动更新。
-- 上传结果写入 `output/<batchId>/<agentId>/upload-results.json`，格式为 `{ "CaseName": { "url": "下载地址", "error": "失败原因", "uploadedAt": "时间" } }`。
-
-上传成功后，重新生成 HTML 报告即可在总览页的「操作」列看到**下载**按钮，点击直接下载对应 ZIP。
+对已有批次手动重新打包：
 
 ```bash
-# 先上传
-node src/artifacts/upload-results.mjs output/<batchId>/<agentId>
-# 再刷新 HTML（自动读取 upload-results.json）
-node src/report/generate-html-report.mjs output/<batchId>/<agentId>
+node src/artifacts/archive-results.mjs output/<batchId>/<agentId>
 ```
 
-### 7. 合并批次报告
+### 6. 合并批次报告
 
 多轮回归后，可把多个批次的执行结果合并成一份跨批次总览页。合并脚本按五步主流程组织（`src/report/merge-overview.mjs`，每步独立成模块方法）：
 
 1. **发现批次报告** `discoverBatches`：扫描批次目录，兼容旧版 `<来源>/<批次>` 和新版 `<批次>/<agentId>` 两层布局，按名称排序；只依据 `summary.json` 识别 Agent 批次，缺 `summary.json` 的目录跳过并告警。
 2. **清理旧产物** `cleanOldArtifacts`：删除旧 overview.html 与 subpage/ 并重建目录，保证每次合并从干净状态开始。
-3. **读取批次数据** `readBatchData`：读取各批次 `summary.json` / `report.json` / `upload-results.json` 及用例级 runner result，按与批次报告同口径组装 caseRows。
+3. **读取批次数据** `readBatchData`：读取各批次 `summary.json` / `report.json` 及用例级 runner result，按与批次报告同口径组装 caseRows。
 4. **合并数据** `mergeData`：数据层合并后**逐模块产出 HTML 片段**——配置总览、结果总览、用例执行一览、白盒评价、云测试，以及 skill 章节（`merge-skill.mjs` 返回的数据就是 HTML，直接作为片段）。统计口径：计数类（用例总数、完成/失败、总 Token、模型/工具调用、执行用例个数、通过/失败/错误、白盒完成/失败）跨批次求和；白盒平均分复用 `batch-report` 的 `buildWhiteboxSummary` 在全部用例上整体重算；Agent/providerId/模型相同取一个、不同用「/」分隔。**白盒评价章节**合并各批次用例的 `whitebox` 结果（状态/总分/裁判模型），详情链接直连各批次 `<Case>/whitebox/report.html`；**云测试章节**合并各用例 `cloudTest` 结果（状态取 result.json，设备/规则/问题指标读各用例 `cloudtest/cloudtest-result.json` 的 `report.summary`），卡片（参与用例、设备通过/失败、规则通过/失败、问题数量）跨批次求和，报告链接直连各用例 `cloudtest-report.html`。合并页**不看阶段开关**：批次结果里有数据就合并、没有就跳过，章节由行数据驱动。批次页则跟随开关：未开启的阶段整章省略（忽略 retry 继承的残留数据），开启但零数据时渲染空态。
 5. **生成 HTML** `generateHtml`：用 `pageShell` 把各模块片段按序组装（配置总览 → 结果总览 → 用例执行一览 → 白盒评价 → 云测试 → skill 质量评估 → skill 安全审计）写盘。
 
@@ -447,9 +414,9 @@ node autorun.mjs --merge --config ./config/another.config.json
 
 合并产物直接落在该根目录下：`overview.html`（跨批次总览）与 `subpage/`（汇总后的用例详情页）。该模式不启动 OpenCode Server、不执行用例，仅处理既有报告，可随时重跑。
 
-### 8. 云测试（主流程默认执行 / `--cloud-test` 独立调试）
+### 7. 云测试（主流程默认执行 / `--cloud-test` 独立调试）
 
-云测试是主流程的一部分，默认在每个用例的 Agent 完成后自动执行。**云测试（远端真机）与 ohosTest（本地模拟器）并行**：云测试上传包后只需轮询等待、不占用本地设备；两个分支互不依赖，控制台的“测试状态”“云测试”两列在各自分支结束时独立定格，全部分支结束后再合并定级用例最终状态，云测试结果记录在用例 `result.json` 的 `cloudTest` 字段。多个用例的云测试提交阶段（构建+上传+提交）串行执行以规避频率限制，轮询阶段并行；模拟器测试保持跨用例串行（设备租约）。构建不与 ohosTest 合并：ohosTest 使用 debug 包（由 Runner 内部构建安装），云测试要求 release 签名包（由本流程构建上传），产物与签名不同，各自独立构建。设置 `cloudTest.enabled: false` 可整体关闭。
+云测试是主流程的一部分，默认在每个用例的 Agent 完成后自动执行。**云测试（远端真机）与 ohosTest（本地模拟器）并行**：云测试上传包后只需轮询等待、不占用本地设备；两个分支互不依赖，控制台的“测试状态”“云测试”两列在各自分支结束时独立定格，全部分支结束后再合并定级用例最终状态，云测试结果记录在 `summary.json` 用例结果的 `cloudTest` 字段。多个用例的云测试提交阶段（构建+上传+提交）串行执行以规避频率限制，轮询阶段并行；模拟器测试保持跨用例串行（设备租约）。构建不与 ohosTest 合并：ohosTest 使用 debug 包（由 Runner 内部构建安装），云测试要求 release 签名包（由本流程构建上传），产物与签名不同，各自独立构建。设置 `cloudTest.enabled: false` 可整体关闭。
 
 每用例的云测试流程：
 
@@ -506,7 +473,7 @@ Agent 的实际提示词会追加无人值守确认和“业务工程 + 授权�
 
 `harmonyBot` 的 `harmonyos-multi-device` 在会话创建前，由 Autorun 从本 Agent 的私有 Skill 快照将 `harmonyos-ui-multi` 预装到工程 `.onemulti/`。预检使用启动器返回的 Agent PATH/SDK 环境，检查 Python >= 3.10、`devecocli --version` 和 `install-to-project.py` 安装入口；其他脚本属于 Skill 内部实现，不校验固定名称或数量。Python、Skill 注册或安装入口损坏仍会在模型会话前报错；`devecocli` 不可用仅告警并继续评测。安装不使用 `--agents-md`，并恢复安装器改动的 `.gitignore`，通过 Git 内部 exclude 排除工具副本；不修改原始工程或借用其他 Agent 的 Skill。账本和证据按用例独立保留。脚本调用要求每次显式设置 cwd 和实际脚本路径，不依赖前一次 shell 的 `$OM`；运行时形态证据仍需按 Skill 完成并遵守设备租约，确因 CLI 缺失无法完成时必须标为未验证。
 
-Agent 正常结束后，Autorun 检查 `.onemulti/decisions.json` 能否解析以及汇总 HTML 是否存在，结果写入 `generate/skill-workflow.json` 和用例 `result.json.skillWorkflow`。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
+Agent 正常结束后，Autorun 检查 `.onemulti/decisions.json` 能否解析以及汇总 HTML 是否存在，结果写入 `generate/skill-workflow.json` 和 `summary.json` 用例结果的 `skillWorkflow` 字段。`validated` 仅表示这些产物检查通过，不代表所有设备验证通过；不完整时标记 `incomplete` 并记日志，仍继续独立的 ohosTest/白盒评价，不用流程检查替代测试结果。
 
 当前版本只扫描启动时已经存在的用例。运行过程中新增到 `casesRoot` 的用例需要在下一次启动时执行。
 
@@ -520,27 +487,19 @@ output/<batchId>/
 ├── comparison.json            # 仅两个及以上 Agent 时生成
 ├── input-snapshot.json         # 多 Agent 共用输入快照的文件数与 SHA-256
 └── <agentId>/
-    ├── environment.json       # 来源、模型、runtime 和实际 Skill 清单
-    ├── batch.json             # 当前 Agent 批次和所有用例状态
-    ├── summary.json           # 当前 Agent 最终汇总
+    ├── summary.json           # 当前 Agent 最终汇总，含来源、模型、runtime 和实际 Skill 清单
     ├── report.json            # Agent 与 ohosTest 指标明细
     ├── overview.html          # 当前 Agent 的完整报告（供根级总览下钻）
     ├── subpage/               # 各用例 HTML 详情页
     └── <caseName>/
         ├── base/ 或 task/         # Agent 修改后的工程，也是 ohosTest 的 base_project
-        ├── state.json             # 单用例状态
-        ├── session.json           # OpenCode session 信息
         ├── metadata.json          # Agent 完成后从源 case 原样复制
         ├── test_patch.patch       # Agent 完成后从源 case复制
-        ├── result.json            # 单用例最终结果
         ├── whitebox/              # 白盒评价输入、结果、日志和单文件 HTML
         ├── .ohostest-runs/        # harmonyos-ohostest-runner 自动生成
         ├── diff/
         │   └── changes.patch      # 相对于原始工程初始 Git 基线的 Agent 变更
         └── generate/
-            ├── input.txt          # 实际发送的用户消息，与源用例 PROMPT.md 逐字一致
-            ├── output.txt         # Agent 最终文本输出
-            ├── final-message.json # OpenCode 最终消息
             ├── agent-console.log  # 执行期间可实时跟踪的关键进度
             ├── agent-output.log   # 主/子 Session 的完整可读输出与工具记录
             ├── agent-output.html  # 可搜索、筛选和展开工具输入输出的离线执行轨迹
@@ -548,9 +507,10 @@ output/<batchId>/
             ├── opencode-sse.jsonl # 仅 Agent 失败、超时或中断时保留
             ├── opencode-polling.jsonl # 仅 Agent 失败、超时或中断时保留
             ├── compile-attempts.json # Agent build attempt details; excludes ohosTest
-            ├── skill-runtime.json    # 授权 Skill 路径和预装记录（不含 Provider 凭据）
             └── skill-workflow.json   # 一多 Skill 的账本、状态、报告完整性检查
 ```
+
+`batch.json` 和 `batch.pid` 只在批次运行期间存在；`<caseName>/result.json`、`state.json`、`session.json` 也只供运行中的后置阶段和异常恢复使用。`summary.json` 成功落盘后会清理这些运行期文件。`generate/input.txt`、`last-message.json`、`skill-runtime.json`、`output.txt`、`final-message.json` 不再生成；Agent 最终文本保存在 `summary.json` 的用例 `output` 字段中。
 
 白盒评价从源用例的 `PROMPT.md` 直接读取原始 Prompt，不从 Agent 消息或 ohosTest 元数据反推。`original-prompt.md` 保留原文，`effective-prompt.md` 是实际交给裁判的版本；当 `prompt.includeAdditionalPrompt=true` 时，后者会追加 `execution.additionalPrompt`。白盒固定使用 HarmonyBot 附带的 OpenCode，并在开始生成任务前从白盒自己的 HarmonyBot 运行时解析 Provider 和动态模型，因此 HarmonyBot 与 Software Engineering 的生成结果共享同一套裁判环境，不依赖生成 Agent 的 `serverConfig`。运行时系统约束、隐藏测试 Patch、golden patch 和 ohosTest 测试名不会进入裁判 Sandbox。
 
@@ -571,7 +531,7 @@ ohosTest 日志生成结构化根因。证据和结果保存在 `<caseName>/fail
 
 Agent 成功生成 `changes.patch` 后会删除临时 `original/`；Agent 成功时还会删除 SSE、轮询日志。ohosTest 结束后会从最终 `base/` 或 `task/` 工程中清理 `.git`、`.hvigor`、`build` 和 `node_modules` 等可再生成目录，但始终保留 `all-messages.json` 以及 `work/` 或 `ohostest-workdir/`。`golden_patch.patch` 仅在 SWE 启动校验期间临时复制，Runner 结束后删除。
 
-`result.json` 使用 `projectName` 和 `projectDir` 记录 Agent 最终工程名及其绝对路径；Web 用例的 `projectDir` 指向同时包含 `base/` 与 `web/` 的父级工作目录，并额外用 `buildProjectDir` 指向可构建的鸿蒙 `base/`。结果还直接包含 Agent 的最终回复 `output`；`tokenUsage` 记录输入、输出、reasoning、缓存、总 Token 和 cost，`ohosTest` 记录测试状态、耗时及 Runner 原生结果路径，`logs` 列出完整输出、HTML 轨迹和原始消息路径，Agent 异常时还会列出 SSE、轮询日志路径。`summary.json` 同时保存批次使用的 `agent`、`providerId`、`modelId`、全批次 Token 汇总和各用例 ohosTest 结果。为避免 `result.json` 过大，完整过程不会重复内嵌其中；打开 `generate/agent-output.html` 可按 Session 查看、搜索和筛选 Agent 过程，用例详情页也提供入口；`generate/agent-output.log` 保留原始可读文本。
+`summary.json` 的 `results` 保存各用例的最终结果，包括 `projectName`、`projectDir`、Agent 最终回复 `output`、Token 用量、ohosTest 结果及日志路径；Web 用例额外用 `buildProjectDir` 指向可构建的鸿蒙 `base/`。运行期间的单用例 `result.json` 会在汇总落盘后清理。完整 Agent 过程保存在 `generate/all-messages.json` 中；打开 `generate/agent-output.html` 可按 Session 查看、搜索和筛选，用例详情页也提供入口；`generate/agent-output.log` 保留可读文本。
 
 执行期间单独跟踪某个用例：
 
@@ -622,7 +582,7 @@ node autorun.mjs --check
 
 ### 一多适配任务没有调用 Skill
 
-`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 状态，并在会话前预装 Skill；Python 版本不够、Skill 未注册或必需脚本失效会直接报错，`devecocli` 不可用只输出告警并继续。无人值守策略写入 Autorun 专用 OpenCode 的 Agent 会话配置，不拼接到用户消息；`generate/input.txt` 只保存源用例 `PROMPT.md` 原文。Skill 预装和 CLI 状态见 `generate/skill-runtime.json`，流程产物检查见 `generate/skill-workflow.json`。修改代码后需要重启 Autorun；旧会话不会自动更新会话策略或预装状态。
+`harmonyos-multi-device` 正常启动时会加载插件注入的 Agent prompt，并注册 `harmonyos-ui-multi` Skill。Autorun 会在执行用例前检查这两项及脚本/CLI 状态，并在会话前预装 Skill；Python 版本不够、Skill 未注册或必需脚本失效会直接报错，`devecocli` 不可用只输出告警并继续。无人值守策略写入 Autorun 专用 OpenCode 的 Agent 会话配置，不拼接到用户消息；发送给 Agent 的用户消息来自源用例 `PROMPT.md`。运行环境记录在 `summary.json.environment`，流程产物检查见 `generate/skill-workflow.json`。修改代码后需要重启 Autorun；旧会话不会自动更新会话策略或预装状态。
 
 自动启动 Server 时，Autorun 会复制来源 `opencode.json` 和 Skill、Plugin、Provider 到 `<batchId>/<agentId>` 对应的私有 runtime，将无人值守策略写入当前 Agent 会话 prompt，并强制全局及 Agent 的运行工具权限为 `allow`。`softwareEngineering` 的 Skill 权限例外采用来源精确白名单。运行数据、数据库、配置、状态和缓存均不跨 Agent 复用；配置端口已占用时会自动选择其他端口。
 
@@ -658,7 +618,7 @@ generate/opencode-polling.jsonl
 
 上述两个原始监控日志只在 Agent 失败、超时或中断时保留。可以适当调整 `idleTimeoutSec` 和 `maxRuntimeSec`。超时后 Autorun 会尝试中止主 session 和子 session，并保留最后消息和 `base/` 或 `task/` 工程。
 
-当 Agent 发生空闲或总时长超时时，Autorun 仍会把已生成的 `base/` 或 `task/` 工程和 `changes.patch` 放入串行 ohostest 队列。最终用例状态由 ohostest 决定：其编译或执行失败会显示为失败/超时；若测试通过，则显示完成，并在 `result.json` 中保留 `agentStatus: "timed_out"` 与 `agentError` 供追溯。用户主动中断批次时不会再启动 ohostest。
+当 Agent 发生空闲或总时长超时时，Autorun 仍会把已生成的 `base/` 或 `task/` 工程和 `changes.patch` 放入串行 ohostest 队列。最终用例状态由 ohostest 决定：其编译或执行失败会显示为失败/超时；若测试通过，则显示完成，并在 `summary.json` 的用例结果中保留 `agentStatus: "timed_out"` 与 `agentError` 供追溯。用户主动中断批次时不会再启动 ohostest。
 
 所有 `hvigorw` 命令（包括 `tasks`）都应使用 `--no-daemon`，例如：
 
@@ -668,7 +628,7 @@ hvigorw.bat tasks --no-daemon
 
 ### 批次或用例一直显示 running，但进程已经结束
 
-Autorun 会在正常可捕获的中断中把正在执行的用例标记为 `interrupted`，尚未开始的用例标记为 `cancelled`，并写入 `result.json` 和批次 `summary.json`。
+Autorun 会在正常可捕获的中断中把正在执行的用例标记为 `interrupted`，尚未开始的用例标记为 `cancelled`，并写入批次 `summary.json`；运行期的用例 `result.json` 在汇总落盘后清理。
 
 对于任务管理器强制结束、断电等无法现场收尾的情况，下次执行 `node autorun.mjs` 或 `node autorun.mjs --check` 时会扫描工程内的 `output/`，将遗留批次标记为 `interrupted`。已完成、失败或超时的用例状态不会被覆盖。
 
@@ -679,7 +639,7 @@ Autorun 实时监听 OpenCode SSE 的 `session.status` 事件，模型 API 返�
 - **周期用量上限**：消息含「每周/每月使用上限」「限额将在 … 重置」等（如 `您已达到每周/每月使用上限，您的限额将在 2026-08-26 10:01:54 重置。`）。重置时间之前限额不会恢复，继续等待只会耗到空闲超时，因此检测到后立即中止主/子 session，用例状态标记为 `rate_limited`，终端生成状态列和 HTML 报告显示「限额」，「当前操作」列会提示原始限额消息。
 - **瞬时限流**：普通 429 / rate limit，通常短时间内自行恢复，继续交给 OpenCode 重试并提示「检测到 API 限流，等待恢复」；若最终仍因限流失败，同样标记为 `rate_limited`。
 
-判定依据保留在 `generate/opencode-sse.jsonl`，`result.json` 中记录 `quotaLimited: true`，`agentError` 含原始限额消息与重置时间。限额属于账号级问题：并发中的其他用例和后续用例通常会在各自首个模型请求时同样快速失败为「限额」，是否继续执行剩余队列由 `execution.continueOnError`（默认 `true`）决定。处理方式：等待配额重置（以限额消息中的重置时间为准）、更换 API Key 或提升配额后，使用「重试失败用例」重新执行。
+判定依据保留在 `generate/opencode-sse.jsonl`，`summary.json` 的用例结果中记录 `quotaLimited: true`，`agentError` 含原始限额消息与重置时间。限额属于账号级问题：并发中的其他用例和后续用例通常会在各自首个模型请求时同样快速失败为「限额」，是否继续执行剩余队列由 `execution.continueOnError`（默认 `true`）决定。处理方式：等待配额重置（以限额消息中的重置时间为准）、更换 API Key 或提升配额后，重新运行批次。
 
 ### API 请求返回 401、403 或模型不可用
 

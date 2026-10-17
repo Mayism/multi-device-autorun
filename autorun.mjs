@@ -14,7 +14,6 @@ import { copyProject } from "./src/runtime/sandbox-copy.mjs";
 import { ConsoleReporter } from "./src/runtime/console-reporter.mjs";
 import {
   agentCaseLayout,
-  copyCaseSourceSnapshot,
   materializeAgentCaseProjects,
   normalizeCasePlatform,
   prepareAgentCaseWorkspace,
@@ -48,11 +47,11 @@ import { normalizeAgentTargets, normalizeGenerationModel } from "./src/agent/age
 import { resolveConfiguredModel } from "./src/agent/model-validation.mjs";
 import { writeAgentComparisonReport } from "./src/report/agent-comparison-report.mjs";
 import {
-  filterGeneratedArtifactPatch,
   GENERATED_ARTIFACT_GIT_EXCLUDES,
   pruneGeneratedArtifacts,
 } from "./src/artifacts/generated-artifact-filter.mjs";
 import { generateAgentChangePatch } from "./src/artifacts/agent-change-patch.mjs";
+import { cleanupCaseMetadata } from "./src/artifacts/cleanup-case-metadata.mjs";
 import {
   bindHarmonyBotWhiteboxRuntime,
   createWhiteboxOrchestrator,
@@ -74,8 +73,7 @@ function parseArgs(argv) {
   const result = {
     configPath: "./config/autorun.config.json",
     checkOnly: false,
-    retryBatchId: "",
-    retryCaseName: "",
+    cloudCaseName: "",
     merge: undefined,
     cloudTest: false,
     cloudProjectName: "",
@@ -91,12 +89,9 @@ function parseArgs(argv) {
       result.configPath = argv[++index];
     } else if (value === "--check") {
       result.checkOnly = true;
-    } else if (value === "--retry") {
-      if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--retry 需要历史批次 ID");
-      result.retryBatchId = argv[++index];
     } else if (value === "--case") {
       if (!argv[index + 1] || argv[index + 1].startsWith("--")) throw new Error("--case 需要用例名称");
-      result.retryCaseName = argv[++index];
+      result.cloudCaseName = argv[++index];
     } else if (value === "--cloud-test") {
       result.cloudTest = true;
     } else if (value === "--project") {
@@ -125,7 +120,6 @@ function parseArgs(argv) {
       console.log([
         "用法:",
         "  node autorun.mjs [--config config/autorun.config.json] [--check]",
-        "  node autorun.mjs --retry <batchId> [--case <caseName>] [--config config/autorun.config.json]",
         "  node autorun.mjs --merge [output目录] [--config config/autorun.config.json]",
         "  node autorun.mjs --cloud-test (--case <caseName> [--project base|task] | --project-dir <dir> | --app <签名.app>) [--task-name <名称>] [--config config/autorun.config.json]",
         "  node autorun.mjs --poll-task <taskGroupId> [--config config/autorun.config.json]",
@@ -135,22 +129,18 @@ function parseArgs(argv) {
       throw new Error(`未知参数: ${value}`);
     }
   }
-  if (result.retryCaseName && !result.retryBatchId && !result.cloudTest) throw new Error("--case 只能和 --retry 或 --cloud-test 一起使用");
-  if (result.checkOnly && result.retryBatchId) throw new Error("--check 不能和 --retry 一起使用");
+  if (result.cloudCaseName && !result.cloudTest) throw new Error("--case 只能和 --cloud-test 一起使用");
   if (result.merge !== undefined && result.checkOnly) throw new Error("--merge 不能和 --check 一起使用");
-  if (result.merge !== undefined && result.retryBatchId) throw new Error("--merge 不能和 --retry 一起使用");
   if (result.cloudTest) {
     if (result.checkOnly) throw new Error("--cloud-test 不能和 --check 一起使用");
-    if (result.retryBatchId) throw new Error("--cloud-test 不能和 --retry 一起使用");
     if (result.merge !== undefined) throw new Error("--cloud-test 不能和 --merge 一起使用");
     if (result.pollTask) throw new Error("--cloud-test 不能和 --poll-task 一起使用");
-    if (!result.retryCaseName && !result.cloudProjectDir && !result.appPath) {
+    if (!result.cloudCaseName && !result.cloudProjectDir && !result.appPath) {
       throw new Error("--cloud-test 需要 --case <用例名>、--project-dir <工程目录> 或 --app <签名.app 文件> 之一");
     }
-    if (result.cloudProjectDir && result.retryCaseName) throw new Error("--project-dir 不能和 --case 一起使用");
+    if (result.cloudProjectDir && result.cloudCaseName) throw new Error("--project-dir 不能和 --case 一起使用");
   } else if (result.pollTask) {
     if (result.checkOnly) throw new Error("--poll-task 不能和 --check 一起使用");
-    if (result.retryBatchId) throw new Error("--poll-task 不能和 --retry 一起使用");
     if (result.merge !== undefined) throw new Error("--poll-task 不能和 --merge 一起使用");
     if (!/^\d+$/.test(result.pollTask)) throw new Error("--poll-task 需要纯数字任务组 ID");
   } else if (result.cloudProjectName || result.cloudProjectDir || result.appPath || result.taskName) {
@@ -211,7 +201,6 @@ async function loadAutorunConfig(configPath = "./config/autorun.config.json") {
     targetConfig.targets,
     baseDir,
   );
-  normalized.upload = { enabled: normalized.upload?.enabled === true };
   return normalized;
 }
 
@@ -801,8 +790,7 @@ function sanitizedConfigFingerprint(value) {
   return createHash("sha256").update(JSON.stringify(clean(value))).digest("hex");
 }
 
-async function writeTargetEnvironmentManifest({
-  targetRoot,
+async function createTargetEnvironmentManifest({
   target,
   targetConfig,
   source,
@@ -911,7 +899,6 @@ async function writeTargetEnvironmentManifest({
     skillRuntime: summarizeAgentSkillRuntime(server.skillRuntime),
     createdAt: new Date().toISOString(),
   };
-  await atomicWriteJson(path.join(targetRoot, "environment.json"), manifest);
   return manifest;
 }
 
@@ -930,6 +917,7 @@ class BatchStateStore {
     this.filePath = filePath;
     this.state = state;
     this.writeChain = Promise.resolve();
+    this.closed = false;
   }
 
   setBatch(values) {
@@ -943,9 +931,16 @@ class BatchStateStore {
   }
 
   persist() {
+    if (this.closed) return this.writeChain;
     const snapshot = structuredClone(this.state);
     this.writeChain = this.writeChain.then(() => atomicWriteJson(this.filePath, snapshot));
     return this.writeChain;
+  }
+
+  async remove() {
+    this.closed = true;
+    await this.writeChain;
+    await fs.rm(this.filePath, { force: true });
   }
 }
 
@@ -971,99 +966,6 @@ async function readJson(filePath) {
   } catch {
     return null;
   }
-}
-
-async function loadRetryPlan(outputRoot, batchId, requestedCaseName = "") {
-  const normalizedBatchId = String(batchId || "").trim().replace(/[\\/]+/g, "/").replace(/\/+$/, "");
-  const resolvedOutputRoot = path.resolve(outputRoot);
-  const relativeFor = (relative) => path.relative(resolvedOutputRoot, path.resolve(resolvedOutputRoot, relative));
-  const isValidBatchRef = (relative) => {
-    const relativeBatchPath = relativeFor(relative);
-    return Boolean(relative)
-      && !path.isAbsolute(relativeBatchPath)
-      && Boolean(relativeBatchPath)
-      && relativeBatchPath !== ".."
-      && !relativeBatchPath.startsWith(`..${path.sep}`)
-      && relativeBatchPath.split(path.sep).length <= 2;
-  };
-  if (!normalizedBatchId || !isValidBatchRef(normalizedBatchId)) {
-    throw new Error(`无效的重试批次 ID: ${batchId || "<empty>"}`);
-  }
-
-  let sourceBatchRoot = path.resolve(resolvedOutputRoot, normalizedBatchId);
-  if (!await exists(path.join(sourceBatchRoot, "batch.json")) && !normalizedBatchId.includes("/")) {
-    // 兼容旧版 <来源>/<批次>，并支持新版在只有一个 Agent 时省略
-    // `<agentId>`，直接通过 `<批次>` 查找。
-    const matches = [];
-    const runRoot = path.join(resolvedOutputRoot, normalizedBatchId);
-    for (const target of await fs.readdir(runRoot, { withFileTypes: true }).catch(() => [])) {
-      if (!target.isDirectory()) continue;
-      const candidate = path.join(runRoot, target.name);
-      if (await exists(path.join(candidate, "batch.json"))) matches.push(candidate);
-    }
-    for (const entry of await fs.readdir(resolvedOutputRoot, { withFileTypes: true }).catch(() => [])) {
-      if (!entry.isDirectory()) continue;
-      const candidate = path.join(resolvedOutputRoot, entry.name, normalizedBatchId);
-      if (await exists(path.join(candidate, "batch.json"))) matches.push(candidate);
-    }
-    if (matches.length === 1) sourceBatchRoot = matches[0];
-  }
-
-  const batch = await readJson(path.join(sourceBatchRoot, "batch.json"));
-  const summary = await readJson(path.join(sourceBatchRoot, "summary.json"));
-  if (!batch?.cases || typeof batch.cases !== "object") {
-    throw new Error(`重试批次不存在或 batch.json 无效: ${sourceBatchRoot}`);
-  }
-
-  const summaryResults = new Map(
-    (Array.isArray(summary?.results) ? summary.results : [])
-      .filter((item) => item?.case)
-      .map((item) => [String(item.case), item]),
-  );
-  const previousResults = new Map();
-  for (const [caseName, caseState] of Object.entries(batch.cases)) {
-    const resultPath = caseState?.resultPath || path.join(sourceBatchRoot, caseName, "result.json");
-    const result = await readJson(resultPath);
-    previousResults.set(caseName, result || summaryResults.get(caseName) || {
-      case: caseName,
-      status: caseState?.status || "failed",
-      agentStatus: caseState?.agentStatus || "",
-      error: caseState?.error || "",
-      projectName: caseState?.projectName || "",
-      projectDir: caseState?.projectDir || "",
-      patchPath: caseState?.patchPath || "",
-      resultPath,
-    });
-  }
-
-  const caseNames = [...previousResults.keys()];
-  let selectedCaseNames;
-  if (requestedCaseName) {
-    const requested = String(requestedCaseName).trim();
-    const exact = caseNames.find((name) => name === requested);
-    const insensitive = caseNames.filter((name) => name.toLowerCase() === requested.toLowerCase());
-    const matched = exact || (insensitive.length === 1 ? insensitive[0] : "");
-    if (!matched) {
-      throw new Error(`批次 ${normalizedBatchId} 中不存在用例 ${requested}；可选用例: ${caseNames.join(", ")}`);
-    }
-    selectedCaseNames = [matched];
-  } else {
-    selectedCaseNames = caseNames.filter((caseName) => {
-      const status = previousResults.get(caseName)?.status || batch.cases[caseName]?.status || "";
-      return status !== "completed" && status !== "skipped";
-    });
-    if (!selectedCaseNames.length) {
-      throw new Error(`批次 ${normalizedBatchId} 没有可重试的失败或中断用例`);
-    }
-  }
-
-  return {
-    sourceBatchId: normalizedBatchId,
-    sourceBatchRoot,
-    requestedCaseName: requestedCaseName ? selectedCaseNames[0] : "",
-    selectedCaseNames,
-    previousResults,
-  };
 }
 
 function elapsedSeconds(startedAt, finishedAt) {
@@ -1202,6 +1104,7 @@ async function recoverInterruptedRuns(outputRoot) {
       failed,
       tokenUsage,
       agentCompile,
+      ...(batch.environment ? { environment: batch.environment } : {}),
       results,
     };
     Object.assign(batch, {
@@ -1215,14 +1118,18 @@ async function recoverInterruptedRuns(outputRoot) {
       summary.reports = await writeBatchReport({
         batchRoot,
         summary,
-        uploadConfig: config.upload,
         onLog: silentLog,
       });
     } catch (error) {
       summary.reportError = error.message;
     }
     await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
+    for (const failure of await cleanupCaseMetadata({ batchRoot, summary })) {
+      console.warn(`[cleanup] ${failure}`);
+    }
     await atomicWriteJson(batchPath, batch);
+    await fs.rm(path.join(batchRoot, "batch.pid"), { force: true });
+    await fs.rm(batchPath, { force: true });
     recovered.push({ batchId: batch.batchId || path.basename(batchRoot), batchRoot });
   }
   return recovered;
@@ -1580,14 +1487,9 @@ async function runCase({
     if (!sourcePrompt.trim()) throw new Error(`PROMPT.md 内容为空: ${caseInfo.promptPath}`);
     await prepareAgentCaseWorkspace(caseInfo, caseLayout);
     const installedSkill = await installProjectSkill({ runtime: skillRuntime, projectDir, signal });
-    await atomicWriteJson(path.join(generateDir, "skill-runtime.json"), {
-      ...summarizeAgentSkillRuntime(skillRuntime),
-      installedSkill,
-    });
     if (installedSkill) await writeAgentConsole("skill_prepared", `${installedSkill.name} 已预装到 ${installedSkill.root}`);
     // 用户消息保持为用例 PROMPT.md 原文；无人值守等运行策略由 Agent 会话配置承载。
     const prompt = sourcePrompt;
-    await fs.writeFile(path.join(generateDir, "input.txt"), prompt, "utf8");
     baseline = await initializeGitBaseline(projectDir);
     throwIfInterrupted(signal);
     reporter.caseProgress(caseName, "工程沙箱已就绪，正在创建 Agent 会话");
@@ -1667,8 +1569,6 @@ async function runCase({
       },
     });
 
-    await fs.writeFile(path.join(generateDir, "output.txt"), monitored.output || "", "utf8");
-    await atomicWriteJson(path.join(generateDir, "final-message.json"), monitored.message || {});
     const agentLogs = await saveAgentLogs(client, [sessionId, ...monitored.childSessionIds], generateDir);
     const tokenUsage = agentLogs.tokenUsage.total ? agentLogs.tokenUsage : monitored.tokenUsage || latestTokenUsage;
     const agentCompile = agentLogs.agentCompile;
@@ -1726,13 +1626,11 @@ async function runCase({
       buildProjectDir,
       patchPath,
       resultPath,
-      outputPath: path.join(generateDir, "output.txt"),
       output: monitored.output || "",
       logs: {
         transcriptPath: agentLogs.transcriptPath,
         messagesPath: agentLogs.messagesPath,
         compileAttemptsPath: agentLogs.compileAttemptsPath,
-        finalMessagePath: path.join(generateDir, "final-message.json"),
         consolePath: agentConsolePath,
       },
       ...(ohosTestEnabled ? { ohosTest: { status: "queued" } } : {}),
@@ -1789,9 +1687,6 @@ async function runCase({
       pruneTransientArtifacts: true,
     });
     await materializeAgentCaseProjects(caseInfo, caseLayout, caseRunDir).catch(() => {});
-    if (error.lastMessage) {
-      await atomicWriteJson(path.join(generateDir, "last-message.json"), error.lastMessage).catch(() => {});
-    }
     const failedSessionIds = [error.sessionId || sessionId, ...(error.childSessionIds || [])];
     const agentLogs = await saveAgentLogs(client, failedSessionIds, generateDir).catch(() => null);
     const tokenUsage = agentLogs?.tokenUsage?.total
@@ -1860,110 +1755,6 @@ async function runCase({
     if (!preserveForWhitebox) reporter.caseFinished(result);
     throw Object.assign(error, { caseResult: result });
   }
-}
-
-async function canReuseSuccessfulAgent(previousResult, caseInfo) {
-  if (!previousResult || previousResult.agentStatus !== "completed") return false;
-  const previousProjectName = String(previousResult.projectName || path.basename(previousResult.projectDir || "")).trim();
-  const reusableWebWorkspace = caseInfo.platform !== "web"
-    || await Promise.all([
-      exists(path.join(previousResult.projectDir || "", caseInfo.projectName)),
-      exists(path.join(previousResult.projectDir || "", "web")),
-    ]).then((checks) => checks.every(Boolean));
-  return previousProjectName === caseInfo.projectName
-    && reusableWebWorkspace
-    && Boolean(previousResult.projectDir)
-    && Boolean(previousResult.patchPath)
-    && await exists(previousResult.projectDir)
-    && await exists(previousResult.patchPath);
-}
-
-async function prepareReusedAgentResult({ caseInfo, batchRoot, previousResult, sourceBatchId, preserveForWhitebox, store }) {
-  if (!await exists(previousResult.projectDir)) {
-    throw new Error(`历史 Agent 工程不存在，无法仅重试 ohosTest: ${previousResult.projectDir}`);
-  }
-  if (!await exists(previousResult.patchPath)) {
-    throw new Error(`历史 Agent patch 不存在，无法仅重试 ohosTest: ${previousResult.patchPath}`);
-  }
-
-  const caseRunDir = path.join(batchRoot, safeName(caseInfo.name));
-  const caseLayout = agentCaseLayout(caseInfo, caseRunDir);
-  const { originalDir, projectDir, buildProjectDir } = caseLayout;
-  const generateDir = path.join(caseRunDir, "generate");
-  const diffDir = path.join(caseRunDir, "diff");
-  const patchPath = path.join(diffDir, "changes.patch");
-  const resultPath = path.join(caseRunDir, "result.json");
-  const statePath = path.join(caseRunDir, "state.json");
-  const startedAt = new Date().toISOString();
-
-  await fs.mkdir(generateDir, { recursive: true });
-  await fs.mkdir(diffDir, { recursive: true });
-  if (preserveForWhitebox) await copyCaseSourceSnapshot(caseInfo, originalDir);
-  await copyProject(previousResult.projectDir, projectDir);
-  await pruneGeneratedArtifacts(projectDir);
-  await materializeAgentCaseProjects(caseInfo, caseLayout, caseRunDir);
-  const previousPatch = await fs.readFile(previousResult.patchPath, "utf8");
-  await fs.writeFile(patchPath, filterGeneratedArtifactPatch(previousPatch), "utf8");
-
-  const result = {
-    case: caseInfo.name,
-    status: "running",
-    agentStatus: "completed",
-    agentReused: true,
-    agentError: "",
-    output: previousResult.output || "",
-    startedAt,
-    agentFinishedAt: startedAt,
-    projectName: caseInfo.projectName,
-    platform: caseInfo.platform,
-    projectDir,
-    buildProjectDir,
-    runDir: caseRunDir,
-    patchPath,
-    resultPath,
-    tokenUsage: emptyTokenUsage(),
-    agentCompile: previousResult.agentCompile || emptyCompileUsage(),
-    agentCompileAttempts: Array.isArray(previousResult.agentCompileAttempts)
-      ? previousResult.agentCompileAttempts
-      : [],
-    retry: {
-      sourceBatchId,
-      sourceResultPath: previousResult.resultPath || "",
-      mode: "ohostest_only",
-    },
-    reusedAgentTokenUsage: previousResult.tokenUsage || emptyTokenUsage(),
-    reusedAgentCompile: previousResult.agentCompile || emptyCompileUsage(),
-    logs: {
-      transcriptPath: previousResult.logs?.transcriptPath || "",
-      messagesPath: previousResult.logs?.messagesPath || "",
-      htmlPath: previousResult.logs?.htmlPath || "",
-      compileAttemptsPath: previousResult.logs?.compileAttemptsPath || "",
-      consolePath: previousResult.logs?.consolePath || "",
-      sourceResultPath: previousResult.resultPath || "",
-    },
-    ohosTest: { status: "queued" },
-  };
-  await atomicWriteJson(resultPath, result);
-  await atomicWriteJson(statePath, {
-    ...result,
-    stage: "ohostest_queued",
-    updatedAt: startedAt,
-  });
-  await store.setCase(caseInfo.name, {
-    status: "running",
-    stage: "ohostest_queued",
-    agentStatus: "completed",
-    agentReused: true,
-    runDir: caseRunDir,
-    projectName: caseInfo.projectName,
-    platform: caseInfo.platform,
-    projectDir,
-    buildProjectDir,
-    patchPath,
-    resultPath,
-    retry: result.retry,
-  });
-  return result;
 }
 
 async function executeOhosTestForCase({
@@ -2166,7 +1957,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
   signal,
   skillRuntime,
   whiteboxJudgeRuntime,
-  retryPlan,
+  environment,
   runId = "",
   targetRoot = "",
   targetId = "",
@@ -2198,24 +1989,8 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     }
   }
   const discovered = await discoverCases(execution.casesRoot, { requireOhosTest: ohosTest.enabled });
-  let cases = discovered.runnable;
-  let skippedCases = discovered.skipped;
-  if (retryPlan) {
-    const runnableByName = new Map(cases.map((item) => [item.name, item]));
-    const skippedByName = new Map(skippedCases.map((item) => [item.name, item]));
-    const missing = retryPlan.selectedCaseNames.filter((name) => !runnableByName.has(name) && !skippedByName.has(name));
-    if (missing.length) {
-      throw new Error(`重试用例在当前 casesRoot 中不存在: ${missing.join(", ")}`);
-    }
-    const invalid = retryPlan.selectedCaseNames
-      .map((name) => skippedByName.get(name))
-      .filter(Boolean);
-    if (invalid.length) {
-      throw new Error(`重试用例当前不可执行: ${invalid.map((item) => `${item.name}（${item.skipReason}）`).join("；")}`);
-    }
-    cases = retryPlan.selectedCaseNames.map((name) => runnableByName.get(name));
-    skippedCases = [];
-  }
+  const cases = discovered.runnable;
+  const skippedCases = discovered.skipped;
   const displayCases = [...cases, ...skippedCases];
   const model = await validateServerConfig(client, execution, serverConfig, sourceMode, signal);
   const whiteboxConfig = config.whiteboxEvaluation;
@@ -2257,6 +2032,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     opencodeSourceMode: modeDirectoryName,
     providerId: model.providerId,
     modelId: model.modelId,
+    environment,
     concurrency: execution.concurrency,
     ohosTest: {
       enabled: ohosTest.enabled,
@@ -2271,12 +2047,6 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
       concurrency: whiteboxConfig.enabled ? whiteboxConfig.concurrency : 0,
       judge: whiteboxOrchestrator?.judge,
     },
-    ...(retryPlan ? {
-      retry: {
-        sourceBatchId: retryPlan.sourceBatchId,
-        requestedCaseName: retryPlan.requestedCaseName,
-      },
-    } : {}),
     cases: Object.fromEntries(displayCases.map((item) => [item.name, {
       status: item.skipReason ? "skipped" : "pending",
       stage: item.skipReason ? "skipped" : "queued",
@@ -2541,23 +2311,6 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
       if (!next) return;
       reporter.caseStarted(next.name, workerIndex);
       try {
-        const previousResult = retryPlan?.previousResults.get(next.name);
-        if (await canReuseSuccessfulAgent(previousResult, next)) {
-          if (!ohosTest.enabled && !cloudTest.enabled && !whiteboxConfig.enabled) {
-            throw new Error(`用例 ${next.name} 的 Agent 已成功，但 ohosTest、cloudTest 和 whiteboxEvaluation 均未启用`);
-          }
-          const agentResult = await prepareReusedAgentResult({
-            caseInfo: next,
-            batchRoot,
-            previousResult,
-            sourceBatchId: retryPlan.sourceBatchId,
-            preserveForWhitebox: whiteboxConfig.enabled,
-            store,
-          });
-          if (ohosTest.enabled) reporter.caseOhosTestQueued(next.name);
-          schedulePostValidation(next, agentResult);
-          continue;
-        }
         const agentResult = await runCase({
           caseInfo: next,
           batchRoot,
@@ -2635,6 +2388,7 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
     opencodeSourceMode: modeDirectoryName,
     providerId: model.providerId,
     modelId: model.modelId,
+    environment,
     total: cases.length,
     completed: results.filter((item) => item.status === "completed").length,
     failed: failedCount,
@@ -2652,27 +2406,24 @@ async function runBatch(config, client, serverConfig, checkOnly = false, {
       failed: whiteboxResults.filter((item) => item.status !== "completed").length,
     },
     results,
-    ...(retryPlan ? {
-      retry: {
-        sourceBatchId: retryPlan.sourceBatchId,
-        requestedCaseName: retryPlan.requestedCaseName,
-      },
-    } : {}),
   };
   try {
     summary.reports = await writeBatchReport({
       batchRoot,
       summary,
-      uploadConfig: config.upload,
       onLog: silentLog,
     });
   } catch (error) {
     summary.reportError = error.message;
   }
   await atomicWriteJson(path.join(batchRoot, "summary.json"), summary);
+  for (const failure of await cleanupCaseMetadata({ batchRoot, summary })) {
+    console.warn(`[cleanup] ${failure}`);
+  }
   await store.setBatch({ status: summary.status, finishedAt: summary.finishedAt });
-  // 批次已结束，移除存活标记（残留的 pid 文件在恢复扫描时按死进程处理）
-  await fs.rm(path.join(batchRoot, "batch.pid"), { force: true }).catch(() => {});
+  // 最终结果已落盘，运行期状态和存活标记不再保留。
+  await fs.rm(path.join(batchRoot, "batch.pid"), { force: true });
+  await store.remove();
   reporter.finish(summary);
   if (activeReporter === reporter) activeReporter = null;
   return summary;
@@ -2700,8 +2451,8 @@ if (args.merge !== undefined) {
 if (args.cloudTest) {
   const { runCloudTest } = await import("./src/cloudtest/cloudtest-orchestrator.mjs");
   let projectDir = args.cloudProjectDir ? path.resolve(args.cloudProjectDir) : "";
-  if (args.retryCaseName) {
-    const caseRoot = path.join(config.execution.casesRoot, args.retryCaseName);
+  if (args.cloudCaseName) {
+    const caseRoot = path.join(config.execution.casesRoot, args.cloudCaseName);
     if (!await exists(caseRoot)) {
       console.error(`[cloudtest] 用例不存在: ${caseRoot}（casesRoot=${config.execution.casesRoot}）`);
       process.exit(1);
@@ -2731,7 +2482,7 @@ if (args.cloudTest) {
       config,
       projectDir,
       appPath: args.appPath,
-      caseName: args.retryCaseName,
+      caseName: args.cloudCaseName,
       taskName: args.taskName,
       signal: cloudShutdown.signal,
       onLog: (message) => console.log(`[cloudtest] ${message}`),
@@ -2773,7 +2524,6 @@ if (args.pollTask) {
 
 const shutdownController = new AbortController();
 let server;
-let retryPlan;
 let exitCode = 0;
 let serverStopping = false;
 let batchSettled = false;
@@ -2882,12 +2632,6 @@ try {
     environmentFailures.push(`DevEco CLI：${formatDevEcoCliFailure(devecoCli)}`);
   }
   await recoverInterruptedRuns(config.execution.outputRoot);
-  if (args.retryBatchId) {
-    if (config.server.opencodeTargets.multiple) {
-      throw new Error("多 Agent 对比暂不支持 --retry；请使用单 Agent 配置重试指定目标");
-    }
-    retryPlan = await loadRetryPlan(config.execution.outputRoot, args.retryBatchId, args.retryCaseName);
-  }
   const targetPlan = config.server.opencodeTargets;
   const allocated = args.checkOnly
     ? { runId: `${batchId()}-check`, runRoot: "" }
@@ -2905,6 +2649,7 @@ try {
     })
     : null;
   const targetResults = [];
+  const targetEnvironments = new Map();
   forceStopOwnedServer = true;
 
   // 对比运行必须在任何 Agent Session 创建前确认所有来源都提供完全一致的
@@ -2935,8 +2680,7 @@ try {
           target.mode,
           shutdownController.signal,
         );
-        const environment = await writeTargetEnvironmentManifest({
-          targetRoot,
+        const environment = await createTargetEnvironmentManifest({
           target,
           targetConfig: prepared.config,
           source: preflightServer.source,
@@ -2945,6 +2689,7 @@ try {
           signal: shutdownController.signal,
           environmentFailures,
         });
+        targetEnvironments.set(target.id, environment);
         fingerprints.push(environment.generationModel.configFingerprint);
       } catch (error) {
         await atomicWriteJson(path.join(targetRoot, "target-error.json"), {
@@ -2981,6 +2726,7 @@ try {
     serverStopping = false;
     serverStopPromise = undefined;
     batchSettled = false;
+    let environment = targetEnvironments.get(target.id) || null;
     try {
       server = await ensureOpenCodeServer(prepared.config, {
         signal: shutdownController.signal,
@@ -3008,8 +2754,7 @@ try {
         target.mode,
         shutdownController.signal,
       );
-      await writeTargetEnvironmentManifest({
-        targetRoot,
+      environment = await createTargetEnvironmentManifest({
         target,
         targetConfig: prepared.config,
         source: server.source,
@@ -3018,11 +2763,12 @@ try {
         signal: shutdownController.signal,
         environmentFailures,
       });
+      targetEnvironments.set(target.id, environment);
       const summary = await runBatch(prepared.config, server.client, server.serverConfig, args.checkOnly, {
         signal: shutdownController.signal,
         skillRuntime: server.skillRuntime,
         whiteboxJudgeRuntime,
-        retryPlan,
+        environment,
         runId: allocated.runId,
         targetRoot,
         targetId: target.id,
@@ -3030,7 +2776,7 @@ try {
         onEnvironmentReady: (runConfiguration) => printTargetStartup(target, runConfiguration),
       });
       batchSettled = true;
-      targetResults.push({ ...target, targetRoot, summary });
+      targetResults.push({ ...target, targetRoot, summary, environment });
       if (!args.checkOnly && summary.failed) exitCode = 1;
     } catch (error) {
       batchSettled = true;
@@ -3040,7 +2786,7 @@ try {
         environmentFailures.push(`${target.label || target.id}：${error.message}`);
         printTargetStartup(target);
       }
-      targetResults.push({ ...target, targetRoot, error: error.message });
+      targetResults.push({ ...target, targetRoot, environment, error: error.message });
       if (!args.checkOnly) {
         await atomicWriteJson(path.join(targetRoot, "target-error.json"), {
           targetId: target.id,
@@ -3065,6 +2811,7 @@ try {
       targetResults.push({
         ...target,
         targetRoot: path.join(allocated.runRoot, safeName(target.id)),
+        environment: targetEnvironments.get(target.id) || null,
         error: shutdownController.signal.aborted ? "Autorun 已中断，目标未执行" : "前序目标失败，目标未执行",
       });
     }

@@ -23,7 +23,8 @@ async function loadTarget(runRoot, target) {
   const targetRoot = target.targetRoot || path.join(runRoot, target.id);
   const summary = target.summary || await readJson(path.join(targetRoot, "summary.json"));
   const report = target.report || await readJson(path.join(targetRoot, "report.json"));
-  const environment = await readJson(path.join(targetRoot, "environment.json"));
+  const environment = summary?.environment || target.environment
+    || await readJson(path.join(targetRoot, "environment.json"));
   const error = String(target.error || "");
   const agentCases = new Map((report?.agent?.cases || []).map((item) => [String(item.case), item]));
   const testCases = new Map((report?.ohosTest?.caseResults || []).map((item) => [String(item.case), item]));

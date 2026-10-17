@@ -102,7 +102,6 @@ export async function readBatchData(batch) {
   const summary = await readJson(path.join(batch.dir, "summary.json"));
   if (!summary || !Array.isArray(summary.results)) return null;
   const report = await readJson(path.join(batch.dir, "report.json")) || {};
-  const uploadResults = await readJson(path.join(batch.dir, "upload-results.json")) || {};
   const results = summary.results;
   const representativeResult = results.find((item) => item?.agent || item?.providerId || item?.modelId) || {};
   const executionInfo = {
@@ -137,7 +136,6 @@ export async function readBatchData(batch) {
       tokenCacheRead: result?.tokenUsage?.cacheRead,
       tokenTotal: result?.tokenUsage?.total,
       status: result.status,
-      downloadUrl: uploadResults[caseName]?.url || "",
       testSummary: testRows.length
         ? `<span class="pass">✓ ${ts.passes}</span> / <span class="fail">✗ ${ts.failures}</span> / <span class="error">⊗ ${ts.errors}</span>`
         : (result?.ohosTest?.status ? badge(result.ohosTest.status) : "--"),
@@ -330,7 +328,7 @@ function buildCaseTableSection({ summary, caseRows }) {
       <td>${badge(c.status)}</td>
       <td>${c.testSummary}</td>
       <td class="num">${c.passRate}</td>
-      <td>${detailCell}${c.downloadUrl ? ` <a class="link" href="${esc(c.downloadUrl)}" target="_blank">下载</a>` : ""}</td>
+      <td>${detailCell}</td>
     </tr>`;
   }).join("");
 

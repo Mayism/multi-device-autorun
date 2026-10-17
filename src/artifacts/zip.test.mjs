@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { inflateRawSync } from "node:zlib";
 import { createZip } from "./zip.mjs";
-import { uploadFailedCases } from "./upload-orchestrator.mjs";
+import { archiveCases } from "./archive-cases.mjs";
 import { filterGeneratedArtifactPatch } from "./generated-artifact-filter.mjs";
 
 function unzip(buffer) {
@@ -47,16 +47,26 @@ test("case ZIP includes onemulti reports, evidence and scripts but not caches or
   assert.equal(filterGeneratedArtifactPatch(patch), "diff --git a/src/page.ets b/src/page.ets\n+code\n");
 });
 
-test("manual local repack refreshes ZIP even when a previous upload URL exists", async (t) => {
+test("manual local repack refreshes ZIP without writing upload results", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "autorun-repack-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, "Case/base/.onemulti"), { recursive: true });
   await fs.writeFile(path.join(root, "Case/base/.onemulti/report.html"), "report");
+  await fs.mkdir(path.join(root, "Case/generate"), { recursive: true });
+  await fs.mkdir(path.join(root, "Case/.ohostest-runs/run-1"), { recursive: true });
+  for (const name of ["result.json", "state.json", "session.json", "generate/input.txt", "generate/last-message.json", "generate/skill-runtime.json", "generate/output.txt", "generate/final-message.json"]) {
+    await fs.writeFile(path.join(root, "Case", name), "temporary");
+  }
+  await fs.writeFile(path.join(root, "Case/.ohostest-runs/run-1/result.json"), "runner result");
   await fs.writeFile(path.join(root, "Case/Case_batch.zip"), "old zip");
-  await fs.writeFile(path.join(root, "upload-results.json"), JSON.stringify({ Case: { url: "https://example.invalid/old.zip" } }));
-  const results = await uploadFailedCases({ batchRoot: root, summary: { batchId: "batch", results: [{ case: "Case", status: "completed" }] }, enabled: false });
-  assert.equal(results.Case.url, "https://example.invalid/old.zip");
+  const archived = await archiveCases({ batchRoot: root, summary: { batchId: "batch", results: [{ case: "Case", status: "completed" }] } });
+  assert.deepEqual(archived, [path.join(root, "Case/Case_batch.zip")]);
+  await assert.rejects(fs.access(path.join(root, "upload-results.json")));
   const archive = unzip(await fs.readFile(path.join(root, "Case/Case_batch.zip")));
   assert.equal(archive["base/.onemulti/report.html"], "report");
+  assert.equal(archive[".ohostest-runs/run-1/result.json"], "runner result");
+  for (const name of ["result.json", "state.json", "session.json", "generate/input.txt", "generate/last-message.json", "generate/skill-runtime.json", "generate/output.txt", "generate/final-message.json"]) {
+    assert.equal(archive[name], undefined);
+  }
   assert.equal(archive["Case_batch.zip"], undefined);
 });

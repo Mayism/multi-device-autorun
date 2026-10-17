@@ -161,7 +161,7 @@ export function buildWhiteboxSummary(results, enabled) {
   };
 }
 
-export async function writeBatchReport({ batchRoot, summary, uploadConfig, onLog = () => {} }) {
+export async function writeBatchReport({ batchRoot, summary, onLog = () => {} }) {
   const results = Array.isArray(summary?.results) ? summary.results : [];
   const agentCases = await Promise.all(results.map(collectAgentCase));
   const ohosTestCases = await Promise.all(results.filter((item) => item?.ohosTest).map(collectOhosTestCase));
@@ -182,12 +182,12 @@ export async function writeBatchReport({ batchRoot, summary, uploadConfig, onLog
   const jsonPath = path.join(batchRoot, "report.json");
   await fs.rm(path.join(batchRoot, "report.md"), { force: true });
   await fs.writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  // 打包失败用例产物，upload.enabled 时同时上传到 AGC 云存储
+  // 为所有用例保留本地 ZIP 归档。
   try {
-    const { uploadFailedCases } = await import("../artifacts/upload-orchestrator.mjs");
-    await uploadFailedCases({ batchRoot, summary, report, enabled: uploadConfig?.enabled === true, onLog });
+    const { archiveCases } = await import("../artifacts/archive-cases.mjs");
+    await archiveCases({ batchRoot, summary, onLog });
   } catch (error) {
-    onLog(`批量打包/上传失败: ${error.message}`);
+    onLog(`批量打包失败: ${error.message}`);
   }
   const html = { overviewPath: "", subpageDir: "" };
   try {
