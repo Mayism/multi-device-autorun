@@ -7,7 +7,7 @@ import subprocess
 
 
 GIT_EXCLUDES = (".onemulti/", ".hvigor/", "oh_modules/", "build/", "node_modules/",
-                "local.properties", "/layout_[0-9]*.json", "/screenshots/",
+                "local.properties", "oh-package-lock.json5", "/layout_[0-9]*.json", "/screenshots/",
                 "__pycache__/", "*.pyc", "**/evidence/tmp/")
 BUILD_DIRS = {".git", ".hvigor", "build", "node_modules"}
 
@@ -21,6 +21,7 @@ def excluded(relative):
     return (any(part in parts for part in (".onemulti", ".hvigor", "oh_modules", "build",
                                           "node_modules", "__pycache__")) or
             bool(parts and parts[-1] == "local.properties") or
+            bool(parts and parts[-1] == "oh-package-lock.json5") or
             bool(len(parts) == 1 and re.fullmatch(r"layout_\d+\.json", parts[0])) or
             bool(parts and parts[0] == "screenshots") or
             bool(parts and parts[-1].lower().endswith(".pyc")) or
