@@ -1,0 +1,44 @@
+# v2配置示例：按实际数据集、工具链和模型配置替换路径。
+schema_version: 2
+scenario: KnowledgeEval
+id: opencode-agent-mcp
+description: 比较同一 OpenCode Agent 在有无 MCP 时的答案质量
+dataset:
+  type: text-qa
+  dir: ../../datasets/knowledge-qa
+target:
+  type: opencode_agent
+opencode_agent:
+  rounds: 1
+  execution:
+    engine: opencode
+    agent_name: build
+    timeout: 120
+    opencode:
+      binary: /path/to/opencode
+      config_path: ./opencode/opencode.json
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+  verification:
+  - id: qa
+    type: LLM_judge
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+    prompt_path: ./rubrics/knowledge-answer-quality.md
+  - id: usage
+    type: ToolUsage
+    target_mcp: developer_knowledge
+    mode: observe
+  scoring:
+  - dimension: answer_quality
+    type: ImmediateValue
+    source: qa.metrics.score
+  report:
+    output_dir: ../../outputs/opencode-agent-mcp
+    format: html

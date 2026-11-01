@@ -1,0 +1,50 @@
+# v2配置示例：按实际数据集、工具链和模型配置替换路径。
+schema_version: 2
+scenario: LibraryMigration
+id: library-conversion-plugin
+description: 不加载目标三方库转换 Plugin 的基线评测
+dataset:
+  type: library-migration
+  dir: ../../datasets/libraries
+target:
+  type: plugin_agent
+  dir: ../../capabilities/library-plugin
+  entry: ./dist/index.js
+plugin_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: build
+    timeout: 1800
+    idle_timeout: 300
+    without_enable: true
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+  verification:
+  - id: api
+    type: LibraryAPICount
+  - id: code
+    type: whiteboxeval
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+    rubric_path: ./rubrics/library-migration.yaml
+  scoring:
+  - dimension: api_count_consistency
+    type: ImmediateValue
+    source: api.metrics.count_consistency
+    scale: 100
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: ../../outputs/library-conversion-plugin
+    format: html

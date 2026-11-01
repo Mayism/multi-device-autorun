@@ -72,7 +72,8 @@ async def check_environment(config, on_log=print):
         workspace.mkdir(parents=True, exist_ok=True)
         server = None
         try:
-            server = await start_server(target_config, workspace, reuse_existing=False, log=on_log)
+            server = await start_server(target_config, workspace, reuse_existing=False,
+                                        provider_overlay=config["server"].get("providerOverlay", ""), log=on_log)
             model = await validate_server_config(server.client, target_config["execution"],
                                                  server.server_config, target["mode"])
             skills = await wait_for_skills(server.client, str(workspace))

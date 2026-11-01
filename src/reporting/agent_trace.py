@@ -102,7 +102,9 @@ def normalize_agent_trace(sessions):
                                  title="文件变更" if kind == "patch" else kind,
                                  body=_content(part))
                 entries.append(entry)
-        trace.append({"id": _text(session.get("sessionId")), "label": f"Session {index + 1}",
+        title = _text(session.get("title"))[:100]
+        label = f"Session {index + 1}" + (" · " + title if title else "") + ("（子会话）" if session.get("parentId") else "")
+        trace.append({"id": _text(session.get("sessionId")), "label": label,
                       "entries": entries})
     return trace
 
@@ -155,7 +157,8 @@ _SCRIPT = """
 
 
 def render_agent_trace(sessions, *, case_name="", agent_status="", agent_error="", model="",
-                       started_at="", finished_at="", token_usage=None):
+                       started_at="", finished_at="", token_usage=None, back_href=None,
+                       raw_log="agent-output.log", raw_messages="all-messages.json"):
     trace = normalize_agent_trace(sessions)
     if agent_error:
         if not trace:
@@ -174,13 +177,13 @@ def render_agent_trace(sessions, *, case_name="", agent_status="", agent_error="
              ("工具调用", tools), ("错误", errors), ("总 Token", _tokens((token_usage or {}).get("total"))))
     cards = "".join(f'<div class="stat"><span>{safe(label)}</span><b>{safe(value)}</b></div>'
                     for label, value in stats)
-    back = "../../subpage/" + quote(case_name) + ".html"
+    back = back_href if back_href is not None else "../../subpage/" + quote(case_name) + ".html"
     return (f'<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
             f'<meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'">'
             f'<title>{safe(case_name)} · Agent 执行过程</title><style>{_CSS}</style></head><body><main class="wrap">'
-            f'<nav><a href="{safe(back)}">← 返回用例详情</a> · <a href="agent-output.log">原始日志</a> · '
-            f'<a href="all-messages.json">原始消息</a></nav><h1>{safe(case_name)} · Agent 执行过程</h1>'
+            f'<nav><a href="{safe(back)}">← 返回评测报告</a> · <a href="{safe(raw_log)}">原始日志</a> · '
+            f'<a href="{safe(raw_messages)}">原始消息</a></nav><h1>{safe(case_name)} · Agent 执行过程</h1>'
             f'<p class="sub">{safe(model or "模型未知")} · {safe(started_at or "开始时间未知")}'
             f'{" → " + safe(finished_at) if finished_at else ""}</p><div class="stats">{cards}</div>'
             '<div class="toolbar"><input id="search" type="search" placeholder="搜索回复、工具名、输入或输出" '

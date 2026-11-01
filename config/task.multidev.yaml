@@ -1,0 +1,94 @@
+# 一多适配：沿用 autorun.config.json 的用例目录、HarmonyBot 和三台设备配置。
+# 模型配置复制自 task.library-plugin.with.yaml；白盒评分默认使用同一模型。
+# 全量运行 /Users/mayism/cases 下有效用例；可在 dataset 下添加 case_ids: [bookread-template-derive-base]。
+# Agent 总时限和主会话静默时限沿用三方库任务；UITest 总时限为 7200 秒。
+schema_version: 2
+scenario: MultiDev
+id: multidev-harmonybot
+description: 评测 HarmonyBot 一多 Agent 的适配效果
+dataset:
+  type: swe-bench-hm-multi-dev
+  dir: /Users/mayism/cases
+target:
+  type: harmonybot_agent
+  dir: /Users/mayism/.vscode/extensions
+harmonybot_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: harmonyos-multi-device
+    timeout: 3600
+    idle_timeout: 3600
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+      java_home: /Applications/DevEco-Studio.app/Contents/jbr/Contents/Home
+      sdk_home: /Applications/DevEco-Studio.app/Contents/sdk
+    model:
+      api_type: openai_api
+      name: glm-5.3
+      base_url: https://open.bigmodel.cn/api/coding/paas/v4
+      api_key: ZHIPU_API_KEY
+    concurrency: 3
+  verification:
+  - id: ui
+    type: UITest
+    deveco_home: /Applications/DevEco-Studio.app/Contents
+    emulator_deployed_dir: /Users/mayism/.Huawei/Emulator/deployed
+    devices:
+    - id: phone
+      profile: Pura 90 Pro
+      target: 127.0.0.1:15001
+      hdc_port: 15001
+      start_emulator: true
+    - id: foldable
+      profile: Mate X7
+      target: 127.0.0.1:15005
+      hdc_port: 15005
+      start_emulator: true
+    - id: tablet
+      profile: MatePad Pro 13
+      target: 127.0.0.1:15008
+      hdc_port: 15008
+      start_emulator: true
+    timeout: 7200
+    paths:
+      hvigorw: /Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw
+      ohpm: /Applications/DevEco-Studio.app/Contents/tools/ohpm/bin/ohpm
+      hdc: /Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc
+      emulatorBin: /Applications/DevEco-Studio.app/Contents/tools/emulator/Emulator
+  - id: code
+    type: whiteboxeval
+  scoring:
+  - dimension: L1
+    type: BooleanScoring
+    all:
+    - source: ui.metrics.build_passed
+      equals: true
+    - source: ui.metrics.all_tests_passed
+      equals: true
+    pass_score: 100
+    fail_score: 0
+  - dimension: L2
+    type: WeightedSummation
+    mode: deduction
+    base_score: 100
+    components:
+    - name: UX
+      source: ui.metrics.pass_rate
+      range:
+      - 0
+      - 1
+      weight: 0.5
+    - name: Whitebox
+      source: code.dimensions
+      reducer: proportional_deduction
+      cap_source: code.metrics.total_score
+      weight: 0.5
+    missing: unavailable
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: ../output/harmony-eval/multidev-harmonybot
+    format: html

@@ -1,0 +1,65 @@
+# v2配置示例：按实际数据集、工具链和模型配置替换路径。
+schema_version: 2
+scenario: AndroidMigration
+id: android-migration-harmonybot
+description: 评测 HarmonyBot 安卓转鸿蒙 Agent
+dataset:
+  type: android-migration
+  dir: ../../datasets/android-apps
+target:
+  type: harmonybot_agent
+  dir: /path/to/vscode/extensions
+harmonybot_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: d2h
+    timeout: 3600
+    idle_timeout: 300
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+  verification:
+  - id: ui
+    type: UITest
+    deveco_home: /Applications/DevEco-Studio.app/Contents
+    emulator_deployed_dir: /path/to/emulators
+    devices:
+    - id: phone
+      profile: Pura 90 Pro
+      target: 127.0.0.1:15001
+      hdc_port: 15001
+      start_emulator: true
+  - id: code
+    type: whiteboxeval
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+    rubric_path: ./rubrics/android-migration.yaml
+  scoring:
+  - dimension: L1
+    type: BooleanScoring
+    all:
+    - source: ui.metrics.build_passed
+      equals: true
+    - source: ui.metrics.all_tests_passed
+      equals: true
+    pass_score: 100
+    fail_score: 0
+  - dimension: L2
+    type: ImmediateValue
+    source: ui.metrics.pass_rate
+    scale: 100
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: ../../outputs/android-migration-harmonybot
+    format: html

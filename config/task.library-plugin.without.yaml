@@ -1,0 +1,47 @@
+# 本机thirdcase配置。模型按实际服务配置，api_key可填环境变量名或直接填写密钥。
+# 当前先评API数量一致率和白盒L3，不要求功能验收命令/API映射；数量一致不代表适配功能正确。
+schema_version: 2
+scenario: LibraryMigration
+id: thirdcase-library-plugin
+description: 评测hmos-library-adapter-fast转换thirdcase库的效果
+dataset:
+  type: library-migration
+  dir: /Users/mayism/thirdcase
+  layout: repositories
+  instruction: 请将当前第三方库适配到HarmonyOS，在当前工程内完成实现。阅读README和源码，保持原有公开API及已有平台行为，识别并处理依赖的鸿蒙兼容性；对于无法等价实现的平台能力，明确说明限制与替代方案，不得虚构API或用空实现冒充支持。请提供使用说明和构建、验证结果。
+target:
+  type: plugin_agent
+  dir: /Users/mayism/.config/opencode/plugins/hmos-library-adapter-fast
+plugin_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: build
+    without_enable: true
+    timeout: 3600
+    idle_timeout: 3600 # 子Agent运行时主会话可能长期无输出，保留总时限控制
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+    model:
+      api_type: openai_api
+      name: glm-5.3
+      base_url: https://open.bigmodel.cn/api/coding/paas/v4
+      api_key: ZHIPU_API_KEY
+  verification:
+  - id: api
+    type: LibraryAPICount
+  - id: code
+    type: whiteboxeval
+    rubric_path: ./rubrics/library-migration.md
+  scoring:
+  - dimension: api_count_consistency
+    type: ImmediateValue
+    source: api.metrics.count_consistency
+    scale: 100
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: ../output/harmony-eval/thirdcase-plugin
+    format: html

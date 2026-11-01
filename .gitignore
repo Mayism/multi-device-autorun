@@ -1,5 +1,7 @@
 output/
 build/
+/generate/
+/src/ohostest/dist/
 node_modules/
 src/whitebox_eval/ark_analyzer/dist/
 src/whitebox_eval/ark_analyzer/.opencode/

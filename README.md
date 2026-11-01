@@ -1,5 +1,28 @@
 # Multi-Device-Autorun
 
+## Task YAML 通用评测
+
+使用 EvalScope 1.14.x 驱动一多适配、三方库迁移、安卓应用迁移、MCP 对照和 HTTP 智能问答：
+
+```sh
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[eval]'
+harmony-eval run ./config/task.yaml --check
+harmony-eval run ./config/task.yaml
+```
+
+当前 `config/task.yaml` 已选择本机 thirdcase 的插件评测；模型先按实际服务配置。
+插件对照分别使用 `config/task.library-plugin.with.yaml`、`config/task.library-plugin.without.yaml`，
+with 选择 `hmos-library-adapter-fast`，without 选择 `build`，不自动生成两组。
+三方库第一版使用 `LibraryAPICount` 输出公开 API 分类数量一致率，并保留白盒 L3；无需先准备 API 映射和功能验收命令。数量一致不证明鸿蒙适配功能正确，构建与行为评估器可后续启用。
+
+`dataset/target/execution/verification/scoring` 使用独立适配器。执行环境在
+`execution.enviroment`，不需要额外 runtime_config。MCP 从实际 OpenCode 配置读取；
+knowledge 表示 HTTP 智能问答。支持 `plan/verify/rescore/compare`，配置错误或缺失证据会明确报告。
+详见 [使用说明](docs/harmony-eval-usage.md)、[设计方案](docs/harmony-eval-framework-design.md)
+和 [各场景 YAML 示例](config/examples)。
+
 Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价的本地入口、远端任务服务、规则、Agent 调用、评分融合及报告由 Python 执行。ArkAnalyzer 作为可选的独立 Node 分析器保留，仅在 `HMOS_ARKANALYZER_ENABLE=true` 时调用。官方 Code Linter、OpenCode、DevEco/ohpm/Hvigor 和 H5 工程自身的工具链是外部工具。
 
 ## 安装与运行

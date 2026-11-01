@@ -51,7 +51,8 @@ def _source_key(source_dir, assets_dir):
     return hashlib.sha256((first + "\0" + second).encode()).hexdigest()[:10]
 
 
-def prepare_software_runtime(source, config, runtime_root, workspace, port, provider_overlay=""):
+def prepare_software_runtime(source, config, runtime_root, workspace, port, provider_overlay="",
+                             link_assets=False):
     """Copy source assets and return a private OpenCode environment plus Skill metadata."""
     runtime = Path(runtime_root)
     resources = Path(source["resourcesDir"])
@@ -87,7 +88,10 @@ def prepare_software_runtime(source, config, runtime_root, workspace, port, prov
         elif dst.exists():
             shutil.rmtree(dst)
         if src.exists():
-            shutil.copytree(src, dst, symlinks=False)
+            if link_assets and os.name != "nt":
+                dst.symlink_to(src, target_is_directory=True)
+            else:
+                shutil.copytree(src, dst, symlinks=False)
         else:
             dst.mkdir()
     snapshot_skills = _skill_names(effective / "skills")
@@ -141,6 +145,37 @@ def prepare_software_runtime(source, config, runtime_root, workspace, port, prov
     return {"env": env, "configDir": str(effective), "logDir": str(log_dir),
             "toolResources": {"skillsRoot": str(effective / "skills"), "skillNames": snapshot_skills,
                               "env": tool_env, "toolReadRoots": tool_read_roots}}
+
+
+def prepare_harmony_runtime(source, config, runtime_root, workspace, port, provider_overlay):
+    """Build a private HarmonyBot bundle with the task's provider; never edit the extension."""
+    resources = Path(source["resourcesDir"])
+    skills = resources / "skills"
+    bundle = resources
+    if not skills.exists() or not any(skills.iterdir()):
+        hash_file = resources / ".bundle-hash"
+        if hash_file.is_file() and hash_file.read_text(encoding="utf-8").strip():
+            bundle = (Path.home() / ".harmonybot" / "opencode-bundle" / "vscode" /
+                      hash_file.read_text(encoding="utf-8").strip())
+            if not (bundle / ".bundle-complete").exists():
+                raise ValueError(f"HarmonyBot Bundle 缓存尚未就绪: {bundle}")
+    private_source = {**source, "resourcesDir": str(bundle), "assetsDir": str(bundle)}
+    prepared = prepare_software_runtime(private_source, config, runtime_root, workspace, port,
+                                         provider_overlay, link_assets=True)
+    effective = Path(prepared["configDir"])
+    for item in bundle.iterdir():
+        if item.is_dir() and item.name not in ("skills", "plugin", "provider"):
+            destination = effective / item.name
+            if not destination.exists():
+                if os.name == "nt":
+                    shutil.copytree(item, destination, symlinks=False)
+                else:
+                    destination.symlink_to(item, target_is_directory=True)
+    host_config = Path(runtime_root) / "config"
+    host_config.mkdir(exist_ok=True)
+    prepared["env"]["OPENCODE_CONFIG_DIR"] = str(host_config)
+    prepared["env"]["OPENCODE_BUNDLED_CONFIG_DIR"] = str(effective)
+    return prepared
 
 
 def _port(url):
@@ -256,6 +291,11 @@ async def start_server(config, workspace, reuse_existing=False, provider_overlay
     port = str(_port(url)[1])
     if source["mode"] == "softwareEngineering":
         prepared = prepare_software_runtime(source, config, runtime_root, workspace, port, provider_overlay)
+        args = [source["opencodeBinPath"], "serve", "--port", port]
+        env = prepared["env"]
+        tool_resources = prepared["toolResources"]
+    elif provider_overlay:
+        prepared = prepare_harmony_runtime(source, config, runtime_root, workspace, port, provider_overlay)
         args = [source["opencodeBinPath"], "serve", "--port", port]
         env = prepared["env"]
         tool_resources = prepared["toolResources"]

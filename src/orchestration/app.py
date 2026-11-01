@@ -34,7 +34,8 @@ async def _whitebox_evaluator(config, workspace):
     discovery["execution"]["agent"] = "harmonyos-multi-device"
     server = None
     try:
-        server = await start_server(discovery, workspace, reuse_existing=False)
+        server = await start_server(discovery, workspace, reuse_existing=False,
+                                    provider_overlay=config["server"].get("providerOverlay", ""))
         judge = await resolve_judge_runtime(server.client, server.server_config,
                                             whitebox["judge"], config["execution"]["generationModel"],
                                             str(workspace))
@@ -62,7 +63,8 @@ async def run_autorun(config_path, check=False, on_log=print):
         if conflicts:
             raise ValueError("模拟器 HDC 端口检查失败；" + "；".join(map(format_emulator_port_conflict, conflicts)))
     run_id, run_root = allocate_run_directory(config["execution"]["outputRoot"])
-    overlay = prepare_shared_generation_provider(config, run_id) if multiple else ""
+    overlay = config["server"].get("providerOverlay") or (prepare_shared_generation_provider(config, run_id)
+                                                       if multiple else "")
     cases_root = create_shared_cases_snapshot(config, run_id, run_root) if multiple else config["execution"]["casesRoot"]
     evaluator = await _whitebox_evaluator(config, cases_root) if config["whiteboxEvaluation"]["enabled"] else None
     target_results = []
