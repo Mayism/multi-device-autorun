@@ -27,7 +27,7 @@ plugin_agent:
       api_type: openai_api
       name: glm-5.3
       base_url: https://open.bigmodel.cn/api/coding/paas/v4
-      api_key: ZHIPU_API_KEY
+      api_key: "ZHIPU_API_KEY"
   verification:
   - id: api
     type: LibraryAPICount

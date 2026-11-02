@@ -10,9 +10,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-from pyautorun.harmony_eval.core import EvalCase, ExecutionResult
-from pyautorun.harmony_eval.http_protocols import call_http, substitute
-from pyautorun.harmony_eval.verification import CloudTest, pipeline, parse_judge
+from harmonyeval.api.contracts import EvalCase, ExecutionResult
+from harmonyeval.agent.engines.http_protocols import call_http, substitute
+from harmonyeval.verification.workflows.cloudtest import CloudTest
+from harmonyeval.verification.pipeline import pipeline
+from harmonyeval.verification.workflows.judge import parse_judge
 
 
 class ProtocolService(BaseHTTPRequestHandler):
@@ -89,8 +91,8 @@ class ProtocolTest(unittest.TestCase):
             marker = root / 'should-not-exist'
             command = [sys.executable, '-c', f'import time; from pathlib import Path; time.sleep(5); Path({str(marker)!r}).touch()']
             task = {'active': {'execution': {'enviroment': {}}, 'verification': [{'id': 'command', 'type': 'Command', 'command': command}]}}
-            from pyautorun.harmony_eval.task import load_task  # builtin registration is normally performed by load_task
-            from pyautorun.harmony_eval import verification
+            from harmonyeval.config import load_task  # builtin registration is normally performed by load_task
+            from harmonyeval import verification
             cancelled = threading.Event()
             async def run():
                 future = asyncio.create_task(pipeline(task, EvalCase('c1', 'q', str(root)),
@@ -110,8 +112,8 @@ class ProtocolTest(unittest.TestCase):
             project = root / 'project'
             project.mkdir()
             context = {'output': str(root), 'env': {}, 'task': {'base_dir': str(root)}, 'temporary_projects': []}
-            with patch('pyautorun.cloud.cloudtest_submit.submit_cloud_test_for_project', return_value={}), \
-                 patch('pyautorun.cloud.cloudtest_submit.finish_cloud_test_polling', return_value={
+            with patch('harmonyeval.integrations.agc.cloudtest_submit.submit_cloud_test_for_project', return_value={}), \
+                 patch('harmonyeval.integrations.agc.cloudtest_submit.finish_cloud_test_polling', return_value={
                      'status': 'completed', 'report': {'summary': {'deviceCount': 2, 'devicePassed': 1, 'deviceFailed': 1}}}):
                 result = asyncio.run(CloudTest().verify(EvalCase('c1', 'q', str(root)),
                     ExecutionResult('completed', project=str(project)), {}, context, {'id': 'cloud', 'type': 'CloudTest'}))

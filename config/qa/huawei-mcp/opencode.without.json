@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "harmonyos_developer_knowledge": {
+      "type": "remote",
+      "url": "https://connect-api.cloud.huawei.com/api/developerknowledge/mcp",
+      "enabled": false
+    }
+  }
+}

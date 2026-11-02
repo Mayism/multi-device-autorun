@@ -1,108 +1,91 @@
-# Multi-Device-Autorun
+# HarmonyEval
 
-## Task YAML 通用评测
+基于 EvalScope 1.14.x 的通用评测框架，支持一多适配、三方库转鸿蒙库、安卓应用转鸿蒙、MCP 对照和 HTTP 智能问答。任务统一由 YAML 驱动：
 
-使用 EvalScope 1.14.x 驱动一多适配、三方库迁移、安卓应用迁移、MCP 对照和 HTTP 智能问答：
+```sh
+harmonyeval run ./config/task.yaml
+```
+
+原 JSON 批量执行入口已移除。模型、用例、执行环境、评估流程和评分规则统一配置在 task YAML 中。
+
+## 安装
+
+建议使用 Python 3.12，运行框架最低要求 Python 3.10。macOS/Linux：
 
 ```sh
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[eval]'
-harmony-eval run ./config/task.yaml --check
-harmony-eval run ./config/task.yaml
 ```
 
-当前 `config/task.yaml` 已选择本机 thirdcase 的插件评测；模型先按实际服务配置。
-插件对照分别使用 `config/task.library-plugin.with.yaml`、`config/task.library-plugin.without.yaml`，
-with 选择 `hmos-library-adapter-fast`，without 选择 `build`，不自动生成两组。
-三方库第一版使用 `LibraryAPICount` 输出公开 API 分类数量一致率，并保留白盒 L3；无需先准备 API 映射和功能验收命令。数量一致不证明鸿蒙适配功能正确，构建与行为评估器可后续启用。
-
-`dataset/target/execution/verification/scoring` 使用独立适配器。执行环境在
-`execution.enviroment`，不需要额外 runtime_config。MCP 从实际 OpenCode 配置读取；
-knowledge 表示 HTTP 智能问答。支持 `plan/verify/rescore/compare`，配置错误或缺失证据会明确报告。
-详见 [使用说明](docs/harmony-eval-usage.md)、[设计方案](docs/harmony-eval-framework-design.md)
-和 [各场景 YAML 示例](config/examples)。
-
-Autorun 使用 Python 3.9+ 批量运行 OpenCode Agent，用 Python 编排 HarmonyOS ohosTest、AGC 云测试、产物归档和报告。白盒评价的本地入口、远端任务服务、规则、Agent 调用、评分融合及报告由 Python 执行。ArkAnalyzer 作为可选的独立 Node 分析器保留，仅在 `HMOS_ARKANALYZER_ENABLE=true` 时调用。官方 Code Linter、OpenCode、DevEco/ohpm/Hvigor 和 H5 工程自身的工具链是外部工具。
-
-## 安装与运行
-
-macOS/Linux 在仓库根目录执行：
-
-```bash
-python3 -m pip install -e .
-python3 -m pyautorun.cli --check
-python3 -m pyautorun.cli
-```
-
-Windows（PowerShell 或 CMD）在仓库根目录执行：
+Windows PowerShell：
 
 ```powershell
-py -3 -m pip install -e .
-py -3 -m pyautorun.cli --check
-py -3 -m pyautorun.cli
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e '.[eval]'
 ```
 
-Windows 需安装 Python 3.9 或更高版本。如果没有 `py` 启动器，可将上述 `py -3` 换成已加入 PATH 的 `python`。
-
-`python3 -m pyautorun.cli` 会运行 `pyautorun` 包中的 CLI 模块：`src/cli.py` 是兼容入口，实际命令处理在 `src/orchestration/cli.py`。从仓库根目录启动时，默认读取 `./config/autorun.config.json`，无需重复指定 `--config`；如果从其他工作目录启动，或要使用另一份配置，请传入 `--config <配置文件路径>`。
-
-也可运行 `npm run autorun -- --check` 或 `npm run autorun`；这些命令调用同一个 Python 入口。启用白盒评价或白盒 API，安装 `python3 -m pip install -e '.[whitebox]'`。仅在开启 ArkAnalyzer 时需要在仓库根目录执行 `npm ci`；安装脚本会构建侧车。
-
-除可选的白盒功能外，Python 运行层仅使用标准库。需要系统 Git；设备测试需要 DevEco Studio、SDK、HDC、ohpm 和 Hvigor；H5 用例另需其工程使用的 npm；HarmonyBot 来源需要已安装的 HarmonyOS Dev Assistant 扩展及该扩展提供的 OpenCode 资源和启动器。
-
-根目录的 npm 快捷命令使用 `python3`，Windows 上只有该命令在 PATH 中可用时才适用；否则使用上面的 `py -3` 命令。
+从旧版本升级时先运行 `python -m pip uninstall -y multi-device-autorun-python`，再执行安装命令以刷新控制台入口。主命令和 Python 包名现统一为 `harmonyeval`，源码直接位于根目录 harmonyeval/。OpenCode、HarmonyBot、DevEco/SDK/HDC、ohpm/Hvigor、Flutter SDK 等按所测场景配置；不是每种任务都要求所有工具。云测试另需实际 AGC 认证、签名和设备资源。
 
 ## 主要命令
 
 | 操作 | 命令 |
-| --- | --- |
-| 环境检查 | `python3 -m pyautorun.cli --check` |
-| 批量执行 | `python3 -m pyautorun.cli` |
-| 合并历史报告 | `python3 -m pyautorun.cli --merge [outputRoot]` |
-| 仅生成 L1 评分报告 | `python3 -m pyautorun.cli --l1 [batchId或目录]`（缺省取 outputRoot 下最新批次，也可指向单个 Agent 目标目录；批次结束后也会自动生成） |
-| 独立云测试 | `python3 -m pyautorun.cli --cloud-test --case <caseName>` 或 `--app <signed.app>` |
-| 续查云测试 | `python3 -m pyautorun.cli --poll-task <taskGroupId>` |
-| 单用例 ohosTest | `python3 -m pyautorun.ohostest_case --case <caseDir> --out <outDir> --machine-config <machine.json> --run swe` |
-| ohosTest Matrix | `python3 -m pyautorun.ohostest_matrix --project <projectDir> --machine-config <machine.json>` |
-| 部署折叠触发脚本 | `python3 -m pyautorun.deploy_fold --project <projectDir> [--module entry] [--port 8765]` |
-| 重新生成批次报告 | `python3 -m pyautorun.report_cli <batchRoot>` |
-| 重新打包本地用例产物 | `python3 -m pyautorun.archive_cli <batchRoot>` |
-| 向现有 OpenCode 发消息 | `python3 -m pyautorun.ask_opencode '你好' --port 61417` |
-| 独立启动 OpenCode | `python3 -m pyautorun.serve_opencode --config config/autorun.config.json` |
-| 本地白盒评价 | `python3 -m pyautorun.whitebox_local --input <input.json> [--port 62400]` |
-| 远端白盒任务 | `python3 -m pyautorun.whitebox_remote --input <remote-task.json> [--case-root <dir>]` |
-| 白盒 HTTP 服务 | `python3 -m pyautorun.whitebox_api --case-root <dir> [--host 0.0.0.0] [--port 3000]` |
+|---|---|
+| 展示任务计划 | `harmonyeval plan ./config/task.yaml` |
+| 配置与实际能力装载检查 | `harmonyeval run ./config/task.yaml --check` |
+| 执行任务 | `harmonyeval run ./config/task.yaml` |
+| 使用已有工程/答案重新评估 | `harmonyeval verify ./config/task.yaml --run <单组运行目录>` |
+| 使用已有验证指标重新评分 | `harmonyeval rescore ./config/task.yaml --run <单组运行目录>` |
+| 两组对比，差值为右组减左组 | `harmonyeval compare <左组目录> <右组目录> --output <对比目录>` |
 
-`pip install -e .` 会将 `src/` 映射为 `pyautorun` 包，并安装 `autorun` 控制台命令；上面的 `python3 -m pyautorun.cli` 与它运行同一入口。
+也可用同一环境的 `python -m harmonyeval run ./config/task.yaml`或 `python -m harmonyeval.cli run ./config/task.yaml`，它们都进入相同的 Harmony Eval CLI。npm 快捷命令为 `npm run harmonyeval -- run ./config/task.yaml`；该脚本使用 PATH 中的 python3，需先激活评测环境。
 
-## 配置与用例
+`--check` 不请求生成模型，检查通过不证明密钥已获服务授权、MCP 已连通或设备测试成功。实际执行会保留错误和缺失证据，不将 unavailable 自动计为零分或满分。
 
-主配置为 `config/autorun.config.json`，核心字段包括：
+## 场景配置
 
-- `server.opencodeSource`：`harmonyBot` 或 `softwareEngineering` 来源；也支持 `targets` 数组进行多 Agent 对比。
-- `server.url`、`server.runtimeRoot`、`server.devecoHome`：OpenCode 地址、私有运行目录和 DevEco 安装目录。
-- `execution.casesRoot`、`execution.outputRoot`、`execution.agent`、`execution.providerId`、`execution.model`、`execution.concurrency`：用例、产物、模型与并发。
-- `ohosTest`：启用设备验证时设置 `paths`、`devices` 和 `timeoutSec`。本机的 HDC、模拟器、Hvigor 路径放在配置中，勿提交本机凭据。折叠屏开合脚本默认使用 `src/devices/fold-server.py`，无需配置 `paths.foldServerScript`；旧 `src/ohostest/src/fold/assets/fold-server.py` 路径会自动映射到新位置。RN 用例可设置 `rnWorkRoot` 使用短路径运行；Windows 默认使用 `D:\rn`，设置为 `false` 可关闭。运行结束后仅将测试结果迁回用例目录，临时构建 work 会清理。
-- `cloudTest`：AGC 云测试设置。未启用时不提交任务；独立提交和续查可使用上表命令。
-- `whiteboxEvaluation`：启用时使用 Python 白盒入口；开启 `HMOS_ARKANALYZER_ENABLE=true` 时另需构建 ArkAnalyzer sidecar。
+| 场景 | 配置 |
+|---|---|
+| 默认任务 | [config/task.yaml](config/task.yaml)，当前选择本机 thirdcase 的插件评测 |
+| 一多适配 | [task.multidev.yaml](config/task.multidev.yaml) |
+| 三方库有/无插件 | [with](config/task.library-plugin.with.yaml)、[without](config/task.library-plugin.without.yaml) |
+| 三方库插件固定，有/无 MCP | [task.library-plugin.mcp.yaml](config/task.library-plugin.mcp.yaml)，一次执行两组并自动比较 |
+| API 升级有/无 Skill | [with](config/task.api-upgrade.with.yaml)、[without](config/task.api-upgrade.without.yaml) |
+| 知识问答有/无 MCP、智能客服 URL | [问答任务说明](config/qa/README.md)，统一读取 [data/cases.json](config/qa/data/cases.json) |
+| 各类型通用模板 | [config/examples](config/examples) |
 
-`execution.casesRoot` 下每个直接子目录是一个用例。可执行用例包含 `PROMPT.md` 和 `base/` 或 `task/`；如果 `metadata.platform` 为 `web`，还需同级 `web/`。Python 会复制工程到批次隔离目录，原始工程不被 Agent 修改。Agent 在 H5 用例中可同时看到 `base/` 与 `web/`，补丁路径以这两个目录的父目录为根。
+`dataset` 选择用例适配器，`target.type` 决定同名的活动目标块；该块定义 `execution`、`verification`、`scoring` 和 `report`。`execution.enviroment` 配置 deveco_home、flutter_home、java_home、sdk_home。UITest、CloudTest 和白盒均在 verification 中声明，评分器通过 source 引用其指标。
 
-启用 ohosTest 时，每个用例还需 `metadata.json`、`test_patch` 和 `golden_patch`；补丁和元数据仅在 Agent 结束后交给设备 Runner。Python Runner 支持 native、web、RN、Flutter、设备套件、bundle 隔离、设备类型兼容检查、折叠控制与 H5 端口转发。`pc`/`2in1` 用例按原逻辑跳过。
+被测 Plugin 由 target.dir 装载，Agent 由 execution.agent_name 指定。Skill/Plugin 的 without_enable 控制目标能力是否加载。MCP 完整定义来自 OpenCode JSON，顶层 experiments 只覆盖指定服务器的 enabled；各组保留相同的能力、Agent、模型、用例和评分。密钥使用环境变量名，不提交真实凭据。
 
-Agent 变更补丁从净化后的 Git 暂存区生成，过滤编译缓存与构建文件；DevEco 将 `BuildProfile.ets` 的构建模式由 `test` 改为 `debug` 时会还原这一项，同时保留 Agent 对该文件的其他修改。自动确认可续跑普通流程询问和图片能力不足时的基础测试降级；效果验收与需要用户输入的询问仍等待人工回答。设备验证用到的 `golden_patch` 会保留在用例产物中。
+一多用例保留 base/或task/、PROMPT.md、metadata.json、test_patch.patch 和 golden_patch.patch；迁移类用例支持 case.yaml 或仓库目录；文本类使用 JSON/JSONL。用例准备、执行、评估和评分使用独立适配器，新增验证器和评分器可通过 Python entry points 注册。
 
-每个批次会写入 `summary.json`、`report.json` 和 `overview.html`。`summary.json.environment` 保存来源、模型、运行时与 Skill 信息，`summary.json.results` 保存各用例最终结果。`batch.json`、`batch.pid` 仅在运行期间保留；用例目录顶层的 `result.json`、`state.json`、`session.json` 在 `summary.json` 成功落盘后清理。`generate/input.txt`、`last-message.json`、`skill-runtime.json`、`output.txt`、`final-message.json` 不再生成，Agent 最终文本保留在 `summary.json.results[].output`。
+## 产物
 
-每个用例的 `generate/agent-output.html` 是可搜索、按消息类型筛选的离线执行轨迹，由 `all-messages.json` 生成，包含主/子 Session 的消息和工具调用。页面显示时分秒格式的 Agent 耗时与千位 `k` 格式的总 Token；同目录保留 `agent-output.log`。每个已有用例目录会自动生成本地 ZIP，排除上述运行期文件及可再生成的构建缓存。ohosTest Runner 自己的 `result.json` 等测试结果仍保留在 `.ohostest-runs/`。批次结束后另生成 L1 评分报告（`l1-report/index.html` 与 `l1.json`），也可用 `--l1` 从既有批次产物离线重新生成。
+单组结果位于 `report.output_dir/<run_id>/`，包含 task-report.json、index.html、脱敏任务快照、EvalScope 产物，以及 `variants/<组名>/round-XX/cases/<用例ID>/` 下的工程、change.patch、generate/agent-output.json/html/events.jsonl/stderr.jsonl 和 verification 证据。一多的 metadata 和 golden/test 补丁在 Agent 结束后归档；UITest 结果位于 verification/<验证器ID>/。
+
+配置 experiments 时，批次根目录生成 experiments-report.json 和 index.html，各组位于 experiments/<ID>/，对比位于 comparisons/<后续组ID>/；第一组为基准。verify/rescore/compare 指向单组子目录。评分平均值只使用有效证据，并展示覆盖率。
+
+运行配置、数据库和可清理的评估副本放在系统临时目录。隔离工作目录不是操作系统文件访问沙箱。
 
 ## 开发与验证
 
-```bash
-python3 -m compileall -q src
-python3 -m unittest discover -s src/tests -q
-npm test
+开发新场景或扩展用例集、验证器、评分器时，先使用仓库内的 [harmonyeval Skill](.agents/skills/harmonyeval/SKILL.md)。[AGENTS.md](AGENTS.md) 为代码 Agent 提供统一入口；可显式要求“使用 `$harmonyeval` 新增评测场景”。Skill 包含扩展接口、证据与评分协议、架构边界和自验证要求，并随代码一起维护。
+
+```sh
+python -m compileall -q harmonyeval tests
+python -m unittest discover -s tests -q
 ```
 
-`npm test` 运行 Python 回归测试并编译 ArkAnalyzer 侧车。完整白盒测试需要先安装 `.[whitebox]`，否则依赖额外库的测试会跳过。`src/` 通过打包配置映射为 `pyautorun` 包，下设 `orchestration/`（批次与用例）、`runtime/`（OpenCode）、`devices/`（ohosTest）、`cloud/`（AGC 云测试）、`reporting/`（报告与本地归档）和 `whitebox_eval/`（白盒规则、评分、服务及资源）；可选的 ArkAnalyzer 侧车位于 `whitebox_eval/ark_analyzer/`。根目录保留旧命令的兼容入口。
+真实 OpenCode + 本地模型/MCP 的可选集成验证：
+
+```sh
+HARMONY_EVAL_INTEGRATION=1 python -m unittest discover -s tests -p test_harmony_eval_opencode.py
+```
+
+共用的设备 Runner、云测试客户端/轮询、白盒工具和历史产物维护代码仍保留；它们不再通过旧 JSON 批量入口启动。可选 ArkAnalyzer 侧车位于 harmonyeval/integrations/whitebox/ark_analyzer，需要时运行 `npm ci`、`npm run build:whitebox`；当前 Harmony Eval 的 whiteboxeval 是模型评价，不等于完整 ArkAnalyzer 流程。
+
+详见 [使用说明](docs/harmony-eval-usage.md)、[其他仓库重构实施指南](docs/harmony-eval-framework-design.md)、[字段与枚举](docs/harmony-eval-config-reference.md)、[各场景 YAML](docs/harmony-eval-task-examples.md)、[验证器和评分器扩展指南](docs/harmony-eval-extension-guide.md)。
+
+目录职责、EvalScope 映射和逐模块迁移说明见 [架构说明](docs/harmonyeval-architecture.md)。

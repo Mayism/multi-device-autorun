@@ -1,0 +1,4 @@
+interface:
+  display_name: "HarmonyEval 评测扩展规范"
+  short_description: "统一用例集、验证流程和评分器的扩展方式，保持通用评测架构边界"
+  default_prompt: "使用 $harmonyeval 为当前评测场景复用或扩展用例集、验证流程和评分规则，并验证架构边界。"

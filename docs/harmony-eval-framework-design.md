@@ -1,1015 +1,356 @@
-# Harmony Eval 通用评测框架设计
+# HarmonyEval 重构实施指南
 
-状态：v2 通用框架已落地，实际入口、配置格式、自验证范围及外部依赖见 [使用说明](harmony-eval-usage.md)。真实设备、AGC 服务及真实库转换仍需对应环境和模型凭据验证。
+更新日期：2026-11-02。**本文用于指导另一个仓库的 Agent 完成重构。**那个仓库已有 static_eval 和一多适配评测，目录结构类似本仓库通用框架提交前的 develop。
 
-本文基于当前 `config/task.yaml` 的字段和注释、仓库已有 Python 执行器，以及本机安装的 EvalScope 1.14.1 核心代码。原有 `harmony_eval` 是 MultiDev 到 Autorun 的配置转换层；现已增加注册式数据集/目标/执行/评估流程/评分适配器，并直接接入 EvalScope 的 DefaultEvaluator 生命周期。
+目标是保住已有能力，把“主要围绕一多运行的工具”改成“由 task.yaml 选择用例、被测能力、验证方法和评分规则的通用评测框架”。后续接入三方库转换、Android 转鸿蒙、MCP 对照和 HTTP 问答时，应主要增加配置或适配器。
 
-## 1. 已确认的要求
+## 1. 怎么读，以及先确认什么
 
-- 命令保留 `harmony-eval run ./config/task.yaml`。
-- 支持一多适配、三方库转鸿蒙库、安卓应用转鸿蒙、MCP 知识库、HTTP 智能问答。
-- 三方库转换能力既可以由 Skill 提供，也可以由 OpenCode Plugin 提供，或使用 HarmonyBot 内的指定 Agent。
-- HarmonyBot 通过 `execution.agent_name` 切换能力；不得只接受一多 Agent。
-- 标准 OpenCode 支持正式的 `opencode_agent` 目标类型，通过运行配置和 `agent_name` 选择已注册 Agent。
-- 数据集、验证流程、评分规则都可独立扩展，增加一种验证器不修改总调度流程。
-- 保留现有 YAML 字段；必要时增加字段或调整字段语义，通过配置规范化兼容旧字段。
-- `static_eval` 暂时保留，**不执行、不计分**，后续单独定义；执行计划明确显示其为预留配置。
-- 评测 `harmonybot_agent` 时直接评指定 Agent，**不生成 without 组**。
-- 评测 Agent 有无 MCP 知识库时，仍使用 harmonybot_agent 或 opencode_agent，保留相同 Agent，仅通过该引擎的 opencode.json 开关目标 MCP。
-- 原先确认的 MultiDev 评分预设仍可用：L1 构建及功能是否全部通过；L2 UITest 通过率代表 UX，占 50%，白盒维度按比例扣分占 50%；L3 直接取白盒总分。新任务允许显式更换分数来源。
+先读本文，按第 5 节的阶段实施。写配置和具体适配器时，再查配套文档：
 
-## 2. 核心模型：场景、数据、宿主、被测能力分别配置
-
-`scenario` 表达任务意图和选择默认预设；`dataset.type` 只决定用例格式的解析方式；`target.type` 决定被测对象及其装载方式；`execution.engine` 决定运行引擎。
-
-这样，同一套文本问答数据可以评 MCP、HTTP Agent 或 OpenCode Agent，同一个转换用例集也可以比较 Skill 和 Plugin 实现。不能让数据集类型唯一决定整个任务如何执行。
-
-| 场景 | 数据集适配器 | 被测对象 | 宿主/执行方式 | 主要输出与验证 |
-|---|---|---|---|---|
-| 一多适配 | `swe-bench-hm-multi-dev` | `harmonybot_agent` | HarmonyBot 的一多 Agent | 修改工程、patch；UITest、CloudTest、白盒 |
-| 三方库转鸿蒙库 | `library-migration` | `skills` / `plugin_agent` / `harmonybot_agent` | OpenCode + 指定能力 | 鸿蒙库源码、可选 HAR；构建、API 映射、单测、白盒 |
-| 安卓应用转鸿蒙 | `android-migration` | `harmonybot_agent` / `plugin_agent` / `skills` | OpenCode 或 HarmonyBot 中的转换 Agent | 新鸿蒙应用、可选 HAP；构建、行为测试、UI 一致性 |
-| Agent 有无 MCP 知识库 | `text-qa` | `harmonybot_agent` / `opencode_agent` | 同一个 Agent，使用不同 MCP 配置的 opencode.json | 文本答案、工具调用轨迹；正确性、依据与引用 |
-| 智能问答 | `text-qa` | `knowledge`，使用同名配置块 | 请求后端 Agent 的 URL | 文本/结构化答案；规则匹配、LLM Judge |
-| 标准 OpenCode 指定 Agent | 上述工程或文本数据集 | `opencode_agent` | OpenCode 中已注册的 Agent | 按数据集选择相应产物与验证器 |
-
-字段含义明确区分：
-
-| target.type | 生效的顶层配置块 | 用途 |
-|---|---|---|
-| knowledge | knowledge | 智能问答，本场景请求后端 Agent URL |
-| harmonybot_agent / opencode_agent | 同名块 | 选择实际执行的 Agent；有无 MCP 通过 execution.opencode.config_path 指向的 OpenCode 配置控制 |
-| knowledge_agent | 历史模板预留块 | 保留原字段，不作为本地 OpenCode/HarmonyBot 的 MCP 评测入口 |
-| http_agent | http_agent | 通用 HTTP Agent 请求，复用相同 HTTP 协议适配器 |
-
-knowledge 继续表示智能问答。MCP 是执行引擎的配置项，统一放在 opencode.json 的 mcp 节点；本地 Agent 有无知识库的评测不需要再包一层 host_target，也不在 YAML 中重复维护 MCP 配置。
-
-此处安卓迁移的输入按最新需求定义为**待转换安卓应用**。当前 YAML 注释中的“鸿蒙工程”应在实施时修正。
-
-相同 Agent 有无 MCP 的两次运行也可以使用 android-migration 数据集，比较迁移产物；使用 text-qa 时比较答案质量。两种情况都由执行该 Agent 的目标块控制，scenario: KnowledgeEval 只标记评测意图。
-
-## 3. EvalScope 的实际接入方式
-
-阅读的核心位置包括 `run.py`、`api/registry.py`、`api/benchmark/benchmark.py`、`DefaultDataAdapter`、`DefaultEvaluator`、`Model/ModelAPI`、`Metric/Score/Aggregator`，以及外部 Agent 的 OpenCode Runner 和模型代理。
-
-这里有三个需要准确区分的接口：
-
-1. EvalScope `Evaluator` 负责整个数据集的执行、缓存、评分与报告生命周期。它不是 UITest、CloudTest 这样的一个检查步骤。
-2. EvalScope `DataAdapter` 不仅加载数据，还提供 `run_inference()`、`calculate_metrics()`、`aggregate_scores()` 等入口。我们在这些入口组合自己的数据、执行、验证和评分组件。
-3. EvalScope `Metric.apply()` 主要接受 prediction/reference。工程验证会涉及项目目录、设备、patch 和证据文件，因此不能把所有工程验证器直接套成字符串指标。需要先产生结构化验证结果，再转换为 EvalScope `Score` / `SampleScore`。
-
-当前 EvalScope 的 `create_evaluator()` 按 benchmark 名称查找注册的 Evaluator，否则使用 DefaultEvaluator；不能简单把 YAML 每个 `verification.type` 都当成一个 EvalScope Evaluator 注册进去。
-
-建议结构：
-
-```mermaid
-flowchart TD
-    A[task.yaml] --> B[配置校验与规范化]
-    B --> C[TaskPlan：能力状态、轮次、依赖、资源]
-    C --> D[EvalScope run_task / TaskConfig]
-    D --> E[已注册的 HarmonyBenchmarkAdapter]
-    E --> F[DatasetAdapter 加载与准备用例]
-    F --> G[ExecutionAdapter 执行被测对象]
-    G --> H[ExecutionResult：答案、工程、patch、轨迹]
-    H --> I[VerificationPipeline]
-    I --> J[ScoringAdapter]
-    J --> K[EvalScope SampleScore / Aggregator / Report]
-    K --> L[跨轮次与 with/without 汇总报告]
-    G --> M[EvalScope Model Proxy / ModelAPI]
-```
-
-对应关系如下：
-
-| 配置/职责 | 项目组件 | EvalScope 接入点 |
-|---|---|---|
-| `dataset.type` | 数据集适配器注册表 | `register_benchmark(BenchmarkMeta(...))`、`load_dataset()` |
-| `target`、`execution` | TargetRecipe、ExecutionAdapter | `run_inference()`；可复用外部 Agent Runner 协议 |
-| `verification` | 评估流程适配器注册表和依赖调度器 | 由 `calculate_metrics()` 调用 |
-| `scoring.type` | 评分器注册表 | 返回 `Score` / `SampleScore`；纯文本指标可复用 `register_metric` |
-| 跨用例、轮次汇总 | Aggregator、ComparisonReporter | `register_aggregation`、`aggregate_scores()`、报告接口 |
-| 模型兼容调用 | EvalScope Model 与模型代理 | 正式执行和 Judge 都使用，超出“运行前探测” |
-
-默认复用 DefaultEvaluator 的样本调度和缓存。不复制一套通用线程池，也不同时运行旧 `run_batch` 的整批调度。旧代码拆出单用例执行、设备验证、白盒验证等可复用组件后接入。
-
-TaskPlan 确定本次 with/without 能力状态并展开轮次，EvalScope 负责样本调度；without_enable 不自动生成另一组任务。初版将 EvalScope `repeats` 固定为 1，避免和 YAML `rounds` 双重展开。
-
-## 4. 四类可扩展接口和统一结果
-
-以下为职责示意；实际可扩展协议与注册表见 src/harmony_eval/core.py 和各适配器模块，不是 EvalScope 原有 API：
-
-```python
-class DatasetAdapter:
-    def load(self, config) -> list[EvalCase]: ...
-    def prepare(self, case, workspace) -> PreparedCase: ...
-
-class ExecutionAdapter:
-    async def execute(self, public_case, target, context) -> ExecutionResult: ...
-
-class VerificationAdapter:
-    def requirements(self, config) -> Requirements: ...
-    async def verify(self, case, execution, dependencies, context) -> VerificationResult: ...
-
-class ScoringAdapter:
-    def score(self, case, execution, verification_results, config) -> ScoreResult: ...
-```
-
-各接口均有名称、版本、参数 Schema、输入输出能力声明。注册方式同时支持内置装饰器和 Python package entry points。第三方扩展包安装后即可被 YAML 引用，不在核心文件维护不断增长的 if/else。
-
-配置基础 Schema 只约束 `type/id` 等公共字段；具体参数由查到的适配器提供 Schema，避免新增验证器还要修改中央枚举。适配器实例可被并发调用，样本状态放入独立 context，不能存入共享的 `self.current_case`。
-
-统一记录至少包括：
-
-| 记录 | 核心字段 |
+| 文档 | 什么时候看 |
 |---|---|
-| `EvalCase` | 稳定 case_id、input_kind、公开提示词、输入工程、验收要求、评估专用参考资料 |
-| `ExecutionResult` | 状态、失败类别、答案、输出工程/patch/包的引用、轨迹引用、耗时、可获得的 token 用量 |
-| `VerificationResult` | verifier_id、状态、metrics、dimensions、findings、evidence、原始工具输出引用 |
-| `ScoreResult` | dimension、score、max_score、status、扣分明细、证据引用、评分器版本 |
-| `ResolvedTarget` | engine/版本、Agent ID、Skill/Plugin/MCP 清单、配置与能力指纹 |
+| 本文 | 确定要改什么、先后顺序、保留什么、怎么验收 |
+| [字段参考](harmony-eval-config-reference.md) | 查 task.yaml 的必填项、默认值、全部内置类型和精确拼写 |
+| [18 份 YAML 示例](harmony-eval-task-examples.md) | 为某个场景选择相近配置，不必通读所有示例 |
+| [实现参考](harmony-eval-implementation-reference.md) | 查 EvalScope 桥接、模型代理、验证器、缓存和报告的实现细节 |
+| [扩展开发指南](harmony-eval-extension-guide.md) | 实现新的验证器或评分器，注册和安装 Python 扩展包 |
+| [开发 Skill](../.agents/skills/harmonyeval/SKILL.md) | 开发和代码审查时检查架构边界 |
 
-评分器读取稳定的结构化字段，不依赖扫描某个目录里恰好存在的 `result.json`。
+有两个仓库，要分清：
 
-## 5. 数据集适配
+- **参考仓库**：当前 multi-device-autorun，已经有 harmonyeval 通用框架。源码、配置和测试供借鉴。
+- **目标仓库**：你要改的另一份工程。本文没有查看它的代码，只知道它已有 static_eval 和一多评测；具体入口、字段和输出要由实施 Agent 先检查。
 
-### 5.1 一多用例兼容现有目录
+“类似旧 develop”是定位线索，不代表提交记录完全相同。参考仓库的 8af5f34 在通用框架之前，3795791 引入了通用框架；根目录 harmonyeval 分层属于后续重构，不能仅凭 3795791 推断已经具备。不要只按分支名判断代码状态，也不要为了对齐参考提交而回退目标仓库。
 
-保留 `base/` 或 `task/`、`PROMPT.md`、`metadata.json`、`test_patch.patch`、`golden_patch.patch` 的已有格式，由一多适配器转换为 EvalCase。
+**首先产出一份目标仓库盘点表**：能力、当前入口、核心文件、配置来源、输出文件、可运行的最小用例、已有测试。至少覆盖 static_eval、一多 Agent 执行、设备测试、模型调用和报告。新建 harmonyeval 目录之前也能完成这个步骤。
 
-测试补丁、参考答案和其他评估专用文件仅在评估侧使用。Agent 输入只包含完成任务需要的工程与提示词。工程生成完成后固定源码快照，再应用测试补丁或安装依赖，避免测试/安装改动混入 Agent 的 change.patch。
+## 2. 重构完成后，用户应该怎样使用
 
-### 5.2 转换类用例
-
-新增轻量 `case.yaml` 描述原工程、转换要求及验收资料；无需伪装成一多用例的 base/task 结构。
-
-```yaml
-id: image-library-example
-input:
-  project: ./source
-  instruction: ./PROMPT.md
-expected:
-  api_mapping: ./grading/api-mapping.yaml
-  tests: ./grading/tests
-```
-
-产物类型由提示词确定，不再配置 expected.output_kind/output_project。各工程用例统一在自身产物目录的 base/ 中生成目标工程，Agent 的工作目录也是 base/，构建与评分从这里读取工程。不同用例和不同轮次各自隔离。迁移任务自动附加该目录约定；提供 input.target_template 时，目标模板放在 base/，原工程副本放在同级 input/。一多 Web 组合用例在 base/ 下保留原有容器工程与 web/ 的关系，由适配器定位内部容器工程。
-
-源语言、构建命令、支持的 API 和功能验收来自元数据。缺少行为测试时可以给出构建、接口覆盖和白盒结果，但报告必须体现功能验证覆盖不足，不能仅凭编译成功判定转换完全正确。
-
-### 5.3 文本用例
-
-支持 JSONL 等本地格式，先提供一个 `text-qa` 适配器：
-
-```json
-{"id":"qa-001","question":"折叠屏悬停态如何组织布局？","reference_answers":["..."],"criteria":["解释状态判断","给出适用 API"],"reference_documents":["grading/doc-001.md"]}
-```
-
-reference_answers 可选；缺少参考答案时按明确 rubric 评价，标识参考证据覆盖情况。相同问答数据可用于知识库和 HTTP Agent，不重复定义数据格式。
-
-## 6. OpenCode：引擎、能力装载、Agent 选择分开
-
-统一 `OpenCodeExecutionAdapter`，通过运行发行版适配器区分标准 OpenCode 与 HarmonyBot 内置版本。能力组合器负责生成每个变体的有效配置。
-
-```yaml
-execution:
-  engine: opencode
-  agent_name: d2h
-  enviroment:                     # 执行所需的工具链环境
-    deveco_home: /Applications/DevEco-Studio.app/Contents
-    flutter_home: /path/to/flutter
-  opencode:
-    # binary: /path/to/opencode   # 标准 OpenCode 可显式指定；HarmonyBot 从 target.dir 定位
-    config_path: ./opencode.json  # MCP 等引擎配置从这里读取
-    skills:
-      - id: conversion-skill
-        path: /path/to/skill
-        activation: auto         # 或 required
-```
-
-上例展示可选的宿主配置。评测 Plugin 时只在 `target` 声明插件：`type: plugin_agent`、`dir: /path/to/package`。入口默认读取包的 `package.json.main`，未声明时使用 `index.js`；特殊入口和初始化选项可分别填写 `target.entry`、`target.options`，不在 execution.opencode 中重复声明被测插件。使用 PATH 中的独立 OpenCode 和默认配置时，整个 execution.opencode 块可省略。
-
-`execution.engine` 选择执行器；`execution.enviroment` 声明该执行器和 Agent 所需的工具链环境，例如 deveco_home、flutter_home，以及可选的 sdk_home、java_home。适配器将这些路径转换为进程环境和 PATH，并在执行前检查需要的工具是否存在。具体任务不需要的 SDK 可以省略。
-
-HarmonyBot 或标准 OpenCode 的启动方式由目标适配器与目标来源确定，不再声明 distribution。OpenCode 的 binary、config_path 等启动参数放在 execution.opencode；enviroment 只承载执行环境。验证器可以继承这些环境设置，也可以在自身配置中显式覆盖。
-
-对于 HarmonyBot，target.dir 先定位实际生效的 Bundle 配置，评测时在独立运行副本上合并 config_path 的显式配置。只配置 mcp 时保留原有 Plugin、Agent 和 Skill，确保 d2h 仍正常注册。框架应核验最终加载的 MCP 状态，不直接修改已安装插件或共享缓存。
-
-装载规则：
-
-- Skill：按 `SKILL.md` 声明的名称选择；支持一个或多个目标 Skill，依赖显式配置。
-- `activation: auto` 评估自然选择和使用 Skill 的整体效果。`required` 增加“已读取目标 Skill”的流程检查；没有实际读取时记为流程不合格。仅配置路径不能声称已使用 Skill。
-- Plugin：支持本地包/入口文件和固定版本 npm 包。必须同时控制 config 中的 plugin 列表及 OpenCode 自动发现的 plugins 目录，不能只删除数组中的一个名字。
-- MCP：读取 execution.opencode.config_path 指向的 OpenCode JSON 中的 mcp 配置，支持引擎可用的本地/远端方式。检查连接、实际暴露工具、目标 Agent 的工具权限，并记录调用；YAML 不再复制一份 MCP 定义。
-- Agent：`agent_name` 使用实际运行时 ID，别名经过映射后解析。预检查询实际已加载 Agent；错误时列出可选项，不在代码里限定某三个 Agent。
-- 已检查的本机配置包含 `harmonyos-multi-device`、`d2h`、`hmos-library-adapter-fast`，可作为样例，不能作为全部允许值。
-- 每次运行使用独立的配置快照、会话数据库和工作目录。先明确并固定引擎实际生效的配置来源，运行时不再混入其他来源的全局能力；生成执行计划后核验最终装载状态。
-
-Plugin 清单保留明确加载顺序，依赖关系及其注册的 Agent/工具归属写入能力清单。关闭一个 Plugin 后若另一能力的依赖不再满足，预检失败，不能自动补回已关闭的对象。
-
-HarmonyBot 的 Bundle 查找、工具链环境、Agent 注册需要保留专用适配。EvalScope 自带 OpenCode Runner 可复用于兼容的标准 CLI 场景，不能直接假定其能启动 HarmonyBot 的全部能力。
-
-## 7. 模型调用：让 EvalScope 进入正式链路
-
-对于框架控制的 OpenCode/HarmonyBot，建议接入已有 EvalScope Model Proxy：
-
-```text
-OpenCode / HarmonyBot
-        ↓ Chat Completions 或 Responses
-EvalScope Model Proxy（每个样本有独立路由标识）
-        ↓
-EvalScope Model / ModelAPI
-        ↓
-execution.model 指定的实际模型服务
-```
-
-这样正式 Agent 请求、工具调用相关模型轨迹、用量和 Judge 请求可由 EvalScope 统一接入。保留 OpenCode 本身的 Agent 循环和工具执行。
-
-模型代理的路由令牌按样本隔离。初版采用每样本独立 Server/会话，能力资源快照可以共享；不允许多个并发样本在同一 Server 上修改全局 Provider 令牌。只有验证了运行时支持请求级模型凭证后，才引入更细的 Server 复用。
-
-模型代理、外部 Runner 等接口放在 `compat/evalscope` 中封装。以已验证的 1.14.x 为初始兼容范围，锁定版本并做接口契约检查；当前 `>=1.1,<2` 的宽范围需要收窄。
-
-需要验证 HarmonyBot 主会话、子 Agent 和辅助模型请求均经过指定代理；若有插件绕过配置直接访问模型服务，应在运行清单里标为未纳管调用，不能宣称模型已完全统一。
-
-HTTP 后端是不可控的远端 Agent 时，框架仅统一请求、返回和评分。除非后端协议支持指定模型及返回轨迹，否则模型、token、内部工具调用应标记 unknown，不伪造数据。
-
-HTTP 目标拟通过注册的 `HttpAgentModelAPI` 包装请求/响应协议接入 EvalScope；ExecutionAdapter 每个样本只触发一次这条请求链路，用 endpoint/target ID 标识被测系统，避免 LazyModel 把它误当作本地模型下载。这个 ModelAPI 表示整个远端系统，不声称知道内部 LLM。Judge 使用独立配置的真实 Model；目标身份与内部生成模型身份分别记录。
-
-## 8. without_enable：本次运行是否加载被测能力
-
-`without_enable` 直接决定当前这次运行的能力状态，不自动生成两组任务：
-
-- 对 Skill/Plugin 目标，false（默认）加载目标能力，true 不加载目标能力，只运行当前指定的一组。
-- 对 Agent 有无 MCP 的任务，MCP 状态直接由 OpenCode JSON 的 enabled 决定；without_enable 不承担 MCP 开关功能。
-
-Skill/Plugin 对比时，分别设置 without_enable 为 false、true 运行两次。Agent 的 MCP 对比时，YAML 保持相同，仅修改 opencode.json 中目标 MCP 的 enabled 运行两次；再按 case_id 和轮次汇总两个运行结果。数据集不复制。
-
-| target.type | 配置位置 | true 时的行为 |
-|---|---|---|
-| `skills` | skills.execution.without_enable | 不加载被选中的目标 Skill，保留公共宿主能力 |
-| `plugin_agent` | plugin_agent.execution.without_enable | 不加载目标 Plugin，也不保留它注册的 Agent、工具或注入内容 |
-| `harmonybot_agent` | 不配置 without_enable | MCP 的有无只读取 opencode.json 的 mcp.<server>.enabled |
-| `opencode_agent` | 不配置 without_enable | MCP 的有无只读取 opencode.json 的 mcp.<server>.enabled |
-| `knowledge` / `http_agent` | 不启用 without | 智能问答或通用 HTTP 请求；如需对比不同后端，分别配置任务 |
-
-Skill/Plugin 目标适配器根据 target.dir 和选择清单识别被测能力及其归属，开关该能力时不需要额外的禁用清单。MCP 清单则来自引擎实际加载的 OpenCode 配置。公共宿主能力必须单独声明，不能与目标能力混在一起随意删除。
-
-`execution.agent_name` 始终表示本次实际执行的 Agent。目标 Plugin 关闭后，如果该 Agent 也由它注册，就无法继续使用该 Agent：without 配置应选择仍存在的宿主 Agent，例如 build。预检发现缺失时明确报错，不自动回退或保留已关闭插件的 Agent 定义。
-
-```yaml
-plugin_agent:
-  execution:
-    engine: opencode
-    agent_name: build
-    without_enable: true    # 本次不加载目标 Plugin
-```
-
-Agent 有无知识库的两次运行保持同一 target.type 和 agent_name，YAML 保持不变，只在实际加载的 opencode.json 或其独立副本中修改目标 MCP 的 enabled。配置的关键不变量必须在执行计划中记录，报告比较时核验样本、公开提示词、模型参数、宿主能力和工具预算。
-
-每个执行单元以 (task_id, run_id, round, case_id) 唯一标识，报告记录 Skill/Plugin 开关和每个 MCP 的最终 enabled 状态；MCP 状态不从 without_enable 推断。展示名称不参与身份判定。跨运行比较按 case_id 和轮次配对；模型服务不支持 seed 时明确记录。
-
-MCP 的“加载成功”和“用到了知识”分开记录：available、attempted、succeeded、是否引用返回资料。自然调用和强制调用是不同实验条件，需要分别命名。有无 MCP 的运行采用相同中性问题，避免额外提示影响对照。
-
-原模板的 knowledge_agent、host_target 和 without_process 暂保留为历史预留字段，不增加新的执行入口。本地 OpenCode/HarmonyBot 的 MCP 评测不使用这层包装，也不需要删除知识文件的脚本。若任务选择预留的 knowledge_agent 类型，预检应提示改用实际运行的 harmonybot_agent 或 opencode_agent。
-
-## 9. VerificationPipeline：新增评估流程不改框架
-
-`verification` 的每个条目代表一套评估流程，例如 UITest、CloudTest、whiteboxeval、LLM_judge；`type` 选择流程适配器，`id` 用于引用该流程的结果。编译、安装、启动等操作由需要它们的评估流程内部组织，不作为独立的 verification 条目。
-
-例如 UITest 流程内部完成测试工程准备、编译、安装、执行和结果收集，输出 build_passed、all_tests_passed、pass_rate 等指标；LibraryTests 流程内部准备并编译库及测试工程，再运行测试。编译失败时由所属流程记录失败阶段、指标和证据；工具不可用等基础设施异常仍单独标记。可复用的编译服务属于流程内部组件，任务 YAML 无需声明 build 节点或对它的依赖。
-
-每个评估流程拥有独立 `id` 和 `type`。允许同一 type 多次使用，例如用两个模型分别做不同的 LLM Judge；旧 YAML 中未写 id 且 type 唯一时自动生成 id。
-
-```yaml
-verification:
-  - id: ui
-    type: UITest
-    deveco_home: /Applications/DevEco-Studio.app/Contents
-    emulator_deployed_dir: /path/to/emulators
-  - id: code
-    type: whiteboxeval
-  - id: answer_judge
-    type: LLM_judge
-    input: execution.answer
-    prompt_path: ./rubrics/qa.md
-```
-
-这只是字段示例；工程任务和文本任务各自选择适用检查。没有“所有场景必须 UITest”的全局规则。
-
-依赖调度器提供：
-
-- 校验节点存在、无环、输入产物满足要求。
-- 不同验证器可并行；修改工程的验证器使用各自工作副本。
-- 设备按设备 ID 串行占用；编译、云提交、Judge 有各自并发预算。
-- 云测试节点自行提交、轮询、收集结果，总调度器不认识云服务特有状态。
-- 验证器返回失败和工具执行异常分开记录；依赖缺失时节点 skipped/unavailable，并给出原因。
-
-首批评估流程包括当前 UITest、CloudTest、whiteboxeval、LLM_judge，以及三方库初版的 LibraryAPICount。三方库示例先输出分类 API 数量一致率与白盒 L3；LibraryAPICompatibility、LibraryTests 保留为后续映射与功能验收扩展，不要求初版提供这些资料。API 数量检查在 Agent 执行前冻结原库清单，使用语法树提取，输出三类数量和逐项声明，数量一致不表示接口等价或功能正确。AGCDetection 需要独立协议和返回结构定义，不与 CloudTest 仅因名称相近而合并。depends_on 仅表达评估流程之间实际存在的结果依赖，不用于拆分编译、安装等流程内部步骤。
-
-`whiteboxeval.rubric_path` 支持为库转换和应用迁移显式选择评分标准；`LLM_judge.prompt_path` 定义问答评价要求。`ToolUsage.mode: observe` 只采集能力可用性和调用情况，不把对照组预期关闭的能力判为业务失败。
-
-验证器也可以由 Skill 提供，使用通用 `SkillVerifier`：单独启动评估会话，加载指定验证 Skill，输入工程快照及证据，按 JSON Schema 产出 VerificationResult。它不复用被测 Agent 的会话或上下文，结果结构校验失败则 unavailable。
-
-仅新增验证流程时可以写组合工作流 YAML；新增工具能力时只新增验证器实现及注册，不改核心调度。耗时外部步骤必须能从已有 ExecutionResult 重做，避免重新执行 Agent。
-
-## 10. Scoring：层级名不绑定验证器
-
-`L1/L2/L3` 是报告维度名称。各自的数据来源由 `source` 或 `components` 明确指定，不能在代码里固定 L2 必须是 CloudTest 或必须是 UITest。
-
-`ImmediateValue` 默认直接取值；显式配置 `scale` 时执行单位换算，例如将 0～1 的通过率乘以 100。单位换算不改变原验证指标。
-
-因此 YAML 注释中的“L1→UITest、L2→CloudTest、L3→whiteboxeval”可以配置出来；之前确认的一多 L2 口径也可以配置出来。
-
-```yaml
-scoring:
-  - dimension: L1
-    type: BooleanScoring
-    all:
-      - {source: ui.metrics.build_passed, equals: true}
-      - {source: ui.metrics.all_tests_passed, equals: true}
-    pass_score: 100
-    fail_score: 0
-
-  - dimension: L2
-    type: WeightedSummation
-    mode: deduction
-    base_score: 100
-    components:
-      - name: UX
-        source: ui.metrics.pass_rate
-        range: [0, 1]
-        weight: 0.5
-      - name: Whitebox
-        source: code.dimensions
-        reducer: proportional_deduction
-        cap_source: code.metrics.total_score
-        weight: 0.5
-    missing: unavailable
-
-  - dimension: L3
-    type: ImmediateValue
-    source: code.metrics.total_score
-```
-
-按当前一多预设，负分制的确定性公式为：
-
-```text
-UX 扣分 = 50 × (1 - UITest 通过率)
-白盒维度 i 的分配分 = 50 × 该维度满分 / 全部维度满分
-白盒维度 i 扣分 = 分配分 × (1 - 维度得分 / 维度满分)
-白盒贡献再受已有白盒最终总分上限约束，保留硬门槛效果
-L2 = 100 - UX 扣分 - 白盒扣分
-L3 = 白盒最终总分
-```
-
-白盒已经做过的规则扣分不得重复扣除。每条分数保存来源、分配、扣分、封顶和证据，评分结果可复算。
-
-纯文本任务可通过 EvalScope 已有 Exact Match、语义/LLM Judge 等能力产生指标，再由相同评分器聚合。LLM Judge 只负责产出有依据的评价结果；最终加权计算交给确定性代码。
-
-知识库答案评分优先使用固定版本的权威参考资料，Judge 不接收 with/without 标签。目标 MCP 的返回内容是待核验证据，不能无条件作为唯一正确答案。
-
-真实断言失败可以为 0 分；设备连接、模型接口或裁判异常造成的缺证据，默认 unavailable。报告同时显示全部样本数、已评分数、完成率和得分；with/without 额外使用同一组有效配对样本计算差值，不能通过忽略单边失败得到虚高对照结果。
-
-## 11. YAML 兼容与选择规则
-
-- 增加 `schema_version: 2`；保留 `id/description/scenario/dataset/target`。
-- 保留 skills/harmonybot_agent/plugin_agent/http_agent/knowledge 各配置块，增加正式的 opencode_agent 配置块。knowledge_agent 只作为历史模板字段保留，不再要求本地 MCP 任务选择它。
-- 根据 `target.type` 选择生效配置块；其他块可保留为模板，除被显式引用的宿主配置外不参与执行。 选择必须按完整类型名精确匹配，不能按 knowledge 前缀或是否为文本数据集判断任务类型。
-- target.type: knowledge 选择 knowledge 智能问答配置。Agent 有无 MCP 知识库的评测选择实际执行的 harmonybot_agent 或 opencode_agent，并通过 execution.opencode.config_path 配置 MCP。knowledge_agent 作为历史模板预留，不是当前本地 MCP 评测的入口；knowledge 与它不做别名归一化。http_agent 继续作为通用 HTTP 目标使用同名配置块。
-- 各类生效块统一支持 `rounds/execution/verification/scoring/report`，减少不同目标的字段差异。
-- 本地 Agent 有无 MCP 的配置不使用 host_target/profile 引用；Agent、模型、执行环境、验证器和评分直接放在当前目标块。历史 knowledge_agent 中的 host_target 字段只保留，不参与这些样例的执行。
-- 有效配置优先级为：适配器内置默认值 → 目标发行版的有效配置 → execution.opencode.config_path 的显式配置 → 当前任务显式模型及能力选择。验证器的显式环境参数覆盖执行上下文的默认值。MCP 只在引擎配置里维护一份。
-- 同一语义的新旧字段同时出现但冲突时拒绝执行；不依赖 YAML 最后出现的位置决定。
-- 模型配置保留 `name/base_url/api_key`，增加/统一 `api_type`。Judge 可独立指定模型；省略时复用执行模型。api_key 支持环境变量名，并兼容直接填写的密钥，明文密钥在加载后转换为进程内引用，运行快照和报告脱敏。
-- v2 中 `execution.timeout` 表达单次任务总时限，新增 `idle_timeout` 区分无活动超时；连接、验证器和云轮询分别有自己的超时配置。旧版把 timeout 映射为 idleTimeoutSec 的行为在迁移计划中明确显示，不能悄悄沿用到新协议。
-- 旧版一多任务缺少评分 source 时可显式选择 `scoring_preset: multidev-v1`，执行计划展开为完整规则。新版本不靠维度名猜来源。
-- 相对路径以 task.yaml 所在目录解析。verification 中已有 `deveco_home/emulator_deployed_dir/flutter_home/test_category/prompt_path` 等字段保留，由对应验证器的参数 Schema 校验和转换。
-- Plugin 的 entry 特别约定为相对该 Plugin 的 source 根目录解析；source 缺省时使用 target.dir。Skill 未配置 path 时从 target.dir 按声明名称查找。
-- 任务所需参数直接在本份 YAML 中声明：执行器通过 execution.engine 选择，工具链路径放在 execution.enviroment，验证专用的工具路径、设备和服务参数放在对应 verification 条目。适配器可以按已声明的 DevEco 目录推导 SDK、Hvigor、ohpm 和 hdc 路径；缺少必要参数时预检报错，不隐式读取额外的 Autorun JSON 配置。
-- execution.enviroment 的工具链字段统一使用 deveco_home、flutter_home、sdk_home、java_home；其中 flutter_home 指向 Flutter SDK 根目录。不需要本地工具链的纯 HTTP/问答任务可省略 enviroment。
-- UITest 的 devices 直接声明 id、profile、target、hdc_port、start_emulator 等设备参数。可用 YAML anchor 在执行和验证配置间复用路径；纯文本/HTTP 任务无需配置 DevEco 或设备。
-- execution.opencode.config_path 指向 OpenCode 的引擎配置，承载 Agent/Plugin/MCP 等设置，不是另一份任务或机器环境配置。MCP 有无的配置文件除了目标服务器的 enabled 值外应保持一致。
-- `CloudTest.test_category` 文本标签通过该验证器的类别映射表转换，无法识别时列出支持值；数字类别仍可直接配置。映射与服务版本绑定。
-- `scenario` 和 `target.type` 中斜杠连接的字符串属于模板选项说明，实际任务必须填写一个值。
-
-## 12. 各场景的完整 YAML 示例
-
-以下每个代码块都是一份独立的 task.yaml，包含数据集、目标、执行、验证、评分和报告配置。它们采用已实现的 v2 协议；真实运行前需替换数据集、能力入口、裁判资料、工具链和模型凭据。独立 YAML 文件位于 config/examples/，其相对路径已按所在目录调整。
-
-假设样例保存于仓库 `config/`，则数据集路径 `../datasets/...`、产物路径 `../outputs/...` 均相对此目录解析。执行器的工具链参数写在 execution.enviroment，验证器的设备参数写在对应 verification 条目，都在当前 YAML 中配置。Plugin 的 `entry` 相对该 Plugin 的 source/target.dir 解析；Skill 未填写 path 时从 target.dir 按 name 查找。
-
-示例中的 api_key 使用环境变量名，也兼容直接填写包含连字符、点等字符的密钥。示例里的 YAML anchor 只在当前代码块内复用模型配置；白盒验证器省略 model 即复用执行模型，无需锚点；需要独立裁判模型时可显式填写。`whiteboxeval.rubric_path`、LLM Judge 的 prompt_path 以及其他验收文件需要按任务准备。示意 Agent ID、Skill 名称、Plugin 入口和服务地址需替换为实际值。
-
-| 示例文件名 | 评测内容 | 运行目标 | 本次运行状态 |
-|---|---|---|---|
-| `task.multidev.yaml` | 一多适配 | HarmonyBot 一多 Agent | 直接评 Agent |
-| `task.library-skill.yaml` | 三方库转鸿蒙库 | OpenCode + 指定 Skill | without：不加载目标 Skill |
-| `task.library-plugin.yaml` | 三方库转鸿蒙库 | OpenCode + 指定 Plugin | without：不加载目标 Plugin |
-| `task.android-migration.yaml` | 安卓应用转鸿蒙 | HarmonyBot 的 d2h Agent | 直接评 Agent |
-| `task.opencode-agent.yaml` | 文本问答 | 标准 OpenCode 中指定的 Agent | 直接评 Agent |
-| `task.knowledge-harmonybot.yaml` | Agent 有无 MCP 知识库 | harmonybot_agent 中的 d2h | 通过 HarmonyBot 的 OpenCode 配置开关 MCP |
-| `task.knowledge-opencode.yaml` | Agent 有无 MCP 知识库 | 标准 OpenCode 的指定 Agent | 通过 OpenCode 配置开关 MCP |
-| `task.knowledge-qa.yaml` | 智能问答 | knowledge 块配置的 HTTP 后端 Agent | 直接评后端答案 |
-
-保存相应示例后，入口命令统一为：
+统一任务入口：
 
 ```sh
-harmony-eval run ./config/task.multidev.yaml
-# 其他场景只替换 YAML 文件名。
+harmonyeval run ./config/task.yaml
 ```
 
-### 12.1 一多适配：HarmonyBot 中指定一多 Agent
+一份配置回答六个问题：
 
-数据集继续采用现有 base/PROMPT.md/metadata.json/test_patch.patch 等格式。本例完整展开之前确认的 L1/L2/L3 评分口径。
+| 配置 | 通俗解释 | 例子 |
+|---|---|---|
+| dataset | 拿什么来测 | 一批工程，或一份 JSON 问题集 |
+| target | 测哪个对象 | HarmonyBot Agent、OpenCode Plugin/Skill、HTTP 后端 |
+| execution | 怎样运行它 | 选 Agent、模型、超时和 SDK 环境 |
+| verification | 怎样检查结果 | 跑 UITest、云测试、API 检查或独立模型评价 |
+| scoring | 检查结果怎么算分 | 通过得100、通过率乘100、按权重扣分 |
+| report | 报告放在哪里 | 指定输出目录 |
+
+运行过程统一为：
+
+```text
+读取 task.yaml → 加载用例 → 执行被测对象
+                            ↓
+                       验证结果、保存证据 → 算分 → 汇总报告
+```
+
+例如一多和三方库转换：前者输入鸿蒙工程，后者输入待转换库；被测 Agent 不同、验证规则不同，但都走这条流程。不要为每个场景复制一份 CLI、批量循环和报告生成代码。
+
+static_eval 仍按目标仓库已有语义运行。它是否针对能力配置执行一次，还是针对每个工程执行，不能从这个名字推断，见下一节。
+
+## 3. 已有能力怎样保留，尤其是 static_eval
+
+### 3.1 先分清“保留功能”和“移动文件”
+
+| 已有部分 | 重构时的做法 |
+|---|---|
+| static_eval | 保留真实调用、输入、判据、结果和计分；先包一层接口，再整理位置 |
+| 一多 Agent 会话 | 提取成单用例执行能力，保留提示词、模型设置和会话日志 |
+| 设备/云测试 | 复用已有 Runner、构建、安装、轮询和报告解析，不凭空改写业务逻辑 |
+| 原评分 | 保存一组固定输入的预期分数，迁移后对比；明确改口径时另行说明 |
+| 旧入口与批量调度 | 迁移期间可保留作回归对照；新入口通后再移除重复调度和旧引用 |
+
+**先验证功能等价，再删除旧文件。**最终业务任务统一使用 harmonyeval + YAML，但不要求在第一步就删除旧入口；static_eval 或设备工具仍在使用的公共模块不能顺手删掉。
+
+### 3.2 static_eval 的迁移要求
+
+参考仓库的 static_eval 目前仅保留配置，尚未执行。**目标仓库已经有这个能力，因此不能照抄参考仓库的“忽略此字段”逻辑。**示例中的 static_eval: {} 也不能覆盖目标的真实配置。
+
+实施 Agent 先确认：它评什么、由谁触发、执行几次、是否改工程、结果怎么计分、失败时如何处理。然后选择连接方式：
+
+| 目标仓库的实际行为 | 迁移方式 |
+|---|---|
+| 每个用例运行一次的工程静态检查 | 包装为 verification 工作流；检查放验证器，计算公式放评分器 |
+| 对 Agent/Skill/Plugin 做一次静态评价 | 保留任务级调用和单独结果，公共编排放 evaluator，检查实现放 verification 或 integrations；不要把一次结果重复当成所有用例的独立评分 |
+| 现有独立命令或服务 | 先保留可运行入口，用适配层连接现有输出，后续再逐步统一 |
+
+当前通用框架的 verification pipeline 是逐用例的，没有已经实现的通用“任务级 static_eval”协议。若目标静态评价是任务级，需补对应编排和结果接入；不能仅把它塞进 verification 列表就声称等价。
+
+第一阶段不改 static_eval 的业务口径，不假定它等同于 whiteboxeval，也不预先发明 enabled/scope 等新字段。已有字段、执行次数、失败语义和报告内容先保持兼容；需要统一结果格式时保留原始报告供核对。
+
+完成标志：迁移前后同一固定输入走到了同一检查逻辑，执行次数一致；确定性分数相同。模型评价用固定裁判响应验证解析和计分，真实调用另验，不能要求两次自然生成文字完全相同。
+
+## 4. 代码应拆到哪里
+
+源码直接放在根目录 **harmonyeval/**。包名、安装名和命令都用 harmonyeval，不增加 src 这一层。
+
+| 目录 | 只负责什么 | 旧结构中可能对应的代码 |
+|---|---|---|
+| api | 结果对象、接口、注册表 | 各文件重复定义的用例和结果结构 |
+| config / cli | 读 YAML、校验、命令参数 | config、cli、preflight 的相应部分 |
+| benchmarks | 读用例、准备公开输入、接 EvalScope 样本 | cases、dataset_adapters |
+| evaluator | 串联整个流程、复评、缓存身份 | batch/case_run 中的编排部分 |
+| agent | 执行 Agent/HTTP 任务、能力装载、会话日志 | runtime、agent、target_runtime |
+| verification | 运行检查，产生指标和证据 | 设备验证、云测试、白盒/静态检查的接入层 |
+| metrics | 根据指标算分、汇总有效分数 | L1/L2/L3 和其他计算公式 |
+| models | EvalScope 模型访问与兼容层 | 模型客户端及代理接入 |
+| integrations | SDK、设备、AGC、分析器等底层工具 | devices、cloud、静态分析工具实现 |
+| experiments | 多组对照，只改变声明的条件 | 原有开关组别与对照编排 |
+| report / utils | 展示结果；公共文件/进程/路径工具 | reporting、artifacts 等公共部分 |
+
+这是按职责拆分，不是逐目录机械改名。目标仓库路径可能不同，由盘点结果决定搬哪些函数。static_eval 的具体文件在检查后加入映射表，本文不虚构一个已知旧路径。
+
+三条核心边界：
+
+1. Agent 负责完成任务，验证器负责检查，评分器负责计算。评分器不运行模型、设备或验收命令。
+2. 底层设备/云端工具不反向导入整体调度器；公共 utils 不依赖业务实现。
+3. 按注册的 type 找实现；新增场景不在主流程写 if scenario == ...。报告列从评分维度读取，不固定所有场景都叫 L1/L2/L3。
+
+### 4.1 先统一四种结果
+
+放在 api/contracts.py，使用可序列化的数据类或等价结构，字段与参考实现保持兼容：
+
+| 结果 | 需要保留的字段 |
+|---|---|
+| EvalCase | case_id、question、root、project、expected、metadata；公开输入只含 case_id/question |
+| ExecutionResult | status、answer、project、workspace、failure_category、error、elapsed_seconds、usage、artifacts、capabilities、tool_calls |
+| VerificationResult | verifier_id、status、metrics、dimensions、findings、evidence、error、version |
+| ScoreResult | dimension、status、score、max_score、breakdown、error、version；不可用时 score=None |
+
+字段类型与默认值可对照参考源码 harmonyeval/api/contracts.py。静态评价的原报告允许附加保存；如果是任务级，单独记录作用范围和运行结果，不冒充某个用例的结果。
+
+有效评分的 status 为 scored；不可评分为 unavailable 且 score=None。ExecutionResult 的 completed 只表示任务执行结束，是否做对要看验证指标，不能据此直接给满分。
+
+### 4.2 适配器就是“接头”
+
+相同接口可以接不同实现。配置只负责选择接头名称，主流程不用知道某个插件或测试服务的细节。
+
+| 接口 | 关键方法 | Python 扩展注册组 |
+|---|---|---|
+| 用例集 | load(config)、prepare(case, workspace)、project_path(case, workspace)、fingerprint(case)、evidence_fingerprint(case)；可选 archive_evidence(case, output) | harmonyeval.datasets |
+| 被测对象 | source(task)、prepare(task, runtime)，声明匹配的 engine | harmonyeval.targets |
+| 执行引擎 | async execute(public_case, target, context) → ExecutionResult | harmonyeval.execution |
+| 验证器 | async verify(case, execution, dependencies, context, config) → VerificationResult | harmonyeval.verification |
+| 评分器 | score(results, config) → ScoreResult | harmonyeval.scoring |
+
+验证器可选 requirements(config) 声明互斥资源，可选 async capture_input(case, config) 冻结修改前证据。context 包含 task、output、env、cancel_event、temporary_projects；dependencies 是按 depends_on 引用的前置结果。原工程检查与生成后检查要用正确快照。
+
+先实现内置注册和参数校验，再支持独立包 entry points；同名重复注册报错。增加外部扩展不要求修改中央类型表。参考实现还提供 harmonyeval.http_protocols，以及历史 harmony_eval.* 入口组兼容，完整说明见扩展指南。
+
+## 5. 按这八步实施，每步都能验收
+
+### 阶段 0：记录现状
+
+- **做什么**：盘点现有入口和调用关系，记录当前配置、static_eval 原始结果、一多最小用例及测试命令。保存工作区已有修改，不覆盖它们。
+- **交付**：迁移映射表、已有能力清单、可复现的基线结果；不能运行的外部环节写明原因。
+- **验收**：能指出 static_eval 与一多分别由哪个入口实际执行，而不是只找到一个同名配置字段。
+
+### 阶段 1：搭新骨架，先让配置读得懂
+
+- **做什么**：创建根目录 harmonyeval 和安装入口，定义结果契约、注册表、YAML 解析；按 target.type 选择同名活动块，其他块不执行。
+- **交付**：配置计划与校验能力，先不接真实模型或设备。
+- **验收**：重复 id、未知 type、错误参数、依赖成环有明确错误；未启用块的占位值不影响本次任务。目标原有 static_eval 配置仍被保留，不能被空默认值抹掉。
+
+### 阶段 2：保住 static_eval
+
+- **做什么**：按第 3 节确认作用范围，给已有静态评价加薄适配层，迁移必要公共依赖；保持原判据和结果。
+- **交付**：新结构中可到达的静态评价入口，以及迁移前后对照测试。
+- **验收**：同一固定输入、相同执行次数、相同确定性指标；原命令/配置兼容方案明确。不要用 reference 的预留实现替换真实代码。
+
+### 阶段 3：把一多拆成“执行”和“验证”
+
+- **做什么**：提取只处理一个用例的 Agent 执行函数；已有 UITest/云测试包装成验证流程；保留模型、提示词、设备参数、日志和评分。
+- **交付**：单用例能产生四种结构化结果；验证器在独立副本运行。
+- **验收**：同一用例的提示词内容不变；Agent 修改完成后先固定 change.patch，再应用测试补丁或安装验证依赖；设备层结果可追溯。还没接 EvalScope 时可用离线函数测试，不新建另一套永久批量调度器。
+
+### 阶段 4：让 EvalScope 承担正式生命周期
+
+- **做什么**：按第 7 节接公共 benchmark、DefaultEvaluator 和模型代理；把阶段 3 的单用例执行交给它调用。
+- **交付**：harmonyeval run 能从 YAML 完成用例加载、执行、验证、评分和报告。样本只展开一次，停止新入口继续转调旧 run_batch。
+- **验收**：本地 HTTP 桩或本地模型能跑通真实 EvalScope 生命周期；OpenCode 的正式模型请求经过 EvalScope 模型兼容层，不能只在启动前发一次探针。所有测试结果注明是否为桩或真实设备。
+
+### 阶段 5：接入其余场景
+
+| 场景 | 应增加什么 | 先验收什么 |
+|---|---|---|
+| 三方库转换 | library-migration；选择 Skill/Plugin/Agent；API 数量和独立评价 | 源库副本、目标 base、转换前清单与转换后指标 |
+| Android 转鸿蒙 | android-migration；选择真实 d2h Agent；业务验收流程 | 输入是原 Android 应用，目标工程位置正确，行为测试有实际判据 |
+| MCP 对照 | 在同一任务上切换指定 MCP enabled | 其他条件相同，实际配置与调用证据可查 |
+| HTTP 问答/客服 | text-qa；请求/响应映射；规则或 Judge | 公开请求不含标准答案，正确/错误/空答案/服务错误分别记录 |
+
+- **交付**：各场景最小 YAML、最小用例、验证与评分口径。18 份参考配置可按需选用。
+- **验收**：新增场景主要落在对应适配器或配置，主调度无需增加场景分支。真实 SDK、服务或用例暂缺时，适配链路与业务验收状态分别报告，不冒充已完成真实转换。
+
+### 阶段 6：支持复评、重算和多组实验
+
+- **做什么**：实现 verify、rescore、compare；分别记录输入、执行、验证和评分的摘要，用来判断旧结果能否复用。experiments 在临时运行副本覆盖 MCP 开关。
+- **交付**：旧工程可重新验证、旧指标可重新算分；各组结果独立，并有严格的配对比较。
+- **验收**：verify/rescore 不再次调用生成 Agent；输入或能力变化拒绝错误复用；缺少转换前快照不能拿生成后代码补造。规则改动后旧差值不继续展示。
+
+### 阶段 7：清理旧架构，检查安装和回归
+
+- **做什么**：确认新入口覆盖已有能力后，删除重复批量调度、旧命名空间和无引用的兼容层，更新安装配置、包资源、命令和文档。
+- **交付**：无 src 包映射的新结构、迁移记录、测试记录、剩余外部依赖清单。
+- **验收**：从仓库外安装启动也能找到报告样式、设备脚本和静态评价资源；没有通过 sys.path 临时补丁掩盖打包问题；static_eval、一多旧能力的回归仍通过。
+
+顺序允许按依赖小步调整，但不能跳过现有能力的回归，只提交“目录已经挪完”的结果。
+
+## 6. YAML 怎么连接这些模块
+
+下面只展示一条最简单的一多流程，路径与模型需替换后才能运行；完整 L1/L2/L3 配置和其他场景见示例册。
 
 ```yaml
 schema_version: 2
+id: multidev-example
 scenario: MultiDev
-id: multidev-harmonybot
-description: 评测 HarmonyBot 一多 Agent 的适配效果
-
 dataset:
   type: swe-bench-hm-multi-dev
-  dir: ../datasets/multidev
-
+  dir: ./cases
 target:
   type: harmonybot_agent
-  dir: /path/to/vscode/extensions
-
+  dir: /path/to/harmonybot/source
 harmonybot_agent:
   rounds: 1
-  static_eval: {}                    # 预留，不执行、不计分
   execution:
     engine: opencode
     agent_name: harmonyos-multi-device
-    timeout: 900
-    idle_timeout: 300
-    enviroment:
-      deveco_home: &deveco_home /Applications/DevEco-Studio.app/Contents
-    model: &model
+    model:
       api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
+      name: YOUR_MODEL
+      base_url: https://example.com/v1
+      api_key: MODEL_API_KEY
+    enviroment:
+      deveco_home: /path/to/DevEco-Studio
   verification:
     - id: ui
       type: UITest
-      deveco_home: *deveco_home
-      emulator_deployed_dir: /path/to/emulators
-      devices:
-        - id: phone
-          profile: Pura 90 Pro
-          target: 127.0.0.1:15001
-          hdc_port: 15001
-          start_emulator: true
-    - id: code
-      type: whiteboxeval
-      model: *model
   scoring:
-    - dimension: L1
-      type: BooleanScoring
-      all:
-        - {source: ui.metrics.build_passed, equals: true}
-        - {source: ui.metrics.all_tests_passed, equals: true}
-      pass_score: 100
-      fail_score: 0
-    - dimension: L2
-      type: WeightedSummation
-      mode: deduction
-      base_score: 100
-      components:
-        - name: UX
-          source: ui.metrics.pass_rate
-          range: [0, 1]
-          weight: 0.5
-        - name: Whitebox
-          source: code.dimensions
-          reducer: proportional_deduction
-          cap_source: code.metrics.total_score
-          weight: 0.5
-      missing: unavailable
-    - dimension: L3
-      type: ImmediateValue
-      source: code.metrics.total_score
-  report:
-    output_dir: ../outputs/multidev-harmonybot
-    format: html
-```
-
-### 12.2 三方库转鸿蒙库：OpenCode 指定 Skill
-
-target.dir 下按 SKILL.md 声明的 name 选择 library-conversion。本例 without_enable 为 true，只运行不加载目标 Skill 的基线；设为 false 后加载该 Skill。两次均使用同一 build Agent。
-
-```yaml
-schema_version: 2
-scenario: LibraryMigration
-id: library-conversion-skill
-description: 不加载目标三方库转换 Skill 的基线评测
-
-dataset:
-  type: library-migration
-  dir: ../datasets/libraries
-
-target:
-  type: skills
-  dir: ../capabilities/library-skills
-
-skills:
-  rounds: 1
-  execution:
-    engine: opencode
-    agent_name: build
-    timeout: 1800
-    idle_timeout: 300
-    without_enable: true
-    enviroment:
-      deveco_home: &deveco_home /Applications/DevEco-Studio.app/Contents
-    model: &model
-      api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
-    opencode:
-      binary: /path/to/opencode
-      skills:
-        - id: library-conversion
-          name: library-conversion
-          activation: auto
-  verification:
-    - id: api
-      type: LibraryAPICount
-    - id: code
-      type: whiteboxeval
-      model: *model
-      rubric_path: ./rubrics/library-migration.yaml
-  scoring:
-    - dimension: api_count_consistency
-      type: ImmediateValue
-      source: api.metrics.count_consistency
-      scale: 100
-    - dimension: L3
-      type: ImmediateValue
-      source: code.metrics.total_score
-  report:
-    output_dir: ../outputs/library-conversion-skill
-    format: html
-```
-
-### 12.3 三方库转鸿蒙库：OpenCode 装载指定 Plugin
-
-本例 without_enable 为 true，不加载目标 Plugin，使用宿主 build Agent 完成任务。设为 false 后加载目标 Plugin；若要测试它专有的 Agent，再将 agent_name 指定为插件实际注册的 ID。若 Plugin 增强的是现有 build Agent，两次可以保持同一 Agent。
-
-```yaml
-schema_version: 2
-scenario: LibraryMigration
-id: library-conversion-plugin
-description: 不加载目标三方库转换 Plugin 的基线评测
-
-dataset:
-  type: library-migration
-  dir: ../datasets/libraries
-
-target:
-  type: plugin_agent
-  dir: ../capabilities/library-plugin
-  entry: ./dist/index.js
-
-plugin_agent:
-  rounds: 1
-  static_eval: {}
-  execution:
-    engine: opencode
-    agent_name: build
-    timeout: 1800
-    idle_timeout: 300
-    without_enable: true
-    enviroment:
-      deveco_home: &deveco_home /Applications/DevEco-Studio.app/Contents
-    model: &model
-      api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
-  verification:
-    - id: api
-      type: LibraryAPICount
-    - id: code
-      type: whiteboxeval
-      model: *model
-      rubric_path: ./rubrics/library-migration.yaml
-  scoring:
-    - dimension: api_count_consistency
-      type: ImmediateValue
-      source: api.metrics.count_consistency
-      scale: 100
-    - dimension: L3
-      type: ImmediateValue
-      source: code.metrics.total_score
-  report:
-    output_dir: ../outputs/library-conversion-plugin
-    format: html
-```
-
-如果直接评 HarmonyBot 内置的三方库转换 Agent，则使用 `target.type: harmonybot_agent`、`agent_name: hmos-library-adapter-fast`，并将上例验证和评分配置放到 harmonybot_agent 块；数据集保持 library-migration。
-
-### 12.4 安卓应用转鸿蒙：HarmonyBot 中指定 d2h Agent
-
-输入为安卓应用工程。UITest 评估流程针对 Agent 生成的鸿蒙工程，内部完成编译、安装和测试，测试与验收预期由各 case 提供。verification 仅配置评估流程，不单独配置编译步骤。
-
-```yaml
-schema_version: 2
-scenario: AndroidMigration
-id: android-migration-harmonybot
-description: 评测 HarmonyBot 安卓转鸿蒙 Agent
-
-dataset:
-  type: android-migration
-  dir: ../datasets/android-apps
-
-target:
-  type: harmonybot_agent
-  dir: /path/to/vscode/extensions
-
-harmonybot_agent:
-  rounds: 1
-  static_eval: {}
-  execution:
-    engine: opencode
-    agent_name: d2h
-    timeout: 3600
-    idle_timeout: 300
-    enviroment:
-      deveco_home: &deveco_home /Applications/DevEco-Studio.app/Contents
-    model: &model
-      api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
-  verification:
-    - id: ui
-      type: UITest
-      deveco_home: *deveco_home
-      emulator_deployed_dir: /path/to/emulators
-      devices:
-        - id: phone
-          profile: Pura 90 Pro
-          target: 127.0.0.1:15001
-          hdc_port: 15001
-          start_emulator: true
-    - id: code
-      type: whiteboxeval
-      model: *model
-      rubric_path: ./rubrics/android-migration.yaml
-  scoring:
-    - dimension: L1
-      type: BooleanScoring
-      all:
-        - {source: ui.metrics.build_passed, equals: true}
-        - {source: ui.metrics.all_tests_passed, equals: true}
-      pass_score: 100
-      fail_score: 0
-    - dimension: L2
+    - dimension: test_pass_rate
       type: ImmediateValue
       source: ui.metrics.pass_rate
       scale: 100
-    - dimension: L3
-      type: ImmediateValue
-      source: code.metrics.total_score
   report:
-    output_dir: ../outputs/android-migration-harmonybot
+    output_dir: ./output/multidev
     format: html
 ```
 
-### 12.5 标准 OpenCode：直接指定一个 Agent
+这里 target.type=harmonybot_agent，所以只读取 harmonybot_agent 块；ui 是这次验证的 ID，UITest 是实现类型，test_pass_rate 是报告列名。换列名不会换算法，改 ui 则要同步 source/depends_on。本片段未定义 static_eval，目标仓库的真实静态评价配置应按原字段迁移，不能据此删除。
 
-`opencode_agent` 为正式目标类型。`qa-agent` 必须由指定 config_path 的运行配置注册；该配置中的能力也写入有效能力清单。更换 agent_name 即可评另一个已注册 Agent。
+容易误解的字段：
 
-```yaml
-schema_version: 2
-scenario: QuestionAnswering
-id: opencode-selected-agent
-description: 使用文本问题评测 OpenCode 中指定的 Agent
+- **enviroment** 就保留这个拼写，表示 SDK/工具链路径；不再加 execution.runtime 或 runtime_config。
+- **agent_name** 是实际注册的 Agent ID；Plugin 包名不必然等于 Agent ID。
+- **knowledge/http_agent** 表示请求 HTTP 问答后端；MCP 定义放 OpenCode JSON，不放 knowledge 块。
+- **without_enable** 只关闭目标 Skill/Plugin。对 MCP 开关用配置文件或 experiments；测 HarmonyBot Agent 本身不用自动生成“没有 Agent”的组。
+- 迁移输入可用 case.yaml+source/，或 repositories 布局；文本输入用 JSON/JSONL。各工程用例的目标根是自己的 base/，不使用共享可写输出目录。
 
-dataset:
-  type: text-qa
-  dir: ../datasets/qa
+## 7. 怎样接入 EvalScope
 
-target:
-  type: opencode_agent
+benchmark 可以理解为“这套题如何出、如何检查、如何计分”的接入口，dataset 是题目本身。先共用一个 harmony_eval benchmark，由配置选择具体业务适配器。
 
-opencode_agent:
-  rounds: 1
-  execution:
-    engine: opencode
-    agent_name: qa-agent
-    timeout: 120
-    model: &model
-      api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
-    opencode:
-      binary: /path/to/opencode
-      config_path: ./runtime/opencode-agents.json
-  verification:
-    - id: qa
-      type: LLM_judge
-      model: *model
-      prompt_path: ./rubrics/answer-quality.md
-  scoring:
-    - dimension: answer_quality
-      type: ImmediateValue
-      source: qa.metrics.score
-  report:
-    output_dir: ../outputs/opencode-selected-agent
-    format: html
+参考实现使用 EvalScope 1.14.1，依赖范围 >=1.14.1,<1.15；建议 Python 3.12，主框架最低 Python 3.10。任务使用 custom 评测，调用 DefaultEvaluator，不为每种验证流程创建 EvalScope Evaluator。
+
+| EvalScope 接口 | 实施时连接什么 |
+|---|---|
+| register_benchmark + BenchmarkMeta | 注册 HarmonyBenchmarkAdapter，继承 DefaultDataAdapter |
+| load_dataset | 用例转 Sample，按 rounds 展开；EvalScope repeats=1，避免重复执行 |
+| run_inference | 调用单用例执行函数，保存 ExecutionResult 到 TaskState 元数据 |
+| calculate_metrics | 调用 verification 与 scoring，转换为 SampleScore |
+| aggregate_scores | 仅聚合有效分数，保留覆盖率 |
+| generate_report | 生成 EvalScope Report；项目报告补充工程与工具证据 |
+
+runner 把解析后的 task 和 run_root 传入 benchmark 的 extra_params；Sample 元数据保留 case_index、case_id、round。run_inference 交接 case_output 和 execution，calculate_metrics 再定位该用例。工程和大日志保存为文件引用，标准答案不放进被测 Agent 的公开输入。
+
+初版 TaskConfig.datasets 固定为 ['harmony_eval']。dataset.type 选择业务用例适配器，不是选择另一个 EvalScope benchmark。Python 包名 harmonyeval 与保留的 benchmark ID harmony_eval 不要混淆。
+
+模型部分复用 EvalScope Model/ModelAPI 兼容访问；OpenCode 经模型代理访问配置的模型，独立裁判也走同一模型兼容层。能力装载、用例执行、验证、评分仍由各自模块负责，模型模块不读取业务目录来编排测试。完整桥接和原生类型见实现参考，不必重新造一套 EvalScope。
+
+## 8. 怎样验收和交付
+
+### 8.1 先验证状态不会误报
+
+| 实际情况 | 应如何记录 |
+|---|---|
+| 工具跑完，断言全通过 | completed，指标通过，按规则给分 |
+| 工具确实跑完，但断言失败 | 可 completed + passed=false/低通过率，产生有效低分 |
+| 模型、设备、工具或报告不可用 | unavailable/对应执行错误，评分不可用；不能直接补0或100 |
+| 前置流程未完成 | 依赖流程 skipped，保留原因；completed 不等于业务指标通过 |
+
+报告展示总样本数、完成数、已评分数、有效均分和覆盖率。两组只对双方都有有效分数的同一 case_id+round 求差值，同时报告配对覆盖；不让失败样本消失后形成虚高结论。
+
+### 8.2 一多评分保留已确认口径
+
+- L1：构建与功能是否全部通过。
+- L2：UITest 通过率代表 UX，占50%；白盒各维度按满分比例分配另外50%并扣分，保留白盒总分封顶。
+- L3：直接读取白盒总分。
+
+例如 UITest 通过率80%、白盒各维度合计80/100且无额外封顶，L2 为80。公式放 metrics，数据来源写进 YAML，别在调度器中按 L2 这个名字猜算法。目标仓库 static_eval 的分数是否参与其中，先按原口径核对；不能未经说明重复扣分或混入白盒总分。
+
+### 8.3 证据和复用规则
+
+Agent 工作工程保留 base/；会话轨迹保留 generate/agent-output.json/html、events.jsonl、stderr.jsonl；验证证据保存 verification/<id>/。change.patch 在验证改动前固定，metadata/test/golden 补丁在 Agent 停止后归档。可清理的配置、数据库和验证副本放系统临时目录，结束清理。
+
+目标 static_eval 原来需要的输入、原始报告和资源在盘点后加入保留清单；上面的参考目录不是删除其他有效产物的理由。目录隔离和补丁后复制不等于操作系统文件访问沙箱。
+
+修改评分规则用 rescore，修改验证用 verify，修改输入、模型或被测能力重新 run。适配器行为变化更新 version；外部命令脚本不一定被自动哈希，应把其版本纳入身份，不只改包版本号。
+
+### 8.4 最少做哪些检查
+
+| 检查层 | 必须得到什么证据 |
+|---|---|
+| 配置 | YAML 可加载，类型/引用/依赖正确；所有场景样例均做语法检查 |
+| 原有能力 | static_eval 固定输入回归、一多单用例回归，原业务判据仍生效 |
+| 正常与异常 | 业务成功、业务失败、缺证据、坏报告；相关超时/取消能保留日志 |
+| 真实链路 | 至少跑通本地 HTTP 或本地模型到 EvalScope 的完整路径；有环境时验真实 Agent/设备 |
+| 扩展 | 同一 Python 环境安装扩展，新进程可以发现；无需修改 CLI 和报告调度 |
+| 打包与架构 | 仓库外能启动，资源齐全；检查依赖方向，不用动态 import 绕过约束 |
+
+--check 只检查准备项，不证明密钥授权、MCP 工具实际使用、设备/云端测试成功。参考仓库的113项等历史测试数量也不是目标仓库必须“凑齐”的验收标准，按目标实际能力完成有效回归。
+
+新骨架和对应命令完成后，可用下面的命令核对。安装命令要求目标 pyproject.toml 已提供 eval 可选依赖；task.yaml 替换为当前阶段准备好的最小任务。旧能力的回归命令使用阶段0记录的实际入口，不凭空假设目标已有同名测试文件。
+
+```sh
+python -m pip install -e '.[eval]'
+python -m harmonyeval plan ./config/task.yaml
+python -m harmonyeval run ./config/task.yaml --check
+python -m unittest discover -s tests -q
 ```
 
-如该 Agent 用于工程任务，则替换 dataset，并选择相应工程验证器；执行器仍使用相同的 OpenCode 适配。
-
-### 12.6 HarmonyBot 的 d2h Agent：通过 opencode.json 配置有无 MCP
-
-这仍然是 harmonybot_agent 任务，agent_name 为 d2h。知识库是 HarmonyBot 的 OpenCode 配置中的 MCP，YAML 仅指定要加载的配置文件，不使用 knowledge_agent 或 host_target 包装。
-
-```yaml
-schema_version: 2
-scenario: KnowledgeEval
-id: harmonybot-d2h-mcp
-description: 比较同一 HarmonyBot d2h Agent 在有无 MCP 时的答案质量
-
-dataset:
-  type: text-qa
-  dir: ../datasets/knowledge-qa
-
-target:
-  type: harmonybot_agent
-  dir: /path/to/vscode/extensions
-
-harmonybot_agent:
-  rounds: 1
-  static_eval: {}
-  execution:
-    engine: opencode
-    agent_name: d2h
-    timeout: 120
-    opencode:
-      config_path: ./opencode/harmonybot.json
-    model: &model
-      api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
-  verification:
-    - id: qa
-      type: LLM_judge
-      model: *model
-      prompt_path: ./rubrics/knowledge-answer-quality.md
-    - id: usage
-      type: ToolUsage
-      target_mcp: developer_knowledge
-      mode: observe
-  scoring:
-    - dimension: answer_quality
-      type: ImmediateValue
-      source: qa.metrics.score
-  report:
-    output_dir: ../outputs/harmonybot-d2h-mcp
-    format: html
+```sh
+harmonyeval verify ./config/task.yaml --run /path/to/single-run
+harmonyeval rescore ./config/task.yaml --run /path/to/single-run
+harmonyeval compare /path/to/without-run /path/to/with-run --output ./output/comparison
 ```
 
-`config/opencode/harmonybot.json`，第一次运行时启用 MCP：
+--run 指单组运行目录。配置 experiments 时应选择其中一个实验组的目录，不能直接把整个多组批次当成单组结果。
 
-```json
-{
-  "mcp": {
-    "developer_knowledge": {
-      "type": "remote",
-      "url": "https://example.com/mcp",
-      "enabled": true
-    }
-  }
-}
-```
+每阶段交付改动文件、迁移前后对应关系、运行过的命令及结果、未完成项。不要只写“已经支持”，要说明通过的是离线桩、真实模型、真机还是云服务。
 
-第二次运行使用相同 YAML 和相同 JSON 文件，只将目标 MCP 的 enabled 改为 false：
-
-```json
-{
-  "mcp": {
-    "developer_knowledge": {
-      "type": "remote",
-      "url": "https://example.com/mcp",
-      "enabled": false
-    }
-  }
-}
-```
-
-分别运行两次，第二次只修改同一 OpenCode 配置文件中的 MCP enabled；YAML、d2h Agent、模型、问题、验证和评分保持相同。这里不配置 without_enable，也不关闭 HarmonyBot Plugin。
-
-config_path 是可选的。已经在 HarmonyBot 实际生效的 opencode.json 中配置 MCP 时，可以省略该字段，直接使用并记录该有效配置；两次只修改目标 MCP 的 enabled 并重新加载。框架保存两次最终生效的配置快照，以复核知识库状态。
-
-这里的 JSON 是对 HarmonyBot 生效配置的补充：框架合并到实际 Bundle 配置的运行副本，保留 d2h 的 Plugin、Agent 定义与其他能力。如果直接复用已有完整的 HarmonyBot opencode.json，也按相同方式读取并记录最终配置；仅修改未生效的源码配置不能作为已经切换的证据。
-
-若评真实安卓应用迁移，将 dataset.type 换成 android-migration，并使用 12.4 的工程验证与评分；MCP 仍然只在 OpenCode 配置中切换。
-
-### 12.7 标准 OpenCode：通过 opencode.json 配置有无 MCP
-
-本例是普通 opencode_agent 任务，由标准 OpenCode 的同一个 build Agent 回答文本问题。YAML 只指定引擎、Agent 和它加载的 opencode.json，不配置知识库包装、host_target、MCP 定义或 without_enable。scenario: KnowledgeEval 仅标记评测目的，不改变执行入口。ToolUsage 是可选的调用观测步骤，不控制 MCP。
-
-```yaml
-schema_version: 2
-scenario: KnowledgeEval
-id: opencode-agent-mcp
-description: 比较同一 OpenCode Agent 在有无 MCP 时的答案质量
-
-dataset:
-  type: text-qa
-  dir: ../datasets/knowledge-qa
-
-target:
-  type: opencode_agent
-
-opencode_agent:
-  rounds: 1
-  execution:
-    engine: opencode
-    agent_name: build
-    timeout: 120
-    opencode:
-      binary: /path/to/opencode
-      config_path: ./opencode/opencode.json
-    model: &model
-      api_type: openai_api
-      name: qwen-plus
-      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-      api_key: DASHSCOPE_API_KEY
-  verification:
-    - id: qa
-      type: LLM_judge
-      model: *model
-      prompt_path: ./rubrics/knowledge-answer-quality.md
-    - id: usage
-      type: ToolUsage
-      target_mcp: developer_knowledge
-      mode: observe
-  scoring:
-    - dimension: answer_quality
-      type: ImmediateValue
-      source: qa.metrics.score
-  report:
-    output_dir: ../outputs/opencode-agent-mcp
-    format: html
-```
-
-`config/opencode/opencode.json`，第一次运行时启用 MCP：
-
-```json
-{
-  "mcp": {
-    "developer_knowledge": {
-      "type": "remote",
-      "url": "https://example.com/mcp",
-      "enabled": true
-    }
-  }
-}
-```
-
-第二次使用相同 YAML、相同 opencode.json，只将目标 MCP 的 enabled 改为 false：
-
-```json
-{
-  "mcp": {
-    "developer_knowledge": {
-      "type": "remote",
-      "url": "https://example.com/mcp",
-      "enabled": false
-    }
-  }
-}
-```
-
-两次运行的 YAML 完全相同，无需额外配置文件或新目标类型；MCP 状态完全由这个 opencode.json 决定。config_path 仍为可选项，省略时使用当前 OpenCode 的生效配置。若指定自定义 Agent，在两次运行中保留它的相同定义；框架核验配置差异仅为目标 MCP 的 enabled。
-
-### 12.8 智能问答：knowledge 配置请求 URL 后端的 Agent
-
-knowledge 表示智能问答，使用 HTTP 请求后端 Agent，与 12.6/12.7 中配置了 MCP 的本地 Agent 任务分别配置。本例为同步 JSON 协议，POST 问题后从 data.answer 取答案。后端生成模型由服务管理；verification.model 单独声明裁判模型。
-
-```yaml
-schema_version: 2
-scenario: QuestionAnswering
-id: knowledge-http-qa
-description: 评测 HTTP 后端 Agent 的问答质量
-
-dataset:
-  type: text-qa
-  dir: ../datasets/qa
-
-target:
-  type: knowledge
-
-knowledge:
-  rounds: 1
-  execution:
-    engine: http
-    http_url: https://example.com/agent/answer
-    method: POST
-    timeout: 120
-    request:
-      headers:
-        Authorization: 'Bearer ${env:AGENT_TOKEN}'
-      json:
-        question: '${case.question}'
-    response:
-      protocol: json
-      answer_path: data.answer
-      session_id_path: data.session_id
-  verification:
-    - id: qa
-      type: LLM_judge
-      prompt_path: ./rubrics/answer-quality.md
-      model:
-        api_type: openai_api
-        name: qwen-plus
-        base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-        api_key: DASHSCOPE_API_KEY
-  scoring:
-    - dimension: answer_quality
-      type: ImmediateValue
-      source: qa.metrics.score
-  report:
-    output_dir: ../outputs/knowledge-http-qa
-    format: html
-```
-
-如评测通用 HTTP Agent，可同时将上例的 target.type 和顶层配置块名改为 http_agent，其他请求/响应与评分配置不变；knowledge 不会被当作本地 Agent 的 MCP 配置块。
-
-HTTP 的 JSON、SSE、异步提交/轮询分别由协议适配器实现。`${...}` 仅支持白名单变量替换。默认每个样本独立会话；多轮用例显式声明会话组，只有后端实际返回 session_id 时才配置对应提取字段。
-
-## 13. 输出、缓存与复评
+## 9. 可以直接交给实施 Agent 的任务说明
 
 ```text
-report.output_dir/<run_id>/
-  task.resolved.yaml          # 脱敏后的有效任务、能力清单及版本
-  task-report.json
-  index.html
-  variants/<variant>/round-01/
-    cases/<case_id>/
-      generate/              # Agent 答案、日志、轨迹；工程结果按场景保存
-      change.patch           # 修改既有工程时；迁移可为新增工程清单
-      verification/<id>/     # 必要证据和外部工具原始输出
+请按《HarmonyEval 重构实施指南》修改当前目标仓库。
+
+目标仓库已有 static_eval 和一多适配评测，结构类似旧 develop；不要假定它已经包含参考仓库的新框架。
+先阅读当前代码，列出入口、配置、输出、测试以及旧模块到新目录的迁移映射。
+特别确认 static_eval 实际评测对象、调用时机、执行次数、判据和评分；保留真实实现，不能照抄参考仓库的预留行为。
+
+按主指南第5节分阶段实施：骨架与契约 → 保留静态评价 → 提取一多单用例执行与验证 → 接 EvalScope → 扩展其他场景 → 复评/对照 → 清理旧结构。
+统一主入口为 harmonyeval run task.yaml，源码放根目录 harmonyeval。
+新增场景通过用例集、执行、验证、评分适配器连接，不复制主调度器或为 scenario 添加专用分支。
+完整字段查《字段参考》，各场景配置查《18份YAML示例》，具体桥接查《实现参考》；本机路径和密钥不要照抄。
+
+边检查边实施，每阶段做相应自验证；业务口径无法从代码确定时再提出具体问题。
+结束时列出已改内容、保留的 static_eval/一多能力、实际验证命令和结果、尚需外部环境才能验证的项目。
 ```
 
-以统一汇总数据作为报告源，验证器只保留复核所需的证据文件，不再为统一对象重复生成多个用途重叠的 JSON。EvalScope 缓存文件通过适配层管理，不额外复制一份；后续可重建的中间物使用系统临时目录。
-
-缓存按阶段区分：执行缓存由输入、被测目标和模型设置决定；验证缓存再加入验证器与工具版本；评分缓存再加入规则版本。规则修改可从已有验证结果重新计算，验证规则变更可复用 Agent 产物。缓存失配要明确说明，不能串用不同 with/without 的结果。
-
-建议增加 `plan`、`verify`、`rescore` 命令；`run` 仍为主入口。它们是使用已有结果的阶段操作，不自动恢复已删除的“失败用例重试”功能。
-
-报告支持场景标签，但界面由实际指标生成；不能写死“所有任务都有 L1/L2/L3”。对照报告同时展示得分变化、执行成功率、配对覆盖率和能力实际调用情况。
-
-## 14. 建议代码结构与实施顺序
-
-```text
-src/harmony_eval/
-  cli.py
-  config/         # YAML Schema、旧字段兼容、TaskSpec、TaskPlan
-  compat/         # EvalScope 版本边界与公共数据转换
-  datasets/       # 一多、库迁移、安卓迁移、文本问答
-  targets/        # Skill/Plugin/HarmonyBot/Knowledge/HTTP 的装载规则
-  execution/      # OpenCode、HarmonyBot 发行版、HTTP 协议、模型代理
-  verification/   # 注册表、依赖流程、各验证器
-  scoring/        # 注册表、Boolean/Weighted/Immediate、汇总
-  reporting/      # 通用报告与对照视图
-```
-
-实施顺序：
-
-1. 建立 TaskSpec、接口契约和注册表；接入 EvalScope 原生生命周期，将已有一多行为迁移进去并验证结果口径一致。
-2. 实现 OpenCode 能力组合、任意 Agent 选择和 Skill/Plugin 对照；建立可复用的模型代理链路。
-3. 接入文本数据集、MCP 知识库和 HTTP 目标，验证这些任务不需要工程和设备也能运行。
-4. 接入三方库与安卓迁移用例适配，补构建、API/行为测试和对应报告。
-5. 验证独立扩展包新增验证器、组合工作流及评分器，无需修改核心流程。
-
-这是同一方案的交付顺序，最终支持矩阵必须覆盖五类场景，不能只留下类型名称与空实现。
-
-验收至少包含：两种输入类型端到端；切换三个实际 HarmonyBot Agent；Skill 与 Plugin 能加载及关闭；知识库两组仅 MCP 有差异；HTTP 的样本映射与会话隔离；真实失败与基础设施异常区分；相同产物更换评分规则复算；新增扩展不改核心调度。
-
-## 15. 实施时仍需补齐的业务资料
-
-- 三方库和安卓迁移的首批样例工程，以及可用于判断功能正确的测试/预期；框架可支持多种验收方式，但不能凭空产生可信的完整行为规范。
-- HTTP Agent 的请求/响应样例、认证和是否流式/异步；声明式协议字段据此校准。
-- AGCDetection 的实际服务/工具接口、CloudTest 文本类别对应的服务类别，以及白盒是否覆盖三方库和安卓迁移的 rubric。
-
-这些影响具体适配器和样例，不影响上述框架分层。`static_eval` 的业务定义按确认继续预留。
-
-## 参考实现
-
-- [EvalScope DataAdapter 与贡献基准说明](https://evalscope.readthedocs.io/en/latest/advanced_guides/add_benchmark.html)
-- [EvalScope 注册表：Benchmark、Evaluator、Metric、Runner](https://github.com/modelscope/evalscope/blob/main/evalscope/api/registry.py)
-- [EvalScope DefaultEvaluator](https://github.com/modelscope/evalscope/blob/main/evalscope/evaluator/evaluator.py)
-- [EvalScope Agent 评测说明](https://evalscope.readthedocs.io/en/latest/user_guides/agent/index.html)
-- [EvalScope OpenCode Runner](https://github.com/modelscope/evalscope/blob/main/evalscope/agent/external/runners/opencode.py)
-- [EvalScope 模型代理](https://github.com/modelscope/evalscope/blob/main/evalscope/agent/external/bridge/server.py)
-- [OpenCode Skill 的发现和权限](https://opencode.ai/docs/skills/)
-- [OpenCode Plugin 的配置与自动加载](https://opencode.ai/docs/plugins/)
-- [OpenCode MCP 的装载和开关](https://opencode.ai/docs/mcp-servers/)
+移交时附上本文、三份配套参考文档，以及需要借鉴的扩展指南/Skill。若只给一个 Markdown 文件而不提供被链接的内容，实施 Agent 无法获得完整字段与18份配置。参考仓库源码可访问时同时给出路径或版本；不可访问时，Agent 按接口和验收要求在目标仓库实现，缺业务资料明确说明。

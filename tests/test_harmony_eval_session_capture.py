@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 
-from pyautorun.harmony_eval.session_capture import capture_sessions, session_tool_calls
+from harmonyeval.agent.traces.session_capture import capture_sessions, session_tool_calls
 
 
 class SessionCaptureTest(unittest.TestCase):

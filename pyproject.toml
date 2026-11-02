@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multi-device-autorun-python"
-version = "0.2.0"
-requires-python = ">=3.9"
+name = "harmonyeval"
+version = "0.3.0"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
@@ -17,38 +17,33 @@ eval = [
 ]
 
 [project.scripts]
-autorun = "pyautorun.orchestration.cli:main"
-harmony-eval = "pyautorun.harmony_eval.cli:main"
-autorun-cloudtest = "pyautorun.cloud.cloudtest_cli:main"
-ohostest-case = "pyautorun.devices.ohostest_case:main"
-ohostest-matrix = "pyautorun.devices.ohostest_matrix:main"
-deploy-fold-trigger = "pyautorun.devices.deploy_fold:main"
-autorun-report = "pyautorun.reporting.report_cli:main"
-autorun-archive = "pyautorun.reporting.archive_cli:main"
-ask-opencode = "pyautorun.runtime.ask_opencode:main"
-serve-opencode = "pyautorun.runtime.serve_opencode:main"
-whitebox-evaluate = "pyautorun.whitebox_eval.runtime.local:main"
-whitebox-remote = "pyautorun.whitebox_eval.service.remote:main"
-whitebox-api = "pyautorun.whitebox_eval.service.api:main"
+harmonyeval = "harmonyeval.cli:main"
+ohostest-case = "harmonyeval.integrations.uitest.ohostest_case:main"
+ohostest-matrix = "harmonyeval.integrations.uitest.ohostest_matrix:main"
+deploy-fold-trigger = "harmonyeval.integrations.uitest.deploy_fold:main"
+ask-opencode = "harmonyeval.agent.opencode.ask_opencode:main"
+whitebox-evaluate = "harmonyeval.integrations.whitebox.runtime.local:main"
+whitebox-remote = "harmonyeval.integrations.whitebox.service.remote:main"
+whitebox-api = "harmonyeval.integrations.whitebox.service.api:main"
 
-[tool.setuptools]
-package-dir = {"pyautorun" = "src"}
-packages = [
-  "pyautorun", "pyautorun.cloud", "pyautorun.devices", "pyautorun.orchestration",
-  "pyautorun.reporting", "pyautorun.runtime", "pyautorun.harmony_eval", "pyautorun.whitebox_eval",
-  "pyautorun.whitebox_eval.resources", "pyautorun.whitebox_eval.rules",
-  "pyautorun.whitebox_eval.runtime", "pyautorun.whitebox_eval.scoring",
-  "pyautorun.whitebox_eval.service",
-]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["harmonyeval*"]
+exclude = ["tests*"]
+namespaces = false
 
 [tool.setuptools.package-data]
-"pyautorun.devices" = ["FoldTrigger.ets", "fold-server.py"]
-"pyautorun.reporting" = ["report.css"]
-"pyautorun.whitebox_eval.resources" = [
+"harmonyeval.integrations.uitest" = ["FoldTrigger.ets", "fold-server.py"]
+"harmonyeval.report" = ["report.css"]
+"harmonyeval.integrations.whitebox.resources" = [
   "official_profiles.json",
   "references/risks/*.yaml",
   "references/rules/*.yaml", "references/rules/*.md",
   "references/scoring/*.yaml", "references/scoring/*.json", "references/scoring/*.md",
   "opencode/*.json", "opencode/formatters/*.py", "opencode/prompts/*.md",
   "opencode/skills/*/*.md",
+]
+"harmonyeval.integrations.whitebox" = [
+  "ark_analyzer/*.json", "ark_analyzer/README.md",
+  "ark_analyzer/src/rules/arkfacts/*.ts", "ark_analyzer/dist/rules/arkfacts/*.js",
 ]

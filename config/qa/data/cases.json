@@ -1,0 +1,60 @@
+[
+  {
+    "id": "preferences-storage-mode",
+    "question": "HarmonyOS 用户首选项在 XML 存储模式下调用 put 后是否已经持久化？需要怎样保存？如果使用 GSKV 存储模式，还需要调用 flush 吗？请说明两种模式的差异，并给出官方参考依据。",
+    "reference_answer": "XML 模式的 put 修改缓存，需调用 flush 将缓存数据保存到持久化文件，异步调用应处理完成和失败。GSKV 模式下数据操作会实时落盘，无需调用 flush；不能把 XML 的 flush 要求无条件套用于 GSKV。",
+    "criteria": [
+      "区分缓存写入与持久化",
+      "明确 XML 模式需 flush",
+      "明确 GSKV 实时落盘，无需 flush",
+      "提供与结论一致的官方依据，不虚构接口"
+    ],
+    "reference_documents": [
+      "references/preferences.md"
+    ],
+    "metadata": {
+      "topic": "数据持久化",
+      "reference_date": "2026-11-02",
+      "source_url": "https://developer.huawei.com/consumer/cn/doc/harmonyos-references/js-apis-data-preferences"
+    }
+  },
+  {
+    "id": "prop-one-way-v1",
+    "question": "在 ArkUI 状态管理 V1 中，父组件的 @State 传给子组件的 @Prop 后，父组件更新会同步给子组件吗？子组件修改 @Prop 会反向同步父组件吗？说明原因和适用场景，并给出官方参考依据。",
+    "reference_answer": "@Prop 与父组件建立单向同步：父组件状态变化会更新对应子组件 @Prop；子组件对 @Prop 的修改只在子组件内部生效，不反向修改父组件。适合需要响应父状态、又需要局部修改而不回传的 V1 子组件场景。",
+    "criteria": [
+      "明确这是状态管理 V1",
+      "父到子可以同步",
+      "子到父不会通过 @Prop 反向同步",
+      "说明单向数据流，不能误称双向绑定"
+    ],
+    "reference_documents": [
+      "references/prop.md"
+    ],
+    "metadata": {
+      "topic": "ArkUI 状态管理",
+      "reference_date": "2026-11-02",
+      "source_url": "https://developer.huawei.com/consumer/cn/doc/harmonyos-references/ts-state-management-prop"
+    }
+  },
+  {
+    "id": "window-layout-and-system-bars",
+    "question": "依据当前 HarmonyOS 官方 Window 文档，setWindowLayoutFullScreen(true) 是否等同于隐藏状态栏？控制主窗口系统栏可见性应使用哪个接口，其 names 参数中的 navigation 当前是否有效？还要注意哪些窗口模式和异步完成限制？请给出官方参考依据。",
+    "reference_answer": "setWindowLayoutFullScreen 控制沉浸式布局和系统栏区域避让，不等同于隐藏系统栏。主窗口系统栏可见性使用 setWindowSystemBarEnable；当前文档说明通过 status 控制，navigation 参数无效果。接口返回不表示显示或隐藏动画已经完成；主窗口在非全屏/最大化模式下配置不生效，进入相应模式后才生效，具体设备差异以文档为准。",
+    "criteria": [
+      "区分布局避让和系统栏可见性",
+      "指出 setWindowSystemBarEnable",
+      "符合当前文档中 navigation 参数无效果的说明",
+      "说明返回时机不等于显示/隐藏已完成",
+      "说明非全屏/最大化模式限制，不泛化到全部窗口"
+    ],
+    "reference_documents": [
+      "references/window.md"
+    ],
+    "metadata": {
+      "topic": "窗口与沉浸式",
+      "reference_date": "2026-11-02",
+      "source_url": "https://developer.huawei.com/consumer/cn/doc/harmonyos-references/arkts-apis-window-window"
+    }
+  }
+]

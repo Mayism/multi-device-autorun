@@ -5,10 +5,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from pyautorun.harmony_eval.api_inventory import inventory
-from pyautorun.harmony_eval.core import EvalCase, ExecutionResult
-from pyautorun.harmony_eval.verification import capture_verification_inputs, pipeline
-from pyautorun.harmony_eval.score_rules import calculate_scores
+from harmonyeval.integrations.code.api_inventory import inventory
+from harmonyeval.api.contracts import EvalCase, ExecutionResult
+from harmonyeval.verification.pipeline import capture_verification_inputs, pipeline
+from harmonyeval.metrics.scoring import calculate_scores
 
 
 class APICountTest(unittest.TestCase):

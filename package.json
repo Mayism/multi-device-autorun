@@ -1,6 +1,6 @@
 {
-  "name": "multi-device-autorun",
-  "version": "0.2.0",
+  "name": "harmonyeval",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -9,22 +9,22 @@
   "scripts": {
     "postinstall": "npm run build:whitebox",
     "build": "npm run build:whitebox",
-    "build:whitebox": "tsc -p src/whitebox_eval/ark_analyzer/tsconfig.arkfacts.json",
-    "autorun": "python3 -m pyautorun.cli",
-    "ohostest:case": "python3 -m pyautorun.ohostest_case",
-    "ohostest:matrix": "python3 -m pyautorun.ohostest_matrix",
-    "deploy:fold": "python3 -m pyautorun.deploy_fold",
-    "whitebox:start": "python3 -m pyautorun.whitebox_api",
-    "whitebox:evaluate": "python3 -m pyautorun.whitebox_local",
-    "whitebox:remote": "python3 -m pyautorun.whitebox_remote",
-    "whitebox:api": "python3 -m pyautorun.whitebox_api",
-    "whitebox:dev": "python3 -m pyautorun.whitebox_local",
+    "build:whitebox": "tsc -p harmonyeval/integrations/whitebox/ark_analyzer/tsconfig.arkfacts.json",
+    "ohostest:case": "python3 -m harmonyeval.integrations.uitest.ohostest_case",
+    "ohostest:matrix": "python3 -m harmonyeval.integrations.uitest.ohostest_matrix",
+    "deploy:fold": "python3 -m harmonyeval.integrations.uitest.deploy_fold",
+    "whitebox:start": "python3 -m harmonyeval.integrations.whitebox.service.api",
+    "whitebox:evaluate": "python3 -m harmonyeval.integrations.whitebox.runtime.local",
+    "whitebox:remote": "python3 -m harmonyeval.integrations.whitebox.service.remote",
+    "whitebox:api": "python3 -m harmonyeval.integrations.whitebox.service.api",
+    "whitebox:dev": "python3 -m harmonyeval.integrations.whitebox.runtime.local",
     "test": "npm run test:python && npm run test:whitebox",
-    "test:autorun": "npm run test:python",
-    "test:ohostest": "python3 -m unittest pyautorun.tests.test_ohostest_case -q",
+    "test:ohostest": "python3 -m unittest tests.integrations.test_ohostest_case -q",
     "test:whitebox": "npm run build:whitebox",
-    "test:python": "python3 -m unittest discover -s src/tests -q",
-    "lint": "npm run build:whitebox"
+    "test:python": "python3 -m unittest discover -s tests -q",
+    "lint": "npm run build:whitebox",
+    "harmonyeval": "python3 -m harmonyeval",
+    "test:harmonyeval": "python3 -m unittest discover -s tests -p \"test_harmony_eval*.py\" -q"
   },
   "dependencies": {
     "arkanalyzer": "^1.0.90"

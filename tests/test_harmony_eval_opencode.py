@@ -14,14 +14,17 @@ from unittest.mock import patch
 
 import yaml
 
-from pyautorun.harmony_eval.task import load_task
-from pyautorun.harmony_eval.runner import check_task, run_task, load_report
-from pyautorun.harmony_eval.report import compare_reports
+from harmonyeval.config import load_task
+from harmonyeval.evaluator.preflight import check_task
+from harmonyeval.evaluator.runner import run_task
+from harmonyeval.report.io import load_report
+from harmonyeval.report.comparison import compare_reports
 
 
 class ModelService(BaseHTTPRequestHandler):
     requests = []
     delay_after_tool = 0
+    mcp_first = False
 
     def log_message(self, *args):
         pass
@@ -30,10 +33,19 @@ class ModelService(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         type(self).requests.append(body)
         tools = {t['function']['name']: t for t in body.get('tools', [])}
-        called = any(message.get('role') == 'tool' for message in body.get('messages', []))
+        called = any(message.get('role') == 'tool' and message.get('tool_call_id') != 'fixture_mcp'
+                     for message in body.get('messages', []))
+        mcp_called = any(message.get('role') == 'tool' and message.get('tool_call_id') == 'fixture_mcp'
+                         for message in body.get('messages', []))
+        mcp_name = next((name for name in tools if name.startswith('fixture_knowledge_')), None)
         if called and type(self).delay_after_tool:
             time.sleep(type(self).delay_after_tool)
-        if 'bash' in tools and not called:
+        if type(self).mcp_first and mcp_name and not mcp_called:
+            message = {'role': 'assistant', 'content': 'Read conversion knowledge.', 'tool_calls': [{
+                'id': 'fixture_mcp', 'type': 'function', 'function': {'name': mcp_name,
+                                                                    'arguments': json.dumps({'query': 'conversion'})}}]}
+            finish = 'tool_calls'
+        elif 'bash' in tools and not called:
             message = {'role': 'assistant', 'content': 'Preparing conversion.', 'tool_calls': [{
                 'id': 'test_write', 'type': 'function', 'function': {'name': 'bash', 'arguments': json.dumps({
                     'command': "printf 'export function add(a, b) { return a + b; }\\n' > index.js",
@@ -66,8 +78,115 @@ class ModelService(BaseHTTPRequestHandler):
             pass  # A timeout test intentionally closes an in-flight model stream.
 
 
+class MCPService(BaseHTTPRequestHandler):
+    methods = []
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+        method = request.get('method')
+        type(self).methods.append(method)
+        if 'id' not in request:
+            self.send_response(202)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if method == 'initialize':
+            result = {'protocolVersion': request['params']['protocolVersion'], 'capabilities': {'tools': {}},
+                      'serverInfo': {'name': 'fixture-knowledge', 'version': '1.0'}}
+        elif method == 'tools/list':
+            result = {'tools': [{'name': 'search', 'description': 'Find conversion knowledge.',
+                                'inputSchema': {'type': 'object', 'properties': {'query': {'type': 'string'}}}}]}
+        elif method == 'tools/call':
+            result = {'content': [{'type': 'text', 'text': 'Preserve the exported add API.'}]}
+        else:
+            result = {}
+        payload = json.dumps({'jsonrpc': '2.0', 'id': request['id'], 'result': result}).encode()
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
 @unittest.skipUnless(os.environ.get('HARMONY_EVAL_INTEGRATION') == '1' and shutil.which('opencode'), 'requires real OpenCode opt-in')
 class OpenCodeIntegration(unittest.TestCase):
+    def test_fixed_plugin_with_mcp_experiments_and_local_model(self):
+        ModelService.requests = []
+        ModelService.mcp_first = True
+        ModelService.delay_after_tool = 0
+        MCPService.methods = []
+        self.addCleanup(setattr, ModelService, 'mcp_first', False)
+        services = []
+        for handler in (ModelService, MCPService):
+            service = ThreadingHTTPServer(('127.0.0.1', 0), handler)
+            threading.Thread(target=service.serve_forever, daemon=True).start()
+            self.addCleanup(service.server_close)
+            self.addCleanup(service.shutdown)
+            services.append(service)
+        model, mcp = services
+        with tempfile.TemporaryDirectory(prefix='harmony-eval-mcp-live-') as temporary:
+            root = Path(temporary)
+            host = root / 'global/opencode'
+            host.mkdir(parents=True)
+            installed = Path.home() / '.config/opencode'
+            for name in ('package.json', 'package-lock.json', 'bun.lock'):
+                if (installed / name).is_file():
+                    shutil.copy2(installed / name, host / name)
+            if (installed / 'node_modules').is_dir():
+                shutil.copytree(installed / 'node_modules', host / 'node_modules')
+            (host / 'opencode.json').write_text('{}')
+            plugin = root / 'fixture-converter'
+            plugin.mkdir()
+            (plugin / 'package.json').write_text(json.dumps({'type': 'module', 'main': 'index.js'}))
+            (plugin / 'index.js').write_text("export default async () => ({config(c) {c.agent ??= {}; c.agent['fixture-converter'] = {mode:'primary', prompt:'Complete conversion with available tools.'};}});")
+            source = root / 'data/library'
+            source.mkdir(parents=True)
+            (source / 'input.java').write_text('public class Source {}')
+            (root / 'mcp.json').write_text(json.dumps({'mcp': {'fixture_knowledge': {
+                'type': 'remote', 'url': f'http://127.0.0.1:{mcp.server_port}/mcp', 'oauth': False, 'enabled': True}}}))
+            raw = {'schema_version': 2, 'id': 'fixed-plugin-mcp', 'scenario': 'LibraryMigration',
+                   'target': {'type': 'plugin_agent', 'dir': str(plugin)},
+                   'dataset': {'type': 'library-migration', 'dir': 'data', 'layout': 'repositories',
+                               'instruction': 'Convert input.java to index.js in the project root.',
+                               'expected': {'reference_answers': ['Converted']}},
+                   'experiments': [{'id': name, 'overrides': {'mcp': {'fixture_knowledge': {'enabled': flag}}}}
+                                   for name, flag in [('without_mcp', False), ('with_mcp', True)]],
+                   'plugin_agent': {'execution': {'engine': 'opencode', 'agent_name': 'fixture-converter',
+                        'timeout': 90, 'idle_timeout': 60, 'without_enable': False, 'opencode': {'config_path': 'mcp.json'},
+                        'model': {'name': 'fixture-model', 'base_url': f'http://127.0.0.1:{model.server_port}/v1',
+                                  'api_key': 'fixture-secret.for-local-model'}},
+                        'verification': [{'id': 'answer', 'type': 'ExactMatch'},
+                                         {'id': 'usage', 'type': 'ToolUsage', 'target_mcp': 'fixture_knowledge'}],
+                        'scoring': [{'dimension': 'quality', 'type': 'ImmediateValue', 'source': 'answer.metrics.score'}],
+                        'report': {'output_dir': 'reports'}}}
+            path = root / 'task.yaml'
+            path.write_text(yaml.safe_dump(raw))
+            with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(root / 'global')}):
+                task = load_task(path)
+                plan = check_task(task)
+                self.assertTrue(plan['ready'], plan)
+                self.assertEqual([p['capabilities']['mcp']['fixture_knowledge']['enabled'] for p in plan['experiments']], [False, True])
+                self.assertTrue(all('fixture-converter' in p['capabilities']['available_agents'] for p in plan['experiments']))
+                outcome = asyncio.run(run_task(task, lambda _: None))
+                run_root = Path(outcome['runRoot'])
+                summary = json.loads((run_root / 'experiments-report.json').read_text())
+                self.assertEqual(outcome['exitCode'], 0, summary)
+                off = load_report(run_root / 'experiments/without_mcp')[1]
+                on = load_report(run_root / 'experiments/with_mcp')[1]
+                self.assertEqual(off['records'][0]['verification']['usage']['metrics']['attempted'], 0)
+                self.assertGreater(on['records'][0]['verification']['usage']['metrics']['succeeded'], 0)
+                self.assertIn('tools/call', MCPService.methods)
+                self.assertTrue((run_root / 'comparisons/with_mcp/comparison.json').is_file())
+                for report in (off, on):
+                    record = report['records'][0]
+                    self.assertIn('fixture-converter', record['execution']['capabilities']['selected_plugins'])
+                    self.assertTrue((Path(record['execution']['project']) / 'index.js').is_file())
+                self.assertFalse((source / 'index.js').exists())
+                self.assertEqual(json.loads((root / 'mcp.json').read_text())['mcp']['fixture_knowledge']['enabled'], True)
+
     def test_plugin_with_without_and_real_model_proxy_conversion(self):
         ModelService.requests = []
         ModelService.delay_after_tool = 0

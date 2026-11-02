@@ -1,4 +1,4 @@
-# 一多适配：沿用 autorun.config.json 的用例目录、HarmonyBot 和三台设备配置。
+# 一多适配：本 YAML 完整配置用例目录、HarmonyBot 和三台设备，不依赖旧 JSON。
 # 模型配置复制自 task.library-plugin.with.yaml；白盒评分默认使用同一模型。
 # 全量运行 /Users/mayism/cases 下有效用例；可在 dataset 下添加 case_ids: [bookread-template-derive-base]。
 # Agent 总时限和主会话静默时限沿用三方库任务；UITest 总时限为 7200 秒。
@@ -28,7 +28,7 @@ harmonybot_agent:
       api_type: openai_api
       name: glm-5.3
       base_url: https://open.bigmodel.cn/api/coding/paas/v4
-      api_key: ZHIPU_API_KEY
+      api_key: "ZHIPU_API_KEY"
     concurrency: 3
   verification:
   - id: ui

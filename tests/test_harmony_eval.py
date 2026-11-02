@@ -12,14 +12,18 @@ from unittest.mock import patch
 
 import yaml
 
-from pyautorun.harmony_eval import dataset_adapters  # Register built-in datasets for direct adapter tests.
-from pyautorun.harmony_eval.task import load_task
-from pyautorun.harmony_eval.core import datasets, verifiers, VerificationResult, ExecutionResult
-from pyautorun.harmony_eval.runner import run_task, replay, load_report, verification_identity
-from pyautorun.harmony_eval.report import compare_reports
-from pyautorun.harmony_eval.score_rules import calculate_scores
-from pyautorun.harmony_eval.model import resolve_api_key
-from pyautorun.harmony_eval.verification import pipeline
+from harmonyeval import benchmarks  # Register built-in datasets for direct adapter tests.
+from harmonyeval.config import load_task
+from harmonyeval.api.registry import datasets, verifiers
+from harmonyeval.api.contracts import VerificationResult, ExecutionResult
+from harmonyeval.evaluator.runner import run_task
+from harmonyeval.evaluator.replay import replay
+from harmonyeval.report.io import load_report
+from harmonyeval.evaluator.identity import verification_identity
+from harmonyeval.report.comparison import compare_reports
+from harmonyeval.metrics.scoring import calculate_scores
+from harmonyeval.models.compatibility import resolve_api_key
+from harmonyeval.verification.pipeline import pipeline
 
 
 class Service(BaseHTTPRequestHandler):
