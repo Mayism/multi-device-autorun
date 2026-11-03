@@ -49,15 +49,15 @@ python -m pip install -e '.[eval]'
 |---|---|
 | 默认任务 | [config/task.yaml](config/task.yaml)，当前选择本机 thirdcase 的插件评测 |
 | 一多适配 | [task.multidev.yaml](config/task.multidev.yaml) |
-| 三方库有/无插件 | [with](config/task.library-plugin.with.yaml)、[without](config/task.library-plugin.without.yaml) |
+| 三方库单组/一键有无插件对照 | [with](config/task.library-plugin.with.yaml)、[without](config/task.library-plugin.without.yaml) |
 | 三方库插件固定，有/无 MCP | [task.library-plugin.mcp.yaml](config/task.library-plugin.mcp.yaml)，一次执行两组并自动比较 |
-| API 升级有/无 Skill | [with](config/task.api-upgrade.with.yaml)、[without](config/task.api-upgrade.without.yaml) |
+| API 升级单组/一键有无 Skill 对照 | [with](config/task.api-upgrade.with.yaml)、[without](config/task.api-upgrade.without.yaml) |
 | 知识问答有/无 MCP、智能客服 URL | [问答任务说明](config/qa/README.md)，统一读取 [data/cases.json](config/qa/data/cases.json) |
 | 各类型通用模板 | [config/examples](config/examples) |
 
 `dataset` 选择用例适配器，`target.type` 决定同名的活动目标块；该块定义 `execution`、`verification`、`scoring` 和 `report`。`execution.enviroment` 配置 deveco_home、flutter_home、java_home、sdk_home。UITest、CloudTest 和白盒均在 verification 中声明，评分器通过 source 引用其指标。
 
-被测 Plugin 由 target.dir 装载，Agent 由 execution.agent_name 指定。Skill/Plugin 的 without_enable 控制目标能力是否加载。MCP 完整定义来自 OpenCode JSON，顶层 experiments 只覆盖指定服务器的 enabled；各组保留相同的能力、Agent、模型、用例和评分。密钥使用环境变量名，不提交真实凭据。
+被测 Plugin 由 target.dir 装载，Agent 由 execution.agent_name 指定。Skill/Plugin 的 without_enable=true 表示一次任务先跑不加载对象的 without 组，再跑加载的 with 组并自动比较；false/省略只跑 with。Plugin 的 without 组默认使用 build，可用 without_agent_name 指定其他宿主 Agent。MCP 完整定义来自 OpenCode JSON，顶层 experiments 只覆盖指定服务器的 enabled；各组保留相同的能力、Agent、模型、用例和评分。密钥使用环境变量名，不提交真实凭据。
 
 一多用例保留 base/或task/、PROMPT.md、metadata.json、test_patch.patch 和 golden_patch.patch；迁移类用例支持 case.yaml 或仓库目录；文本类使用 JSON/JSONL。用例准备、执行、评估和评分使用独立适配器，新增验证器和评分器可通过 Python entry points 注册。
 
@@ -65,7 +65,7 @@ python -m pip install -e '.[eval]'
 
 单组结果位于 `report.output_dir/<run_id>/`，包含 task-report.json、index.html、脱敏任务快照、EvalScope 产物，以及 `variants/<组名>/round-XX/cases/<用例ID>/` 下的工程、change.patch、generate/agent-output.json/html/events.jsonl/stderr.jsonl 和 verification 证据。一多的 metadata 和 golden/test 补丁在 Agent 结束后归档；UITest 结果位于 verification/<验证器ID>/。
 
-配置 experiments 时，批次根目录生成 experiments-report.json 和 index.html，各组位于 experiments/<ID>/，对比位于 comparisons/<后续组ID>/；第一组为基准。verify/rescore/compare 指向单组子目录。评分平均值只使用有效证据，并展示覆盖率。
+启用 without_enable 或配置 MCP experiments 时，批次根目录生成 experiments-report.json 和 index.html，各组位于 experiments/<ID>/，对比位于 comparisons/<后续组ID>/；第一组为基准。verify/rescore/compare 指向单组子目录。评分平均值只使用有效证据，并展示覆盖率。
 
 运行配置、数据库和可清理的评估副本放在系统临时目录。隔离工作目录不是操作系统文件访问沙箱。
 

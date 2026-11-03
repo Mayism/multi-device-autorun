@@ -25,7 +25,8 @@ def load_capabilities(config, task, runtime, original, config_root):
     selected_skills = [dict(item) for item in oc.get("skills", [])]
     if kind == "skills" and not selected_skills:
         selected_skills = [{"path": task["target"]["dir"], "activation": "auto"}]
-    disabled = execution.get("without_enable", False)
+    # without_enable requests an additional group; only a resolved without child disables the target.
+    disabled = not task.get('experiment', {}).get('overrides', {}).get('capability', {}).get('enabled', True)
     bin_dir = runtime / "bin"
     bin_dir.mkdir(exist_ok=True)
     loaded_plugins = []

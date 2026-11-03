@@ -1,4 +1,4 @@
-"""Validate and expand controlled MCP experiments."""
+"""Expand automatic capability comparisons and explicit MCP experiments."""
 
 from copy import deepcopy
 from harmonyeval.utils.paths import safe_id
@@ -9,6 +9,8 @@ def validate_experiments(task):
         raise ValueError('experiment 是运行时字段；请使用 experiments 数组')
     if 'experiments' not in task:
         return
+    if task['active']['execution'].get('without_enable'):
+        raise ValueError('without_enable 对照不能与 MCP experiments 同时启用；一次只对照一种能力开关')
     items = task['experiments']
     if not isinstance(items, list) or not items or len(items) > 100:
         raise ValueError('experiments 必须为非空数组，最多 100 组')
@@ -41,14 +43,32 @@ def validate_experiments(task):
         servers = set(mcp)
 
 
+def has_experiments(task):
+    """A resolved child must never be expanded into its own comparison again."""
+    return 'experiment' not in task and (
+        'experiments' in task or task['active']['execution'].get('without_enable', False))
+
+
 def expand_experiments(task):
-    if 'experiments' not in task:
+    if not has_experiments(task):
         return [task]
+    execution = task['active']['execution']
+    if execution.get('without_enable'):
+        agents = {'with': execution['agent_name'],
+                  'without': execution.get('without_agent_name') or (
+                      'build' if task['target']['type'] == 'plugin_agent' else execution['agent_name'])}
+        specifications = [
+            {'id': name, 'overrides': {'capability': {'enabled': name == 'with'}}, 'agents': agents}
+            for name in ('without', 'with')]
+    else:
+        specifications = task['experiments']
     children = []
-    for specification in task['experiments']:
+    for specification in specifications:
         child = deepcopy(task)
-        child.pop('experiments')
+        child.pop('experiments', None)
         child['experiment'] = deepcopy(specification)
         child['variant'] = specification['id']
+        if 'capability' in specification['overrides']:
+            child['active']['execution']['agent_name'] = specification['agents'][specification['id']]
         children.append(child)
     return children

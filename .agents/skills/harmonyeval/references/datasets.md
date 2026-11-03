@@ -16,7 +16,7 @@
 
 - 主入口是 `harmonyeval run <task.yaml>`；schema_version 当前为 `2`。
 - `execution.agent_name` 指实际注册的 Agent ID。被测 Plugin 由 `target` 装载，不重复放入 plugin_agent 的 `execution.opencode.plugins`。
-- 被测 Skill/Plugin 的 `execution.without_enable: true` 关闭目标能力；只支持 `skills`/`plugin_agent`。MCP 的完整定义放在 OpenCode JSON，通过 `execution.opencode.config_path` 加载；同一任务比较可用 `experiments` 覆盖指定 MCP 的 enabled。
+- 被测 Skill/Plugin 的 `execution.without_enable: true` 启用一次任务的 without+with 对照；false/省略只跑 with，只支持 `skills`/`plugin_agent`。Plugin 的 without 组默认使用 build，可用 without_agent_name 指定；Skill 默认沿用相同 Agent。MCP 的完整定义放在 OpenCode JSON，通过 `execution.opencode.config_path` 加载；同一任务比较可用 `experiments` 覆盖指定 MCP 的 enabled。
 - 对照应保持同一用例、提示词、Agent、模型和评分规则，明确唯一变化的能力。不要为 Agent 本身评测自动构造“没有 Agent”的对照。
 - 工具链路径字段拼写为 `execution.enviroment`，例如 `deveco_home`、`flutter_home`；不要新增 `runtime_config`/`execution.runtime`。
 - 内置路径字段相对于 YAML 所在目录解析；新增字段不会自动获得路径规范化。模型密钥填写环境变量名，不写入 Skill 或示例。

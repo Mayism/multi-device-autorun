@@ -51,8 +51,9 @@ def inspect_runtime(prepared, agent, workspace):
         text = json.dumps(redact(effective), sort_keys=True).replace(str(prepared["runtime"]), "$RUNTIME")
         text = text.replace(str(workspace), "$WORKSPACE")
         manifest["mcp_comparison_effective_fingerprint"] = fingerprint(text)
-    if manifest.get("without_enable"):
-        if manifest.get("selected_plugins") or manifest.get("selected_skills"):
+    if manifest.get('target_enabled') is False:
+        selected = 'selected_plugins' if manifest.get('target_type') == 'plugin_agent' else 'selected_skills'
+        if manifest.get(selected):
             raise ValueError("without 组发现被测能力残留")
         for name in manifest.get("disabled_names", []):
             if name in registered or any(name in str(p) for p in loaded.get("plugin", [])):

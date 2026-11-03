@@ -45,6 +45,8 @@ def _run_single_sync(task, on_log=print, cancel_event=None, output_root=None):
     if task.get('experiment'):
         shared = deepcopy(task)
         shared.pop('experiment')
+        if 'capability' in task['experiment']['overrides']:
+            shared['active']['execution']['agent_name'] = task['experiment']['agents']['with']
         identities['experiment_context_fingerprint'] = execution_identity(shared, benchmark.cases)
     on_log(f"[harmonyeval] {task['id']}：{checked['cases']}个用例 × {checked['rounds']}轮，{task['variant']}")
     error = None

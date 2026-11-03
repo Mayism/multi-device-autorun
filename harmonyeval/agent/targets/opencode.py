@@ -16,7 +16,7 @@ from harmonyeval.agent.capabilities.config import merge, read_config, resolve_re
 
 
 class OpenCodeTarget:
-    version = "1"
+    version = "2"
     engine = "opencode"
 
     def source(self, task):
@@ -91,7 +91,8 @@ class OpenCodeTarget:
         path.chmod(0o600)
         manifest = {"engine": "opencode", "distribution": source["distribution"],
                     "binary": source["binary"], "agent": execution["agent_name"],
-                    "without_enable": disabled, "selected_plugins": loaded_plugins,
+                    "without_enable": execution.get('without_enable', False),
+                    "target_type": kind, "target_enabled": not disabled, "selected_plugins": loaded_plugins,
                     "selected_skills": loaded_skills, "required_skills": required_skills,
                     "disabled_names": [str(p.get("id") or p.get("package") or Path(p.get("source", "")).name)
                                        for p in selected_plugins] if disabled and kind == "plugin_agent" else
@@ -99,7 +100,7 @@ class OpenCodeTarget:
                                        for p in selected_skills] if disabled and kind == "skills" else [],
                     "mcp": redact(config.get("mcp", {})), "config_fingerprint": fingerprint(redact(config))}
         manifest["host_config_fingerprint"] = fingerprint(host_text)
-        if task.get("experiment"):
+        if task.get("experiment", {}).get('overrides', {}).get('mcp'):
             controlled = sorted(task["experiment"]["overrides"]["mcp"])
             comparison = deepcopy(config)
             for name in controlled:

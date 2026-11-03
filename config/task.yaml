@@ -22,7 +22,7 @@ skills:
       base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
       api_key: DASHSCOPE_API_KEY
     timeout: 900
-    without_enable: true
+    without_enable: true  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
   verification:
   - type: UITest
     deveco_home: xxxx
@@ -83,7 +83,7 @@ plugin_agent:
   execution:
     engine: opencode
     agent_name: hmos-library-adapter-fast
-    without_enable: false
+    without_enable: false  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
     timeout: 3600
     idle_timeout: 3600 # 子Agent运行时主会话可能长期无输出，保留总时限控制
     enviroment:
@@ -151,7 +151,7 @@ knowledge:
     format: html
 knowledge_agent:
   rounds: 1
-  without_enable: true
+  without_enable: true  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
   without_process: python命令
   host_target:
     type: skills/harmonybot_agent/plugin_agent

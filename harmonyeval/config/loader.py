@@ -144,6 +144,9 @@ def load_task(path):
             raise ValueError("without_enable 仅用于 skills/plugin_agent；MCP 请修改 opencode.json")
         if not isinstance(execution["without_enable"], bool):
             raise ValueError("without_enable 必须是布尔值")
+    if 'without_agent_name' in execution:
+        if kind not in ('skills', 'plugin_agent') or not isinstance(execution['without_agent_name'], str) or not execution['without_agent_name'].strip():
+            raise ValueError('without_agent_name 仅用于 skills/plugin_agent，且必须为非空 Agent ID')
     env = object_value(execution.setdefault("enviroment", {}), "enviroment")
     for key, value in env.items():
         if value:
@@ -194,7 +197,7 @@ def load_task(path):
     if not report.get("output_dir") or report.get("format", "html") not in ("html", "json"):
         raise ValueError("report 需要 output_dir，format 支持 html/json")
     report["output_dir"] = resolve(source.parent, report["output_dir"])
-    task["variant"] = "without" if execution.get("without_enable") else "with"
+    task["variant"] = "with"
     from harmonyeval.experiments.config import validate_experiments
     validate_experiments(task)
     return task

@@ -16,7 +16,7 @@ skills:
     agent_name: build
     timeout: 1800
     idle_timeout: 300
-    without_enable: true
+    without_enable: true  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
     enviroment:
       deveco_home: /Applications/DevEco-Studio.app/Contents
     model:

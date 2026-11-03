@@ -3,7 +3,7 @@
 # 通过不代表已验证旧行为保持不变；如需验收该目标，须另行补充断言。
 # --check 只验证配置和能力装载，不验证 AGC 身份、配额、签名或远端设备可用性。
 # 独立 OpenCode + API 升级 Skill；工程用例复用一多目录适配器。
-# 提示词逐字读取每个用例的 PROMPT.md；两组均使用 build，仅切换目标 Skill 加载。
+# 提示词逐字读取每个用例的 PROMPT.md；with 组使用 build；without_enable=true 时自动追加同 Agent 的关闭组。
 # Skill 默认 activation=auto；加载不代表实际使用，调用记录见 agent-output。
 # 云测试沿用现有默认类别 24；需要 AGC_TEAM_ID、AGC_PROJECT_ID。
 # 云认证取 config/agc-cookie.txt 的非空内容，或环境变量 AGC_AUTH_INFO。
@@ -25,7 +25,7 @@ skills:
   execution:
     engine: opencode
     agent_name: build
-    without_enable: true
+    without_enable: true  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
     timeout: 3600
     idle_timeout: 3600
     concurrency: 1

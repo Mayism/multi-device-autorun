@@ -14,21 +14,51 @@ def compare_reports(first, second, output):
         raise ValueError('两组场景或评测对象不同，不能计算同一能力的效果差值')
     experiments = bool(first.get('experiment') or second.get('experiment'))
     controlled = []
+    capability_comparison = False
     if experiments:
         if not first.get('experiment') or not second.get('experiment'):
             raise ValueError('experiments 报告必须与另一实验组报告比较')
-        controlled = sorted(first['experiment']['overrides']['mcp'])
-        if controlled != sorted(second['experiment']['overrides']['mcp']):
-            raise ValueError('两组实验控制的 MCP 不同')
+        a_control, b_control = first['experiment']['overrides'], second['experiment']['overrides']
+        if set(a_control) != set(b_control):
+            raise ValueError('两组对照控制的能力类型不同')
+        capability_comparison = 'capability' in a_control
+        if capability_comparison:
+            if first['target']['type'] not in ('skills', 'plugin_agent'):
+                raise ValueError('能力加载对照仅支持 Skill/Plugin')
+            agents = first['experiment'].get('agents')
+            if not agents or agents != second['experiment'].get('agents'):
+                raise ValueError('两组对照 Agent 声明不一致')
+            for report in (first, second):
+                group = report['experiment']
+                enabled = group['overrides']['capability'].get('enabled')
+                if group['id'] not in ('with', 'without') or enabled is not (group['id'] == 'with'):
+                    raise ValueError('能力对照组 ID 与启用状态不一致')
+                if report['execution_config'].get('agent_name') != agents[group['id']]:
+                    raise ValueError('实际 Agent 与能力对照声明不一致')
+        else:
+            controlled = sorted(a_control['mcp'])
+            if controlled != sorted(b_control['mcp']):
+                raise ValueError('两组实验控制的 MCP 不同')
         if (not first.get('experiment_context_fingerprint') or
                 first['experiment_context_fingerprint'] != second.get('experiment_context_fingerprint')):
-            raise ValueError('实验公共输入、模型或能力来源发生变化，不能只归因于 MCP 开关')
+            raise ValueError('实验公共输入、模型或能力来源发生变化，不能只归因于能力开关')
     for key in set(left) & set(right):
         if left[key]['input_fingerprint'] != right[key]['input_fingerprint']:
             raise ValueError(f'用例输入不一致: {key}')
         a = left[key]['execution'].get('capabilities', {})
         b = right[key]['execution'].get('capabilities', {})
-        if experiments:
+        if capability_comparison:
+            selected = 'selected_plugins' if first['target']['type'] == 'plugin_agent' else 'selected_skills'
+            for report, manifest in ((first, a), (second, b)):
+                expected = report['experiment']['overrides']['capability']['enabled']
+                if manifest.get('target_enabled') is not expected or bool(manifest.get(selected)) != expected:
+                    raise ValueError('实际评测能力加载状态与对照声明不一致')
+                if manifest.get('agent') != report['execution_config']['agent_name']:
+                    raise ValueError('实际加载的 Agent 与对照配置不一致')
+                if not manifest.get('host_config_fingerprint'):
+                    raise ValueError('缺少宿主配置证据，无法比较')
+            host_equal = a['host_config_fingerprint'] == b['host_config_fingerprint']
+        elif experiments:
             for report, manifest in ((first, a), (second, b)):
                 if manifest.get('mcp_comparison_servers') != controlled or not manifest.get('mcp_comparison_fingerprint'):
                     raise ValueError('缺少实验 MCP 配置证据，无法比较')
@@ -50,8 +80,9 @@ def compare_reports(first, second, output):
         raise ValueError('两组评估流程或评分规则不同，不能计算效果差值')
     def execution_settings(data):
         config = dict(data['execution_config'])
-        if not experiments:
+        if capability_comparison or not experiments:
             config.pop('agent_name', None)
+        if not experiments:
             config.pop('without_enable', None)
         # MCP experiments commonly use separate JSON files. Actual resolved host
         # fingerprints above, rather than file names, determine comparability.

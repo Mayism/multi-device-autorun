@@ -49,7 +49,7 @@
 | description | string | 可选 | 可读任务描述，不参与 type 映射 |
 | dataset | object | 必填 | 数据集定义，见 3 |
 | target | object | 必填 | 被测对象及装载来源，见 4 |
-| experiments | array<object> | 可选，非空，最多 100 组 | 仅 OpenCode；逐组覆盖已定义 MCP 的 enabled，第一组作为比较基准；完整字段见[实验配置](harmony-eval-implementation-reference.md#71-experiments固定被测能力比较-mcp-开关) |
+| experiments | array<object> | 可选，非空，最多 100 组 | 仅 OpenCode；逐组覆盖已定义 MCP 的 enabled，第一组作为比较基准；不能与 without_enable=true 同时使用；完整字段见[实验配置](harmony-eval-implementation-reference.md#71-experiments固定被测能力比较-mcp-开关) |
 | 与 target.type 同名的顶层块 | object | 必填 | 实际读取的 rounds/execution/verification/scoring/report；其余块可保留作模板 |
 | static_eval | 任意配置对象 | 可选，位于目标块 | 参考仓库仅预留；目标仓库已有实现时保留其字段、调用和计分语义，按主指南第 3 节迁移 |
 
@@ -155,7 +155,8 @@ target 公共/插件专用字段：
 | timeout | integer | 默认 900 | 正整数，执行总预算，秒；不等于验证总预算 |
 | idle_timeout | integer | 默认 300 | 正整数，仅 opencode 主 CLI stdout 静默计时；不能当成子 Agent 全局心跳 |
 | concurrency | integer | 默认 1 | 样本并发数，正整数；设备仍需资源锁协调 |
-| without_enable | boolean | skills/plugin_agent 默认 false | false 加载被测能力，true 关闭；只执行当前一组，不自动执行另一组。其他内置目标出现该字段会报错 |
+| without_enable | boolean | skills/plugin_agent 默认 false | 是否启用 without 对比测试；true 自动先跑不加载对象的 without，再跑加载对象的 with 并比较；false/省略只跑 with。仅 skills/plugin_agent，不与 MCP experiments 同时启用 |
+| without_agent_name | string | 可选 | without 组的宿主 Agent；Plugin 默认 build，Skill 默认沿用 agent_name；仅 skills/plugin_agent |
 | enviroment | object | 默认空对象 | 沿用当前拼写；全部非空值按目录路径解析，不放 URL、开关或普通文本 |
 | opencode | object | 默认空对象，可整体省略 | 仅执行引擎的 binary/config_path 和额外能力配置，不是任务配置文件 |
 
@@ -381,7 +382,7 @@ HTTP 请求替换仅支持 `${case.question}`、`${case.case_id}`、`${env:环�
 
 不能再使用的字段：runtime_config、execution.runtime、迁移 expected.output_kind/output_project；不要新增 comparison 来代替 without_enable，不将 distribution 与 engine 重复配置。历史 knowledge_agent/host_target/without_process 仅保留未启用模板，不是本地 MCP 评测入口。scoring_preset 暂无自动展开实现；ToolUsage.mode 除观测外无其他行为；Judge.input 选择器不存在。
 
-source、base_dir、active、variant 是生成的内部字段，用户不需要填写，也不能用它们覆盖运行身份。原单组任务的 variant 由 without_enable 推导为 with/without；没有 without_enable 的直接 Agent/MCP 单组运行也使用 with 目录名，不代表 MCP 已启用。配置 experiments 后子任务的 variant 为对应实验 ID；experiment 是展开后的运行时字段，不能在 YAML 中直接填写。
+source、base_dir、active、variant 是生成的内部字段，用户不需要填写，也不能用它们覆盖运行身份。单组任务的 variant 为 with，不代表 MCP 已启用。without_enable=true 自动展开 without、with 两个实验子组；字段不再表示本次只跑关闭组。配置 experiments 后子任务的 variant 为对应实验 ID；experiment 是展开后的运行时字段，不能在 YAML 中直接填写。
 
 ### 11. 最小引用示例
 

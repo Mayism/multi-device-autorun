@@ -18,7 +18,7 @@ plugin_agent:
   execution:
     engine: opencode
     agent_name: hmos-library-adapter-fast
-    without_enable: false
+    without_enable: false  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
     timeout: 3600
     idle_timeout: 3600 # 子Agent运行时主会话可能长期无输出，保留总时限控制
     enviroment:

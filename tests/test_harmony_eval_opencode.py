@@ -239,12 +239,14 @@ class OpenCodeIntegration(unittest.TestCase):
                 checked = check_task(load(raw))
                 self.assertIn('fixture-converter', checked['capabilities']['agents'])
                 baseline = deepcopy(raw)
-                baseline['plugin_agent']['execution'].update({'without_enable': True, 'agent_name': 'build'})
+                baseline['plugin_agent']['execution']['without_enable'] = True
                 without = check_task(load(baseline))
-                self.assertNotIn('fixture-converter', without['capabilities']['agents'])
-                self.assertFalse(without['capabilities']['plugin'])
-                outcome = asyncio.run(run_task(load(raw), lambda _: None))
-                _, report = load_report(outcome['runRoot'])
+                self.assertEqual(without['experimentCount'], 2)
+                self.assertNotIn('fixture-converter', without['experiments'][0]['capabilities']['agents'])
+                self.assertFalse(without['experiments'][0]['capabilities']['plugin'])
+                outcome = asyncio.run(run_task(load(baseline), lambda _: None))
+                run_root = Path(outcome['runRoot'])
+                _, report = load_report(run_root / 'experiments/with')
                 record = report['records'][0]
                 self.assertEqual(record['execution']['status'], 'completed', record['execution'])
                 self.assertEqual(outcome['exitCode'], 0, record['verification'])
@@ -260,10 +262,10 @@ class OpenCodeIntegration(unittest.TestCase):
                 captured = json.loads(Path(record['execution']['usage']['trace']).read_text())
                 self.assertEqual(captured['session_capture']['mode'], 'sqlite-readonly', captured['session_capture'])
                 self.assertTrue(captured['model_trace'])
-                baseline_outcome = asyncio.run(run_task(load(baseline), lambda _: None))
-                _, baseline_report = load_report(baseline_outcome['runRoot'])
-                self.assertEqual(baseline_outcome['exitCode'], 0, baseline_report['records'][0])
+                _, baseline_report = load_report(run_root / 'experiments/without')
+                self.assertEqual(baseline_report['records'][0]['execution']['status'], 'completed')
                 self.assertNotIn('fixture-converter', baseline_report['records'][0]['execution']['capabilities']['agents'])
+                self.assertTrue((run_root / 'comparisons/with/comparison.json').is_file())
                 comparison = compare_reports(baseline_report, report, root / 'comparison')
                 self.assertTrue(Path(comparison).is_file())
                 self.assertTrue((global_root / 'plugins/fixture-converter.js').is_symlink())
@@ -279,7 +281,7 @@ class OpenCodeIntegration(unittest.TestCase):
                 partial_trace = json.loads(Path(partial['usage']['trace']).read_text())
                 self.assertTrue(partial_trace['model_trace']['events'])
                 self.assertEqual(partial_trace['session_capture']['mode'], 'sqlite-readonly')
-                for run_root in (outcome['runRoot'], baseline_outcome['runRoot']):
+                for run_root in (outcome['runRoot'], timed_outcome['runRoot']):
                     for path in Path(run_root).rglob('*'):
                         if path.is_file() and path.suffix in ('.json', '.jsonl', '.yaml', '.html'):
                             self.assertNotIn('fixture-secret.for-local-model', path.read_text(), str(path))

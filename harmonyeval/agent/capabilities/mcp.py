@@ -9,7 +9,7 @@ def apply_mcp_overrides(config, experiment):
         return config
     result = deepcopy(config)
     servers = result.get('mcp', {})
-    for name, override in experiment['overrides']['mcp'].items():
+    for name, override in experiment['overrides'].get('mcp', {}).items():
         server = servers.get(name)
         if not isinstance(server, dict) or server.get('type') not in ('local', 'remote'):
             raise ValueError(f'experiments MCP 未定义: {name}；请在基础 OpenCode 配置中声明')

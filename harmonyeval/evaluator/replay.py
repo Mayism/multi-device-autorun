@@ -5,7 +5,7 @@ from pathlib import Path
 from harmonyeval.api.registry import datasets
 from harmonyeval.api.contracts import ExecutionResult
 from harmonyeval.report.task import write_task_report
-from harmonyeval.experiments.config import expand_experiments
+from harmonyeval.experiments.config import expand_experiments, has_experiments
 from harmonyeval.metrics.scoring import calculate_scores
 from harmonyeval.verification.pipeline import pipeline
 from harmonyeval.evaluator.identity import execution_identity, scoring_identity, verification_identity
@@ -15,11 +15,13 @@ from harmonyeval.experiments.runner import refresh_experiments_report
 
 def replay(task, previous, verify=False):
     root, data = load_report(previous)
-    if 'experiments' in task:
+    if has_experiments(task):
         match = [child for child in expand_experiments(task) if child['experiment'] == data.get('experiment')]
         if not match:
-            raise ValueError('报告的实验 ID 或 MCP 开关与当前 experiments 不一致')
+            raise ValueError('报告的实验 ID、能力或 MCP 开关与当前对照配置不一致')
         task = match[0]
+    elif data.get('experiment') != task.get('experiment'):
+        raise ValueError('报告的实验组与当前对照配置不一致')
     cases = datasets.get(task['dataset']['type'])().load(task['dataset'])
     if execution_identity(task, cases) != data['execution_fingerprint']:
         raise ValueError('执行输入、模型、目标或能力配置已变化，不能复用旧结果')

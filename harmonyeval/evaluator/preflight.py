@@ -7,13 +7,13 @@ from importlib import metadata
 from pathlib import Path
 from harmonyeval.api.registry import datasets, targets, verifiers
 from harmonyeval.utils.security import redact
-from harmonyeval.experiments.config import expand_experiments
+from harmonyeval.experiments.config import expand_experiments, has_experiments
 from harmonyeval.agent.targets.inspection import inspect_runtime
 from harmonyeval.evaluator.identity import walk_flows
 
 
 def check_task(task, inspect=True):
-    if 'experiments' not in task:
+    if not has_experiments(task):
         return _check_single_task(task, inspect)
     plans = []
     for child in expand_experiments(task):
@@ -23,7 +23,7 @@ def check_task(task, inspect=True):
             plan = {'ready': False, 'missing': [], 'error': str(error)}
         plans.append({'experiment': child['experiment'], **plan})
     return {'taskId': task['id'], 'scenario': task['scenario'], 'experimentCount': len(plans),
-            'baseline': task['experiments'][0]['id'], 'experiments': plans,
+            'baseline': plans[0]['experiment']['id'], 'experiments': plans,
             'ready': all(plan['ready'] for plan in plans)}
 
 

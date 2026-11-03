@@ -192,7 +192,7 @@ static_eval 仍按目标仓库已有语义运行。它是否针对能力配置�
 
 ### 阶段 6：支持复评、重算和多组实验
 
-- **做什么**：实现 verify、rescore、compare；分别记录输入、执行、验证和评分的摘要，用来判断旧结果能否复用。experiments 在临时运行副本覆盖 MCP 开关。
+- **做什么**：实现 without_enable 自动双组、verify、rescore、compare；分别记录输入、执行、验证和评分的摘要，用来判断旧结果能否复用。Skill/Plugin 对照无需声明 experiments；MCP 多组实验仍用 experiments，在临时运行副本覆盖 MCP 开关。两种对照不能同时启用。
 - **交付**：旧工程可重新验证、旧指标可重新算分；各组结果独立，并有严格的配对比较。
 - **验收**：verify/rescore 不再次调用生成 Agent；输入或能力变化拒绝错误复用；缺少转换前快照不能拿生成后代码补造。规则改动后旧差值不继续展示。
 
@@ -250,7 +250,7 @@ harmonybot_agent:
 - **enviroment** 就保留这个拼写，表示 SDK/工具链路径；不再加 execution.runtime 或 runtime_config。
 - **agent_name** 是实际注册的 Agent ID；Plugin 包名不必然等于 Agent ID。
 - **knowledge/http_agent** 表示请求 HTTP 问答后端；MCP 定义放 OpenCode JSON，不放 knowledge 块。
-- **without_enable** 只关闭目标 Skill/Plugin。对 MCP 开关用配置文件或 experiments；测 HarmonyBot Agent 本身不用自动生成“没有 Agent”的组。
+- **without_enable** 表示是否启用目标 Skill/Plugin 的 without 对照：true 一次跑 without 和 with 并自动比较，false/省略只跑 with。无需额外的 experiments；Plugin 的 without Agent 默认 build，可用 without_agent_name 指定。对 MCP 开关用配置文件或 experiments；测 HarmonyBot Agent 本身不用自动生成“没有 Agent”的组。
 - 迁移输入可用 case.yaml+source/，或 repositories 布局；文本输入用 JSON/JSONL。各工程用例的目标根是自己的 base/，不使用共享可写输出目录。
 
 ## 7. 怎样接入 EvalScope

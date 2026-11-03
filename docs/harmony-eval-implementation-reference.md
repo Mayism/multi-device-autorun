@@ -80,7 +80,7 @@ flowchart TD
 
 默认复用 DefaultEvaluator 的样本调度和缓存。不复制一套通用线程池，也不同时运行旧 `run_batch` 的整批调度。旧代码拆出单用例执行、设备验证、白盒验证等可复用组件后接入。
 
-配置规范化确定本次 with/without 状态，check_task 展示执行计划，HarmonyBenchmarkAdapter 按 rounds 展开样本，EvalScope 负责调度；当前没有独立 TaskPlan 数据类。without_enable 不自动生成另一组任务。EvalScope repeats 固定为 1，避免和 YAML rounds 双重展开。
+配置规范化确定本次 with/without 状态，check_task 展示执行计划，HarmonyBenchmarkAdapter 按 rounds 展开样本，EvalScope 负责调度；当前没有独立 TaskPlan 数据类。without_enable=true 先展开 without/with 两组，每组再按 rounds 展开用例。EvalScope repeats 固定为 1，避免和 YAML rounds 双重展开。
 
 ### 2.1. benchmark、dataset 和 evaluator 的区别
 
@@ -273,40 +273,33 @@ HTTP 后端是不可控的远端 Agent 时，框架仅统一请求、返回和�
 
 HTTP 目标已通过 `HttpAgentModelAPI` 包装请求/响应协议接入 EvalScope；ExecutionAdapter 每个样本只触发一次这条请求链路，用 endpoint/target ID 标识被测系统，避免 LazyModel 把它误当作本地模型下载。这个 ModelAPI 表示整个远端系统，不声称知道内部 LLM。Judge 使用独立配置的真实 Model；目标身份与内部生成模型身份分别记录。
 
-## 7. without_enable：本次运行是否加载被测能力
+## 7. without_enable：是否追加 without 对照
 
-`without_enable` 直接决定当前这次运行的能力状态，不自动生成两组任务：
+`execution.without_enable` 现在表示“是否启用 without 对比测试”，不是本次运行的加载状态：
 
-- 对 Skill/Plugin 目标，false（默认）加载目标能力，true 不加载目标能力，只运行当前指定的一组。
-- 对 Agent 有无 MCP 的任务，MCP 状态直接由 OpenCode JSON 的 enabled 决定；without_enable 不承担 MCP 开关功能。
+| 值 | 一次任务的执行内容 |
+|---|---|
+| false 或省略 | 只跑加载评测对象的 with 组 |
+| true | 先跑不加载对象的 without，再跑加载对象的 with，自动汇总与比较 |
 
-Skill/Plugin 对比时，分别设置 without_enable 为 false、true 运行两次。Agent 的 MCP 对比时，YAML 保持相同，仅修改 opencode.json 中目标 MCP 的 enabled 运行两次；再按 case_id 和轮次汇总两个运行结果。数据集不复制。
-
-新 MCP 对照也可在一份 YAML 中使用顶层 experiments 自动执行各组并比较，适用于固定 Plugin/Skill/Agent 再切换 MCP；完整规则见下一节。without_enable 在所有实验组中保持相同。
-
-| target.type | 配置位置 | true 时的行为 |
-|---|---|---|
-| `skills` | skills.execution.without_enable | 不加载被选中的目标 Skill，保留公共宿主能力 |
-| `plugin_agent` | plugin_agent.execution.without_enable | 不加载目标 Plugin，也不保留它注册的 Agent、工具或注入内容 |
-| `harmonybot_agent` | 不配置 without_enable | MCP 的有无只读取 opencode.json 的 mcp.<server>.enabled |
-| `opencode_agent` | 不配置 without_enable | MCP 的有无只读取 opencode.json 的 mcp.<server>.enabled |
-| `knowledge` / `http_agent` | 不启用 without | 智能问答或通用 HTTP 请求；如需对比不同后端，分别配置任务 |
-
-Skill/Plugin 目标适配器根据 target.dir 和选择清单识别被测能力及其归属，开关该能力时不需要额外的禁用清单。MCP 清单则来自引擎实际加载的 OpenCode 配置。公共宿主能力必须单独声明，不能与目标能力混在一起随意删除。
-
-`execution.agent_name` 始终表示本次实际执行的 Agent。目标 Plugin 关闭后，如果该 Agent 也由它注册，就无法继续使用该 Agent：without 配置应选择仍存在的宿主 Agent，例如 build。预检发现缺失时明确报错，不自动回退或保留已关闭插件的 Agent 定义。
+仅适用于 skills/plugin_agent。基础配置的 agent_name 指加载组的实际 Agent；Skill 的 without 组默认沿用相同 Agent，Plugin 的 without 组默认使用宿主 build，避免调用已经随 Plugin 消失的 Agent。需要其他宿主时显式配置 without_agent_name。
 
 ```yaml
 plugin_agent:
   execution:
     engine: opencode
-    agent_name: build
-    without_enable: true    # 本次不加载目标 Plugin
+    agent_name: hmos-library-adapter-fast
+    without_enable: true
+    # without_agent_name: build  # 可省略，Plugin 默认 build
 ```
 
-Agent 有无知识库的两次运行保持同一 target.type 和 agent_name，YAML 保持不变，只在实际加载的 opencode.json 或其独立副本中修改目标 MCP 的 enabled。配置的关键不变量必须在执行计划中记录，报告比较时核验样本、公开提示词、模型参数、宿主能力和工具预算。
+不需要声明 experiments。内部仍复用实验分组、预检、运行和比较机制，各组元数据写入报告的 experiment，用户不用填写该运行时字段。without_enable 在两组配置中均表示对照请求；实际是否加载请看 execution.capabilities.target_enabled、selected_plugins/selected_skills 和组别。
 
-每个执行单元以 (task_id, run_id, round, case_id) 唯一标识；experiments 为每组创建独立子运行及实验 ID。报告记录 Skill/Plugin 开关和每个 MCP 的最终 enabled 状态；MCP 状态不从 without_enable 推断。展示名称不参与身份判定。跨运行比较按 case_id 和轮次配对；模型服务不支持 seed 时明确记录。
+两组用例、提示词、模型、验证和评分相同，工程、临时运行环境与日志独立。Plugin 若使用不同 Agent，这表示完整插件能力方案相对宿主 Agent 的差异，不把它解释为只改某条规则。without 组失败仍继续 with；证据不足时不补0分、不伪造差值。
+
+结果根目录包含 experiments-report.json、index.html、experiments/without/、experiments/with/ 和 comparisons/with/。verify/rescore 指向单组目录，仍使用同一份 YAML，复评后刷新汇总和比较。false/省略时保持原单组输出布局。
+
+MCP 完整服务器定义仍在 opencode.json；单纯切换 MCP 不能通过 without_enable 完成。MCP 多组控制保留下面的 experiments，且不能与 without_enable=true 同时启用，以免把多个变化混在一次对照中。
 
 ### 7.1. experiments：固定被测能力，比较 MCP 开关
 
@@ -468,7 +461,7 @@ L3 = 白盒最终总分
 ## 10. YAML 兼容与选择规则
 
 - 已取消 runtime_config；execution.runtime 已更名为 execution.enviroment，保留该拼写，不再重复声明 runtime/distribution。
-- Skill/Plugin 对照使用 without_enable，不再配置 comparison。expected.output_kind/output_project 已取消；产物类型由提示词定义，公共工程目录约定为各样本自身的 base/，不让多用例共写一个目录。
+- Skill/Plugin 对照使用 without_enable=true 自动执行两组，不配置 comparison 或额外 experiments。expected.output_kind/output_project 已取消；产物类型由提示词定义，公共工程目录约定为各样本自身的 base/，不让多用例共写一个目录。
 - 增加 `schema_version: 2`；保留 `id/description/scenario/dataset/target`。
 - 保留 skills/harmonybot_agent/plugin_agent/http_agent/knowledge 各配置块，增加正式的 opencode_agent 配置块。knowledge_agent 只作为历史模板字段保留，不再要求本地 MCP 任务选择它。
 - 根据 `target.type` 选择生效配置块；其他块可保留为模板，除被显式引用的宿主配置外不参与执行。 选择必须按完整类型名精确匹配，不能按 knowledge 前缀或是否为文本数据集判断任务类型。

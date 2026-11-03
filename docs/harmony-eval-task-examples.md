@@ -12,13 +12,13 @@
 
 | 任务文件 | 活动目标 / Agent | 模型 | 验证与评分 |
 |---|---|---|---|
-| [config/task.yaml](../config/task.yaml) | plugin_agent / hmos-library-adapter-fast；目标能力加载 | glm-4.7 | LibraryAPICount、whiteboxeval → api_count_consistency、L3 |
+| [config/task.yaml](../config/task.yaml) | plugin_agent / hmos-library-adapter-fast；只跑 with | glm-4.7 | LibraryAPICount、whiteboxeval → api_count_consistency、L3 |
 | [config/task.multidev.yaml](../config/task.multidev.yaml) | harmonybot_agent / harmonyos-multi-device | glm-5.3 | UITest、whiteboxeval → L1、L2、L3 |
-| [config/task.library-plugin.with.yaml](../config/task.library-plugin.with.yaml) | plugin_agent / hmos-library-adapter-fast；目标能力加载 | glm-5.3 | LibraryAPICount、whiteboxeval → api_count_consistency、L3 |
-| [config/task.library-plugin.without.yaml](../config/task.library-plugin.without.yaml) | plugin_agent / build；目标能力关闭 | glm-5.3 | LibraryAPICount、whiteboxeval → api_count_consistency、L3 |
-| [config/task.library-plugin.mcp.yaml](../config/task.library-plugin.mcp.yaml) | plugin_agent / hmos-library-adapter-fast；目标能力加载；MCP 两组 | glm-5.3 | LibraryAPICount、whiteboxeval、ToolUsage → api_count_consistency、L3 |
-| [config/task.api-upgrade.with.yaml](../config/task.api-upgrade.with.yaml) | skills / build；目标能力加载 | glm-5.3 | UITest、CloudTest → uitest、cloud_test |
-| [config/task.api-upgrade.without.yaml](../config/task.api-upgrade.without.yaml) | skills / build；目标能力关闭 | glm-5.3 | UITest、CloudTest → uitest、cloud_test |
+| [config/task.library-plugin.with.yaml](../config/task.library-plugin.with.yaml) | plugin_agent / hmos-library-adapter-fast；只跑 with | glm-5.3 | LibraryAPICount、whiteboxeval → api_count_consistency、L3 |
+| [config/task.library-plugin.without.yaml](../config/task.library-plugin.without.yaml) | plugin_agent / hmos-library-adapter-fast；自动 without+with | glm-5.3 | LibraryAPICount、whiteboxeval → api_count_consistency、L3 |
+| [config/task.library-plugin.mcp.yaml](../config/task.library-plugin.mcp.yaml) | plugin_agent / hmos-library-adapter-fast；只跑 with；MCP 两组 | glm-5.3 | LibraryAPICount、whiteboxeval、ToolUsage → api_count_consistency、L3 |
+| [config/task.api-upgrade.with.yaml](../config/task.api-upgrade.with.yaml) | skills / build；只跑 with | glm-5.3 | UITest、CloudTest → uitest、cloud_test |
+| [config/task.api-upgrade.without.yaml](../config/task.api-upgrade.without.yaml) | skills / build；自动 without+with | glm-5.3 | UITest、CloudTest → uitest、cloud_test |
 | [config/qa/huawei-mcp/with/task.yaml](../config/qa/huawei-mcp/with/task.yaml) | opencode_agent / build | glm-5.3 | LLM_judge、ToolUsage → answer_quality |
 | [config/qa/huawei-mcp/without/task.yaml](../config/qa/huawei-mcp/without/task.yaml) | opencode_agent / build | glm-5.3 | LLM_judge、ToolUsage → answer_quality |
 | [config/qa/customer-service/task.yaml](../config/qa/customer-service/task.yaml) | knowledge / HTTP URL | 后端管理；本地桩不调用模型 | ExactMatch → answer_correctness |
@@ -91,17 +91,14 @@ source /tmp/harmony-eval-venv312/bin/activate
 harmonyeval run ./config/task.yaml --check
 harmonyeval run ./config/task.yaml
 
-# 插件开关分别执行；比较时左侧选 without，右侧选 with。
-harmonyeval run ./config/task.library-plugin.with.yaml
+# 一次跑 without+with 并自动比较；历史 without 文件名保留。
 harmonyeval run ./config/task.library-plugin.without.yaml
-harmonyeval compare <without_run_dir> <with_run_dir> --output ./output/comparison
 
 # 原一多配置对应的新 YAML，完整配置见本册 2.1。
 harmonyeval run ./config/task.multidev.yaml --check
 harmonyeval run ./config/task.multidev.yaml
 
-# API 升级 Skill 对照；两组只改变 without_enable。
-harmonyeval run ./config/task.api-upgrade.with.yaml
+# API 升级 Skill 自动双组对照。
 harmonyeval run ./config/task.api-upgrade.without.yaml
 ```
 
@@ -111,7 +108,7 @@ harmonyeval run ./config/task.api-upgrade.without.yaml
 
 ## 2. 各场景完整 YAML
 
-本节及 1.1 同步当前仓库 **18 份任务 YAML**：10 份当前任务配置、8 份 config/examples/ 通用模板。每份都标明源文件，完整保留配置字段与实际参数；config/task.yaml 仅展示生效的 plugin_agent 块，其余未启用的历史块不复制。下表覆盖全部文件，不把模板与本机任务混为同一配置。
+本节及 1.1 同步当前仓库 **18 份任务 YAML**：10 份当前任务配置、8 份 config/examples/ 通用模板。每份都标明源文件，完整保留配置字段与实际参数；without_enable=true 的历史 without 文件现在自动跑两组，不再是仅跑关闭组；config/task.yaml 仅展示生效的 plugin_agent 块，其余未启用的历史块不复制。下表覆盖全部文件，不把模板与本机任务混为同一配置。
 
 快照按 YAML 解析值归一化排版，注释、anchor 和格式不作为运行语义复制。明文 api_key 替换为环境变量名，其他凭据按需占位；max_tokens 等非凭据参数保持原值。复制配置后需要自行设置密钥，不能认为文档中含有原凭据。
 
@@ -121,17 +118,17 @@ harmonyeval run ./config/task.api-upgrade.without.yaml
 |---|---|---|
 | 1.1 | [config/task.yaml](../config/task.yaml) | 默认实际任务，只展示活动 plugin_agent 块 |
 | 2.1 | [config/task.multidev.yaml](../config/task.multidev.yaml) | 本机一多任务，直接评 Agent |
-| 2.2 | [config/examples/task.library-skill.yaml](../config/examples/task.library-skill.yaml) | 三方库 Skill 通用模板，当前关闭组 |
+| 2.2 | [config/examples/task.library-skill.yaml](../config/examples/task.library-skill.yaml) | 三方库 Skill 通用模板，自动双组对照 |
 | 2.3 | [config/task.library-plugin.with.yaml](../config/task.library-plugin.with.yaml) | 本机三方库 Plugin 加载组 |
 | 2.4 | [config/examples/task.android-migration.yaml](../config/examples/task.android-migration.yaml) | Android 迁移通用模板 |
 | 2.5 | [config/examples/task.opencode-agent.yaml](../config/examples/task.opencode-agent.yaml) | 指定 OpenCode Agent 通用模板 |
 | 2.6 | [config/examples/task.mcp-harmonybot.yaml](../config/examples/task.mcp-harmonybot.yaml) | HarmonyBot 有无 MCP 通用模板 |
 | 2.7 | [config/examples/task.mcp-opencode.yaml](../config/examples/task.mcp-opencode.yaml) | 独立 OpenCode 有无 MCP 通用模板 |
 | 2.8 | [config/examples/task.knowledge-http.yaml](../config/examples/task.knowledge-http.yaml) | HTTP 智能问答通用模板 |
-| 2.9 | [config/task.library-plugin.without.yaml](../config/task.library-plugin.without.yaml) | 三方库转换：关闭目标 Plugin |
+| 2.9 | [config/task.library-plugin.without.yaml](../config/task.library-plugin.without.yaml) | 三方库转换：自动 Plugin 有无对照 |
 | 2.10 | [config/task.library-plugin.mcp.yaml](../config/task.library-plugin.mcp.yaml) | 三方库转换：固定 Plugin，比较有无 MCP |
 | 2.11 | [config/task.api-upgrade.with.yaml](../config/task.api-upgrade.with.yaml) | API 升级：加载适配 Skill，使用 UITest 与云测试验收 |
-| 2.12 | [config/task.api-upgrade.without.yaml](../config/task.api-upgrade.without.yaml) | API 升级：关闭适配 Skill |
+| 2.12 | [config/task.api-upgrade.without.yaml](../config/task.api-upgrade.without.yaml) | API 升级：自动 Skill 有无对照 |
 | 2.13 | [config/qa/huawei-mcp/with/task.yaml](../config/qa/huawei-mcp/with/task.yaml) | 共享 JSON 问答：独立 OpenCode 开启华为知识 MCP |
 | 2.14 | [config/qa/huawei-mcp/without/task.yaml](../config/qa/huawei-mcp/without/task.yaml) | 共享 JSON 问答：独立 OpenCode 关闭华为知识 MCP |
 | 2.15 | [config/qa/customer-service/task.yaml](../config/qa/customer-service/task.yaml) | 共享 JSON 问答：HTTP 智能客服本地桩 |
@@ -307,7 +304,7 @@ skills:
 
 配置来源：`config/task.library-plugin.with.yaml`；相对路径以该文件所在目录解析。
 
-本例为实际加载组：without_enable: false，执行插件注册的 hmos-library-adapter-fast。目标插件已配置在独立 OpenCode 的 /Users/mayism/.config/opencode/plugins/hmos-library-adapter-fast。关闭组完整快照见 2.9，除 agent_name: build 和 without_enable: true 外其他配置相同；两组均用 glm-5.3。target.dir 保持一致以标识关闭的被测对象。
+本例为实际加载组：without_enable: false，执行插件注册的 hmos-library-adapter-fast。目标插件已配置在独立 OpenCode 的 /Users/mayism/.config/opencode/plugins/hmos-library-adapter-fast。一键双组对照配置见 2.9；without_enable=true 自动生成 baseline build 和加载组 Agent，两组均用 glm-5.3。target.dir 保持一致以标识关闭的被测对象。
 
 <!-- config-snapshot: config/task.library-plugin.with.yaml -->
 ```yaml
@@ -713,11 +710,11 @@ knowledge:
 
 HTTP 的 JSON、SSE、异步提交/轮询分别由协议适配器实现。`${...}` 仅允许 case.question、case.case_id、env:变量名和轮询 job_id 等已实现替换项。每样本发起独立请求；response.session_id_path 仅提取后端返回的会话 ID，当前没有跨样本多轮会话组调度，不能配置后就声称已支持连续多轮对话。
 
-### 2.9 三方库转换：关闭目标 Plugin
+### 2.9 三方库转换：自动 Plugin 有无对照
 
 配置来源：[config/task.library-plugin.without.yaml](../config/task.library-plugin.without.yaml)；所有相对路径以该源 YAML 所在目录解析。
 
-对应 2.3 的关闭组：保留 target.dir 标识被测插件，without_enable=true，执行宿主 build Agent。两份文件均使用 glm-5.3；由于 Agent ID 也从插件 Agent 切换为 build，这组比较表示完整插件能力方案的差异，不能只归因为插件中的某一条规则。
+历史 without 文件名保留；该文件的 without_enable=true 现在表示一次自动执行两组：without 不加载目标插件并使用 build，with 加载插件并使用 hmos-library-adapter-fast。两组均用相同 glm-5.3 和判据，自动生成差值；无需再单独运行 2.3。Agent ID 的差异表示完整插件能力方案的对照。
 
 <!-- config-snapshot: config/task.library-plugin.without.yaml -->
 ```yaml
@@ -738,7 +735,7 @@ plugin_agent:
   static_eval: {}
   execution:
     engine: opencode
-    agent_name: build
+    agent_name: hmos-library-adapter-fast
     without_enable: true
     timeout: 3600
     idle_timeout: 3600
@@ -939,11 +936,11 @@ skills:
     format: html
 ```
 
-### 2.12 API 升级：关闭适配 Skill
+### 2.12 API 升级：自动 Skill 有无对照
 
 配置来源：[config/task.api-upgrade.without.yaml](../config/task.api-upgrade.without.yaml)；所有相对路径以该源 YAML 所在目录解析。
 
-对应 2.11 的关闭组，without_enable=true；两组保留相同 build Agent、输入提示词、模型以及 UITest/CloudTest 判据。两份文件分别执行，不会由 without_enable 自动生成另一组。
+历史 without 文件名保留；without_enable=true 一次自动跑 without+with，两组使用相同 build Agent、提示词、模型和 UITest/CloudTest 判据。只运行本文件即可，不要再重复运行 2.11。
 
 <!-- config-snapshot: config/task.api-upgrade.without.yaml -->
 ```yaml
@@ -1033,9 +1030,8 @@ skills:
 ```
 
 ```sh
-harmonyeval run ./config/task.api-upgrade.with.yaml
+# 自动运行关闭和加载两组并比较。
 harmonyeval run ./config/task.api-upgrade.without.yaml
-harmonyeval compare <without_run_dir> <with_run_dir> --output ./output/api-upgrade-comparison
 ```
 
 ### 2.13 共享 JSON 问答：独立 OpenCode 开启华为知识 MCP
@@ -1154,7 +1150,7 @@ harmonyeval compare <without_run_dir> <with_run_dir> --output ./output/huawei-mc
 
 配置来源：[config/qa/customer-service/task.yaml](../config/qa/customer-service/task.yaml)；所有相对路径以该源 YAML 所在目录解析。
 
-与 2.13/2.14 共用 config/qa/data/cases.json；请求本地 http://127.1.0.1:18081/answer，发送 case_id 和 question，从 data.answer、data.session_id 提取结果。默认 ExactMatch+ImmediateValue 仅用于验证协议与评测链路，不调用裁判模型；其分数不能直接与 MCP 两组的语义评分比较。
+与 2.13/2.14 共用 config/qa/data/cases.json；请求本地 http://127.0.0.1:18081/answer，发送 case_id 和 question，从 data.answer、data.session_id 提取结果。默认 ExactMatch+ImmediateValue 仅用于验证协议与评测链路，不调用裁判模型；其分数不能直接与 MCP 两组的语义评分比较。
 
 <!-- config-snapshot: config/qa/customer-service/task.yaml -->
 ```yaml

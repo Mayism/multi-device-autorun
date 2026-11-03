@@ -219,6 +219,131 @@ class ExperimentsTest(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertNotIn('experiment', calls[0])
 
+    def capability_raw(self):
+        raw = deepcopy(self.raw)
+        raw.pop('experiments')
+        raw['plugin_agent']['execution']['without_enable'] = True
+        return raw
+
+    def capability_executor(self, calls, fail_without=False):
+        class CapabilityExecutor:
+            async def execute(inner, case, target, context):
+                task = context['task']
+                manifest = deepcopy(target['manifest'])
+                manifest['version'] = 'fixture-1'
+                name = task.get('experiment', {}).get('id', 'with')
+                calls.append({'id': name, 'manifest': manifest, 'project': context['workspace'],
+                              'question': case['question'], 'execution': deepcopy(task['active']['execution'])})
+                if fail_without and name == 'without':
+                    raise RuntimeError('without fixture failed')
+                (Path(context['workspace']) / 'generated.txt').write_text(name)
+                return ExecutionResult('completed', answer='yes' if manifest['target_enabled'] else 'no',
+                                       capabilities=manifest)
+        original = executors.items['opencode']
+        executors.items['opencode'] = CapabilityExecutor
+        self.addCleanup(executors.items.__setitem__, 'opencode', original)
+
+    def test_without_enable_expands_two_groups_and_false_stays_single(self):
+        task = self.task(self.capability_raw())
+        self.assertNotIn('experiments', task)
+        children = expand_experiments(task)
+        self.assertEqual([c['variant'] for c in children], ['without', 'with'])
+        self.assertEqual([c['active']['execution']['agent_name'] for c in children], ['build', 'converter'])
+        self.assertEqual(task['active']['execution']['agent_name'], 'converter')
+        self.assertEqual(expand_experiments(children[0]), [children[0]])
+        plan = check_task(task, inspect=False)
+        self.assertTrue(plan['ready'], plan)
+        self.assertEqual(plan['baseline'], 'without')
+        self.assertEqual([p['capabilities']['target_enabled'] for p in plan['experiments']], [False, True])
+        self.assertEqual([p['capabilities']['selected_plugins'] for p in plan['experiments']], [[], ['converter']])
+        raw = self.capability_raw()
+        raw['plugin_agent']['execution']['without_enable'] = False
+        single = self.task(raw)
+        self.assertEqual(expand_experiments(single), [single])
+        self.assertNotIn('experimentCount', check_task(single, inspect=False))
+        raw['plugin_agent']['execution'].pop('without_enable')
+        self.assertEqual(self.task(raw)['variant'], 'with')
+        raw = self.capability_raw()
+        raw['plugin_agent']['execution']['without_agent_name'] = 'custom-host'
+        self.assertEqual(expand_experiments(self.task(raw))[0]['active']['execution']['agent_name'], 'custom-host')
+        raw = self.capability_raw()
+        raw['experiments'] = deepcopy(self.raw['experiments'])
+        with self.assertRaisesRegex(ValueError, '不能.*同时'):
+            self.task(raw)
+
+    def test_without_comparison_runs_both_groups_replays_and_rejects_wrong_evidence(self):
+        calls = []
+        self.capability_executor(calls)
+        raw = self.capability_raw()
+        task = self.task(raw)
+        outcome = asyncio.run(run_task(task, lambda _: None))
+        self.assertEqual(outcome['exitCode'], 0)
+        root = Path(outcome['runRoot'])
+        self.assertEqual([c['id'] for c in calls], ['without', 'with'])
+        self.assertEqual(calls[0]['question'], calls[1]['question'])
+        self.assertEqual(calls[0]['execution']['model'], calls[1]['execution']['model'])
+        self.assertNotEqual(calls[0]['project'], calls[1]['project'])
+        self.assertFalse((self.root / 'data/source/generated.txt').exists())
+        comparison = json.loads((root / 'comparisons/with/comparison.json').read_text())
+        self.assertEqual(comparison['aggregate']['quality']['mean_delta'], 100)
+        _, off = load_report(root / 'experiments/without')
+        _, on = load_report(root / 'experiments/with')
+        self.assertFalse(off['records'][0]['execution']['capabilities']['target_enabled'])
+        self.assertTrue(on['records'][0]['execution']['capabilities']['target_enabled'])
+        for change in (
+            lambda r: r['execution_config'].update(agent_name='unexpected'),
+            lambda r: r['execution_config']['model'].update(name='other'),
+            lambda r: r['records'][0]['execution']['capabilities'].update(target_enabled=False),
+            lambda r: r['records'][0]['execution']['capabilities'].update(selected_plugins=[]),
+            lambda r: r.update(experiment_context_fingerprint='changed-input'),
+        ):
+            other = deepcopy(on)
+            change(other)
+            with self.assertRaises(ValueError):
+                compare_reports(off, other, self.root / 'invalid-capability-comparison')
+        raw['plugin_agent']['scoring'][0]['scale'] = 0.5
+        for name in ('without', 'with'):
+            replay(self.task(raw), root / 'experiments' / name, verify=True)
+        refreshed = json.loads((root / 'comparisons/with/comparison.json').read_text())
+        self.assertEqual(refreshed['aggregate']['quality']['mean_delta'], 50)
+        self.assertEqual(len(calls), 2)
+        raw['plugin_agent']['execution']['without_enable'] = False
+        with self.assertRaisesRegex(ValueError, '不一致'):
+            replay(self.task(raw), root / 'experiments/with')
+
+    def test_without_skill_keeps_public_plugin_and_same_agent(self):
+        skill = self.root / 'target-skill'
+        skill.mkdir()
+        (skill / 'SKILL.md').write_text('---\nname: converter-skill\ndescription: Convert code\n---\nConvert.')
+        raw = self.capability_raw()
+        block = raw.pop('plugin_agent')
+        raw.update(target={'type': 'skills', 'dir': str(skill)}, skills=block)
+        block['execution']['agent_name'] = 'build'
+        block['execution']['opencode'].update(
+            skills=[{'path': str(skill), 'activation': 'required'}],
+            plugins=[{'source': str(self.plugin), 'id': 'public-plugin'}])
+        task = self.task(raw)
+        plan = check_task(task, inspect=False)
+        self.assertTrue(plan['ready'], plan)
+        self.assertEqual([p['capabilities']['agent'] for p in plan['experiments']], ['build', 'build'])
+        self.assertEqual([p['capabilities']['selected_skills'] for p in plan['experiments']], [[], ['converter-skill']])
+        self.assertEqual([p['capabilities']['required_skills'] for p in plan['experiments']], [[], ['converter-skill']])
+        self.assertEqual([p['capabilities']['selected_plugins'] for p in plan['experiments']], [['public-plugin'], ['public-plugin']])
+        calls = []
+        self.capability_executor(calls)
+        outcome = asyncio.run(run_task(task, lambda _: None))
+        self.assertEqual(outcome['exitCode'], 0)
+
+    def test_without_failure_continues_with_group(self):
+        calls = []
+        self.capability_executor(calls, fail_without=True)
+        outcome = asyncio.run(run_task(self.task(self.capability_raw()), lambda _: None))
+        self.assertEqual(outcome['exitCode'], 1)
+        summary = json.loads((Path(outcome['runRoot']) / 'experiments-report.json').read_text())
+        self.assertEqual([c['id'] for c in calls], ['without', 'with'])
+        self.assertEqual(summary['experiments'][1]['status'], 'completed')
+        self.assertEqual(summary['comparisons'][0]['status'], 'unavailable')
+
 
 if __name__ == '__main__':
     unittest.main()

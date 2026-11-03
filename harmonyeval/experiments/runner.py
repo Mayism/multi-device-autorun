@@ -7,7 +7,7 @@ from uuid import uuid4
 from harmonyeval.utils.security import redact
 from harmonyeval.report.experiments import write_experiments_report
 from harmonyeval.report.comparison import compare_reports
-from harmonyeval.experiments.config import expand_experiments
+from harmonyeval.experiments.config import expand_experiments, has_experiments
 from harmonyeval.evaluator.runner import _run_single_sync, report_exit_code
 from harmonyeval.evaluator.preflight import check_task
 from harmonyeval.report.io import load_report
@@ -36,7 +36,7 @@ def update_experiment_comparisons(summary, reports, root):
 
 
 def _run_sync(task, on_log=print, cancel_event=None):
-    if 'experiments' not in task:
+    if not has_experiments(task):
         return _run_single_sync(task, on_log, cancel_event)
     checked = check_task(task, inspect=False)
     if not checked['ready']:
@@ -49,12 +49,13 @@ def _run_sync(task, on_log=print, cancel_event=None):
     import yaml
     (root / 'task.resolved.yaml').write_text(yaml.safe_dump(
         redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False))
+    children = expand_experiments(task)
     summary = {'schema_version': 2, 'report_type': 'experiments', 'run_id': run_id,
-               'task_id': task['id'], 'baseline': task['experiments'][0]['id'],
+               'task_id': task['id'], 'baseline': children[0]['experiment']['id'],
                'experiments': [], 'comparisons': [], 'status': 'running'}
     reports = {}
     write_experiments_report(summary, root)
-    for child in expand_experiments(task):
+    for child in children:
         if cancel_event is not None and cancel_event.is_set():
             summary['status'] = 'interrupted'
             break

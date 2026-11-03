@@ -59,7 +59,7 @@ experiments:
 - `experiments` 可选；省略时保留原单组执行行为。支持所有 `engine: opencode` 的目标，包括 Plugin、Skill、HarmonyBot Agent、独立 OpenCode Agent，不支持 HTTP 智能问答后端的远端配置覆盖。
 - 每组仅允许 `id`、`overrides.mcp.<名称>.enabled`；`enabled` 必须是布尔值。所有组必须显式列出同一组 MCP 名称，最多 100 组，ID 唯一且满足任务 ID 的格式要求。
 - MCP 必须在基础配置中完整声明，缺少服务器定义或 URL/command 会在开始执行前失败。覆盖只应用到系统临时目录中的运行副本，不改全局配置或基础 JSON。
-- 框架按 YAML 顺序执行各组，每组仍通过 EvalScope 调度全部用例和轮次。各组的模型、提示词、Plugin/Skill、Agent、验证和评分相同；`without_enable` 保持公共值，它控制插件/Skill，不能用作 MCP 开关。
+- 框架按 YAML 顺序执行各组，每组仍通过 EvalScope 调度全部用例和轮次。各组的模型、提示词、Plugin/Skill、Agent、验证和评分相同；`without_enable` 必须为 false/省略，目标插件/Skill 在 MCP 各组均加载；它不能用作 MCP 开关。
 - 第一组作为基准，后续每组自动与其比较，差值为后续组减基准组。只有声明的 MCP enabled 差异被忽略；其他 MCP、URL/command、实际 OpenCode 配置、Agent、模型、能力源、用例或评分变化会拒绝对比。
 - 一组失败仍继续后续组并保留诊断；失败或证据不足不转换为零分。配置和实际装载证据不足时，对比显示 unavailable。任一组执行/评分不完整或比较不可用，命令退出码为 1；有效业务零分不会导致基础设施失败。
 - 示例增加了 `ToolUsage` 观察 MCP 调用。加载成功不代表使用了知识，开启组仍需检查 `mcp_usage` 的调用和成功次数。
@@ -92,7 +92,7 @@ harmonyeval compare <run_dir>/experiments/without_mcp <run_dir>/experiments/with
 
 - `config/task.yaml`：默认选择加载插件的 thirdcase 任务，其他配置块保留为目录，只有 target.type 对应的块生效。
 - `config/task.library-plugin.with.yaml`：独立 OpenCode + hmos-library-adapter-fast Agent。
-- `config/task.library-plugin.without.yaml`：不加载目标 Plugin，使用宿主 build Agent。
+- `config/task.library-plugin.without.yaml`：历史文件名保留，without_enable=true，现在一次执行 without+with 并自动比较；无需再运行 with 文件。
 
 当前模型配置有区别，运行前按实际文件选择：
 
@@ -100,10 +100,10 @@ harmonyeval compare <run_dir>/experiments/without_mcp <run_dir>/experiments/with
 |---|---|---|
 | `config/task.yaml` | `glm-4.7`，`max_tokens: 8192`，`temperature: 0.7` | 默认加载插件 |
 | `config/task.library-plugin.with.yaml` | `glm-5.3`，未显式指定生成参数 | 加载插件 |
-| `config/task.library-plugin.without.yaml` | `glm-5.3`，未显式指定生成参数 | 关闭插件 |
+| `config/task.library-plugin.without.yaml` | `glm-5.3`，未显式指定生成参数 | 自动 without+with 两组 |
 | `config/task.multidev.yaml` | `glm-5.3`，未显式指定生成参数 | HarmonyBot 一多 Agent |
 
-未指定时当前模型适配器默认 `max_tokens: 4096`、`temperature: 0`、`retries: 1`。因此默认 task.yaml 和独立 without 任务目前不是只改变插件开关的对照组；应使用配套 with/without 文件比较。
+未指定时当前模型适配器默认 `max_tokens: 4096`、`temperature: 0`、`retries: 1`。因此默认 task.yaml 和独立 without 任务目前不是只改变插件开关的对照组；需对照时直接运行 without_enable=true 的一键对照任务。
 
 两份配置都读取 `/Users/mayism/thirdcase`；当前识别到 `advanced_in_app_review`。源目录不修改，执行工程复制到每个样本的产物目录。Plugin、配置和数据库放入系统临时目录；关闭组会同时移除目标 Plugin 的配置引用、自动发现入口和关联技能。运行不会修改现有独立 OpenCode/HarmonyBot 配置。
 
@@ -114,14 +114,16 @@ harmonyeval compare <run_dir>/experiments/without_mcp <run_dir>/experiments/with
 # 两者均使用智谱 Coding Plan 专用接口。
 # 仅在api_key填写ZHIPU_API_KEY变量名时需要export；直接填密钥时省略。
 export ZHIPU_API_KEY='your-key'
-harmonyeval run ./config/task.library-plugin.with.yaml --check
-harmonyeval run ./config/task.library-plugin.with.yaml
+# 一次跑两组并自动比较，不再分别运行 with/without 文件。
+harmonyeval run ./config/task.library-plugin.without.yaml --check
 harmonyeval run ./config/task.library-plugin.without.yaml
 ```
 
 当前本机插件任务使用 `https://open.bigmodel.cn/api/coding/paas/v4`，与智谱普通API端点不同，按[智谱官方OpenCode接入说明](https://docs.bigmodel.cn/cn/coding-plan/tool/opencode)配置。白盒评估省略 model 时继承同一配置。
 
-这不是自动生成两组：without_enable=false/true 各执行一组。插件关闭后，它注册的 Agent 不存在，所以 without 组需要明确配置仍可用的 build。当前 Flutter 库还需要实际 Flutter SDK，在 execution.enviroment.flutter_home 配置；本机默认 PATH 尚未发现 flutter。
+without_enable=true 自动执行不加载对象的 without 与加载对象的 with；false/省略只跑 with。agent_name 指 with 组 Agent；Plugin 的 without 组默认 build，可用 without_agent_name 指定其他宿主 Agent。Skill 两组默认同一 Agent。当前 Flutter 库还需要实际 Flutter SDK，在 execution.enviroment.flutter_home 配置；本机默认 PATH 尚未发现 flutter。
+
+该字段语义已从“本次关闭对象”改为“追加 without 对照”。旧版本 true 只跑一个关闭组，不能把这种旧报告直接当作新双组任务复用。新任务的汇总入口为批次 index.html；两组位于 experiments/without/、experiments/with/，自动差值位于 comparisons/with/。verify/rescore 仍使用同一 YAML，但 --run 指向其中一个单组目录。
 
 当前三方库配置使用 LibraryAPICount 和独立白盒评估，输出 api_count_consistency（0—100）与 L3；不启用 LibraryTests / LibraryAPICompatibility，因此不要求先准备构建/功能验收命令和 API 映射。数量检查通过不能据此宣称通过编译、设备验证或功能验收；这些评估器可后续按需启用。
 
@@ -246,7 +248,7 @@ coverage 是声明的目标符号覆盖率，行为等价仍需功能测试。�
 
 `execution.engine` 选择执行器，`execution.enviroment` 配置 deveco_home、flutter_home、sdk_home、java_home。独立 OpenCode 的 binary/config_path 放在 execution.opencode。HarmonyBot 自动定位有效 Bundle，并在私有副本合并 config_path；不会用仅含 MCP 的补充配置覆盖原有 Agent/Plugin 定义。
 
-runtime_config 已取消；execution.runtime 已更名为 enviroment。产物根目录固定为各用例的 base/，不再设置 expected.output_kind/output_project。Skill/Plugin 对照使用 without_enable，不配置 comparison；harmonybot_agent/opencode_agent 不接受该开关。MCP 基础配置来自实际 opencode.json；可通过 experiments 在运行副本中覆盖 enabled。
+runtime_config 已取消；execution.runtime 已更名为 enviroment。产物根目录固定为各用例的 base/，不再设置 expected.output_kind/output_project。Skill/Plugin 对照使用 without_enable=true 自动跑两组，无需 comparison 或 experiments；harmonybot_agent/opencode_agent 不接受该开关。MCP 基础配置来自实际 opencode.json；可通过 experiments 在运行副本中覆盖 enabled。
 
 verification 的条目是完整评估流程，不单列编译节点。支持 UITest、CloudTest、LibraryAPICount、LibraryTests、LibraryAPICompatibility、whiteboxeval、LLM_judge、ExactMatch、ToolUsage、Command、SkillVerifier 和 Workflow。id 用于评分引用，depends_on 表达流程间的结果依赖；各流程在独立工程副本执行，设备按目标地址串行占用。评估器可选实现异步 capture_input(case, config)，在 Agent 执行前冻结 JSON 输入证据；后续 verify 读取相同证据。
 

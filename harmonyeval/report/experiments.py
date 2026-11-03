@@ -30,7 +30,7 @@ def write_experiments_report(payload, output):
             'pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><h1>Harmony Eval · ' + escape(payload['task_id']) +
             '</h1><p>状态：' + escape(payload['status']) + '；基准组：' + escape(payload['baseline']) +
             '。对比差值为当前组减基准组；缺失证据不计零分。</p><table><tr><th>实验组</th><th>状态</th>'
-            '<th>MCP 开关</th><th>评分</th><th>诊断</th></tr>' + ''.join(rows) +
+            '<th>评测能力开关</th><th>评分</th><th>诊断</th></tr>' + ''.join(rows) +
             '</table><h2>配对比较</h2><ul>' + ''.join(comparisons) + '</ul></html>')
     path = root / 'index.html'
     path.write_text(html, encoding='utf-8')
