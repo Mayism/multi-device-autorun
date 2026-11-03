@@ -15,7 +15,7 @@ from harmonyeval.utils.processes import stop_process, watch_cancellation
 
 @executors.register("opencode")
 class OpenCodeExecutor:
-    version = "1"
+    version = "2"
 
     async def execute(self, public_case, target, context):
         from evalscope.agent.external.bridge.server import ModelProxyServer
@@ -52,13 +52,13 @@ class OpenCodeExecutor:
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                     limit=8 * 1024 * 1024, start_new_session=os.name != "nt")
                 async def stderr_reader():
-                    with (out / "stderr.jsonl").open("w") as stream:
+                    with (out / "stderr.jsonl").open("w", encoding="utf-8") as stream:
                         while line := await proc.stderr.readline():
-                            stream.write(json.dumps({"text": line.decode(errors="replace").rstrip()}, ensure_ascii=False) + "\n")
+                            stream.write(json.dumps({"text": line.decode("utf-8", errors="backslashreplace").rstrip()}, ensure_ascii=False) + "\n")
                 stderr_task = asyncio.create_task(stderr_reader())
                 cancellation_task = asyncio.create_task(watch_cancellation(proc, context.get("cancel_event")))
                 try:
-                    with (out / "events.jsonl").open("w") as stream:
+                    with (out / "events.jsonl").open("w", encoding="utf-8") as stream:
                         while True:
                             remaining = execution["timeout"] - (time.monotonic() - started)
                             if remaining <= 0:
@@ -71,7 +71,11 @@ class OpenCodeExecutor:
                                 raise TimeoutError(f"主会话CLI连续 {execution['idle_timeout']} 秒无输出；子Agent可能仍在运行，请检查子会话日志") from error
                             if not line:
                                 break
-                            raw = line.decode(errors="replace").strip()
+                            try:
+                                raw = line.decode("utf-8").strip()
+                            except UnicodeDecodeError:
+                                (out / "events.invalid.bin").write_bytes(line)
+                                raise
                             try:
                                 event = json.loads(raw)
                             except json.JSONDecodeError:
@@ -151,5 +155,5 @@ class OpenCodeExecutor:
             sessions, case_name=public_case["case_id"], agent_status=result.status, agent_error=result.error,
             model=execution["model"]["name"], started_at=started_at, finished_at=datetime.now(timezone.utc).isoformat(),
             token_usage={"total": usage.get("total_tokens", 0)}, back_href="../../../../../../index.html",
-            raw_log="events.jsonl", raw_messages="agent-output.json"))
+            raw_log="events.jsonl", raw_messages="agent-output.json"), encoding="utf-8")
         return result

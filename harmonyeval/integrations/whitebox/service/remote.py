@@ -14,6 +14,7 @@ from uuid import uuid4
 from zipfile import ZipFile, BadZipFile
 
 from harmonyeval.integrations.whitebox.runtime.local import run_local_whitebox
+from harmonyeval.utils.encoding import configure_console, print_json
 
 
 TASK_TYPES = {"new_development": "full_generation", "incremental": "continuation",
@@ -216,13 +217,14 @@ def run_remote_task(task, *, local_case_root=None, evaluator=run_local_whitebox,
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Run a remote whitebox task with the Python evaluator")
     parser.add_argument("--input", required=True, help="Remote task JSON file")
     parser.add_argument("--case-root")
     args = parser.parse_args(argv)
     task = json.loads(Path(args.input).read_text(encoding="utf-8"))
     result = run_remote_task(task, local_case_root=args.case_root)
-    print(json.dumps(result, ensure_ascii=False))
+    print_json(result)
     return 0
 
 

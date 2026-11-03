@@ -133,7 +133,7 @@ class HarmonyBotTarget(OpenCodeTarget):
         root = Path(resolved["resourcesDir"])
         hash_file = root / ".bundle-hash"
         if hash_file.is_file():
-            candidate = Path.home() / ".harmonybot/opencode-bundle/vscode" / hash_file.read_text().strip()
+            candidate = Path.home() / ".harmonybot/opencode-bundle/vscode" / hash_file.read_text(encoding="utf-8").strip()
             if (candidate / ".bundle-complete").exists():
                 root = candidate
         return {"binary": resolved["opencodeBinPath"], "config_root": str(root), "distribution": "harmonybot"}

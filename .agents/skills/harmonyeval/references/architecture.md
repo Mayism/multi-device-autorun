@@ -50,6 +50,16 @@
 
 ## 自验证
 
+### Windows 与编码
+
+先遵循根目录 AGENTS.md 的全工程规则。修改文本 I/O 时显式指定编码；修改子进程适配时区分 UTF-8 文件、工具自身的 GBK/GB18030 输出，以及终端可表示的字符范围。新增的编码处理复用通用辅助函数，不能让每个场景分别猜测编码。
+
+对实际涉及的逻辑，验证中文/空格路径、UTF-8 与工具实际支持的 GBK/GB18030 输出、GBK 无法表示的字符和输出重定向。人类可读日志可以安全降级；结构化 JSON/验收报告解码失败应保留证据并标为不可用，不用 errors="ignore" 或损坏内容伪造有效结果。明确区分本机编码模拟和真实 Windows 运行。
+
+复用 `harmonyeval/utils/encoding.py` 的 `python_utf8_environment`、`console_print`、`print_json` 和诊断用 `decode_output`。JSON 控制台输出使用 `print_json`；普通字符降级可能产生 JSON 不支持的转义。已知 UTF-8 结构化协议应严格解码，不能使用诊断回退代替。编码回归测试见 `tests/test_windows_encoding.py`。
+
+### 框架检查
+
 在已安装主框架和扩展的同一 Python 环境中，从仓库根目录运行：
 
 ```sh

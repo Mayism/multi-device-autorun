@@ -7,6 +7,7 @@ import os
 import sys
 
 from harmonyeval.agent.opencode.opencode import OpenCodeClient
+from harmonyeval.utils.encoding import configure_console, console_print, print_json
 
 
 def _parts(raw, include_thinking):
@@ -41,7 +42,10 @@ async def _run(args):
         if model:
             payload["model"] = model
         raw = await client.send_message_text(session_id, payload, args.cwd, args.timeout)
-        print(raw if args.raw else _parts(raw, args.think))
+        if args.raw:
+            print_json(json.loads(raw) if isinstance(raw, str) else raw)
+        else:
+            console_print(_parts(raw, args.think))
     question = args.question or (sys.stdin.readline().rstrip("\n") if not sys.stdin.isatty() else "")
     if question:
         await ask(question)
@@ -58,6 +62,7 @@ async def _run(args):
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Ask an existing OpenCode server")
     parser.add_argument("question", nargs="?", default="")
     parser.add_argument("--host", "-H", default=os.environ.get("HOST") or "127.0.0.1")
@@ -75,7 +80,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         return 130
     except Exception as error:
-        print(f"OpenCode 请求失败: {error}", file=sys.stderr)
+        console_print(f"OpenCode 请求失败: {error}", file=sys.stderr)
         return 1
 
 

@@ -11,6 +11,8 @@ description: "在 HarmonyEval 仓库新增或修改评测场景、task YAML、�
 
 定位仓库根目录；当前参考实现包含 `pyproject.toml` 和 `harmonyeval/api/`，以下源码路径均相对于根目录。若任务是把另一个旧仓库重构成此结构，先按主指南盘点旧入口，不要求目标已经存在 harmonyeval/。先检查工作区已有改动，保留其他场景的工作。
 
+所有修改同时遵循根目录 `AGENTS.md` 的 Windows 兼容要求：文本文件显式指定 UTF-8，外部工具输出按实际协议解码，处理 GBK 终端不能表示的字符，并检查 Windows 路径、命令和进程行为。涉及这些逻辑时读取架构参考中的验证要求；不要把 macOS/Linux 上运行成功当作 Windows 实测。
+
 根据任务读取相应参考：
 
 - 配置场景或新增用例集：读 [用例集与任务配置](references/datasets.md)。

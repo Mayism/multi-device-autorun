@@ -286,6 +286,42 @@ runner 把解析后的 task 和 run_root 传入 benchmark 的 extra_params；Sam
 
 模型部分复用 EvalScope Model/ModelAPI 兼容访问；OpenCode 经模型代理访问配置的模型，独立裁判也走同一模型兼容层。能力装载、用例执行、验证、评分仍由各自模块负责，模型模块不读取业务目录来编排测试。桥接细节见第10节，扩展示例见第11节，不必重新造一套 EvalScope。
 
+### 7.1 不同格式的用例怎样变成 EvalScope 输入
+
+分两步转换：先让各数据集适配器读懂自己的格式，统一成 EvalCase；再由公共 HarmonyBenchmarkAdapter 转成 EvalScope 的 Sample。
+
+```text
+工程目录 / case.yaml / 原始仓库 / JSON、JSONL
+  → dataset.type 对应适配器的 load(config)
+  → list[EvalCase]
+  → HarmonyBenchmarkAdapter.load_dataset()
+  → Sample → MemoryDataset → default 子集 → DefaultEvaluator
+```
+
+| 原始输入 | 整理成 EvalCase 的方式 |
+|---|---|
+| 一多工程目录 | PROMPT.md 原文成为 question；base/task 路径成为 project；补丁路径放 expected，设备等原元数据放 metadata |
+| 三方库 / Android 的 case.yaml | 读取 input.project 和 input.instruction；提示词追加统一 base/ 目录约定，验收资料放 expected |
+| 原始仓库 repositories 布局 | 每个源工程形成一个用例；dataset.instruction 提供共享提示词，并追加目标目录约定 |
+| 文本 JSON / JSONL | id、question 分别成为 case_id、question；reference_answer 统一为 expected.reference_answers 数组；project 为空 |
+
+完整 EvalCase 保存在 benchmark 的 self.cases 中，转换成 Sample 时只取以下内容：
+
+| EvalScope 字段 | 当前映射 |
+|---|---|
+| Sample.id | 按用例与轮次展开后的顺序编号，不直接使用 case_id |
+| Sample.input | case.question，即公开任务要求或问题 |
+| Sample.target | case.expected.reference_answers；没有文本标准答案时为 [] |
+| Sample.metadata.case_index | 该用例在 self.cases 中的位置，用于找回完整 EvalCase |
+| Sample.metadata.case_id | 原用例的稳定 ID |
+| Sample.metadata.round | 当前轮次，从1开始 |
+
+Sample.target 是评估参考答案，与 YAML 中表示“被测对象”的 target 不是同一个概念。工程源码、设备配置、测试和参考补丁不需要全部塞进 Sample；其他 expected/metadata 仍在 EvalCase 中，由验证阶段按需读取。
+
+执行时，run_inference 根据 case_index 找回 EvalCase，再调用 prepare() 把公开工程复制到本用例的 base/，把 case.public() 的 case_id/question 和工作目录交给执行引擎。标准答案不随公开输入交给被测 Agent/HTTP 后端。验证时使用完整用例、执行结果与证据来评分。
+
+对应源码是 benchmarks/multidev.py、migration.py、text_qa.py 和公共桥接 benchmarks/evalscope.py。新增格式只要能表达为 EvalCase，通常实现新的用例集适配器即可，公共 Sample 转换和 EvalScope 调度继续复用；不是每种格式都要注册一个新的 benchmark。
+
 ## 8. 怎样验收和交付
 
 ### 8.1 先验证状态不会误报
@@ -325,6 +361,7 @@ Agent 工作工程保留 base/；会话轨迹保留 generate/agent-output.json/h
 | 真实链路 | 至少跑通本地 HTTP 或本地模型到 EvalScope 的完整路径；有环境时验真实 Agent/设备 |
 | 扩展 | 同一 Python 环境安装扩展，新进程可以发现；无需修改 CLI 和报告调度 |
 | 打包与架构 | 仓库外能启动，资源齐全；检查依赖方向，不用动态 import 绕过约束 |
+| Windows 兼容 | 文件显式 UTF-8，工具输出按协议解码；覆盖中文/空格路径与 GBK 不能表示的字符，注明是真实 Windows 还是本机编码模拟 |
 
 --check 只检查准备项，不证明密钥授权、MCP 工具实际使用、设备/云端测试成功。参考仓库的113项等历史测试数量也不是目标仓库必须“凑齐”的验收标准，按目标实际能力完成有效回归。
 
@@ -476,6 +513,28 @@ verify 需要原数据集和必要工程/证据仍在；缺转换前 input-evide
 tests/test_architecture.py 检查显式绝对 import 的关键方向、扩展兼容、包资源和仓库外启动；它不覆盖所有相对/动态依赖或业务设计，不能靠换 import 写法绕过边界。公共契约放 api，用注册接口连接实现。
 
 安装时同步 console script、包发现和 package-data；报告 CSS、设备 ETS/Python 脚本、白盒规则和提示词等资源要能从 wheel 读取。可选 ArkAnalyzer 按项目 npm 构建；完整白盒工具与当前模型验证器是不同入口。目标 static_eval 的资源也要按实测加入打包和回归清单。
+
+#### 10.6.1 Windows 与编码是全工程要求
+
+所有修改都考虑 Windows，而不只修改设备适配器时才考虑。文本文件读写显式指定 UTF-8，不依赖系统 GBK/CP936 默认编码；外部工具输出按其实际协议解码，不能因设置 text=True 就认定是 UTF-8。可能输出 GBK/GB18030 的工具应有明确策略，必要时保留原始字节；损坏的结构化结果不能按成功解析。
+
+控制台及重定向输出应处理 GBK 无法表示的字符，避免 Emoji、特殊符号引发 UnicodeEncodeError 而中断评测。日志可安全转义；验收数据不能用 errors="ignore" 静默丢弃。Python 的 UTF-8 环境变量只能影响相应 Python 进程，不能代替文件编码或所有外部工具的协议。
+
+同时检查中文/空格路径、盘符、命令入口、文件占用和进程清理，复用公共跨平台工具。相关逻辑变更补充编码与路径测试；交付注明是否在真实 Windows 上运行，本机编码模拟不等于 Windows 实测。仓库内的详细规则见 [AGENTS.md](../AGENTS.md)。
+
+公共编码处理放在 `harmonyeval/utils/encoding.py`，各场景复用，具体行为如下：
+
+| 边界 | 处理方式 |
+|---|---|
+| Agent 日志、配置、提示词、报告 | 显式 UTF-8；OpenCode 输出重定向文件使用二进制捕获，再按 UTF-8 读取 |
+| 控制台与重定向日志 | 保留终端编码；无法表示的字符安全转义，避免错误提示再次抛出编码异常 |
+| CLI 的 JSON 输出 | 非 UTF-8 终端使用 JSON 自身的 ASCII 转义，确保 Emoji 等内容可以完整解析恢复 |
+| 框架启动的 Python 子进程 | 执行环境设置 `PYTHONUTF8=1`、`PYTHONIOENCODING=utf-8`，包括 Agent 工具继承的环境 |
+| Windows Plugin CLI 入口 | `.cmd` 内容保持 ASCII，通过 Node 桥接传递 Unicode 路径与参数，避免批处理文件被按 GBK 解释错 |
+| OpenCode JSON 事件、框架 Python 协议 | 按 UTF-8 严格解码；OpenCode 事件出现非法字节时保留 `events.invalid.bin`，执行标记为基础设施错误 |
+| 原生构建与 Git 诊断 | 先捕获字节，可读日志按 UTF-8、GB18030 顺序尝试；无法解码的字节用十六进制转义。构建出现非 UTF-8 输出时保留相邻 `.raw` 文件，Git 补丁诊断在命令日志中保留 Base64 原始字节 |
+
+这些措施不能约束 Agent 自行显式选择 GBK 的脚本，也不能改变 Node、Java、设备工具自身的输出协议。新增协议仍需声明其编码，不能用诊断日志的编码回退来解析结构化验收结果。`tests/test_windows_encoding.py` 覆盖 GBK 默认文件读写、控制台、真实 Python 子进程，以及通过本地 HTTP 服务运行完整 EvalScope 流程；这是本机模拟，不代表真实 Windows 实测。
 
 ### 10.7 参考仓库的旧路径对照
 

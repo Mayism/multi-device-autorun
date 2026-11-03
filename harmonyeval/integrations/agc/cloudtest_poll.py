@@ -8,6 +8,7 @@ import time
 from harmonyeval.integrations.agc.cloudtest import final_status, load_config, summarize_report
 from harmonyeval.integrations.agc.cloudtest_client import CloudTestClient
 from harmonyeval.integrations.agc.cloudtest_report import fetch_task_report, write_cloudtest_html_report
+from harmonyeval.utils.encoding import console_print
 
 
 FINAL_STATUSES = {3, 4, 5, 6}
@@ -30,7 +31,7 @@ def _atomic_json(path, value):
     temporary.replace(path)
 
 
-def poll_task_group(client, task_group_id, settings, on_log=print, on_update=None, sleep=time.sleep):
+def poll_task_group(client, task_group_id, settings, on_log=console_print, on_update=None, sleep=time.sleep):
     deadline = time.monotonic() + settings["taskTimeoutSec"]
     misses = 0
     last_label = ""
@@ -61,7 +62,7 @@ def poll_task_group(client, task_group_id, settings, on_log=print, on_update=Non
     return {"taskGroup": current, "finished": False}
 
 
-def poll_existing_task(config, task_group_id, on_log=print, client=None, sleep=time.sleep):
+def poll_existing_task(config, task_group_id, on_log=console_print, client=None, sleep=time.sleep):
     settings = load_config({"config": config})
     client = client or CloudTestClient(settings)
     started_at = _now()

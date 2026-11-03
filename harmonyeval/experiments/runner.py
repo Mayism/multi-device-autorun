@@ -11,6 +11,7 @@ from harmonyeval.experiments.config import expand_experiments, has_experiments
 from harmonyeval.evaluator.runner import _run_single_sync, report_exit_code
 from harmonyeval.evaluator.preflight import check_task
 from harmonyeval.report.io import load_report
+from harmonyeval.utils.encoding import console_print
 
 
 def update_experiment_comparisons(summary, reports, root):
@@ -35,7 +36,7 @@ def update_experiment_comparisons(summary, reports, root):
     summary['exitCode'] = 1 if failed else 0
 
 
-def _run_sync(task, on_log=print, cancel_event=None):
+def _run_sync(task, on_log=console_print, cancel_event=None):
     if not has_experiments(task):
         return _run_single_sync(task, on_log, cancel_event)
     checked = check_task(task, inspect=False)
@@ -48,7 +49,7 @@ def _run_sync(task, on_log=print, cancel_event=None):
     root.mkdir(parents=True)
     import yaml
     (root / 'task.resolved.yaml').write_text(yaml.safe_dump(
-        redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False))
+        redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False), encoding="utf-8")
     children = expand_experiments(task)
     summary = {'schema_version': 2, 'report_type': 'experiments', 'run_id': run_id,
                'task_id': task['id'], 'baseline': children[0]['experiment']['id'],
@@ -88,7 +89,7 @@ def refresh_experiments_report(root):
     source = root / 'experiments-report.json'
     if not source.is_file():
         return
-    summary = json.loads(source.read_text())
+    summary = json.loads(source.read_text(encoding="utf-8"))
     reports = {}
     for item in summary['experiments']:
         child = root / 'experiments' / item['id']

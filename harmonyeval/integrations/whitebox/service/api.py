@@ -24,6 +24,7 @@ from harmonyeval.integrations.whitebox.service.review_dataset import replace_dat
 from harmonyeval.integrations.whitebox.service.service_stats import build_rule_stats, extract_rule_violations
 from harmonyeval.integrations.whitebox.service.trace import trace_event_raw, trace_run_raw, trace_summary
 from harmonyeval.integrations.whitebox.service.service_store import WhiteboxServiceStore
+from harmonyeval.utils.encoding import configure_console
 
 
 RESULT_ROUTE = re.compile(r"/score/remote-tasks/(\d+)/result(/raw)?$")
@@ -452,6 +453,7 @@ def make_handler(service):
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Python whitebox HTTP API")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "3000")))

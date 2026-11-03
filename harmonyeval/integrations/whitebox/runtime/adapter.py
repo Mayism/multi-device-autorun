@@ -13,6 +13,7 @@ from harmonyeval.integrations.whitebox.config import resolve_judge
 from harmonyeval.integrations.whitebox.scoring.report import write_whitebox_html
 from harmonyeval.integrations.whitebox.scoring.schema import validate_whitebox_result
 from harmonyeval.integrations.whitebox.resources import REFERENCES
+from harmonyeval.utils.encoding import python_utf8_environment
 
 
 async def resolve_judge_runtime(client, server_config, judge, generation_model, directory):
@@ -89,7 +90,7 @@ class WhiteboxEvaluator:
         self.judge = {key: judge_runtime[key] for key in ("providerId", "modelId")}
 
     def _run(self, task, port):
-        env = os.environ.copy()
+        env = python_utf8_environment()
         env["PATH"] = str(Path(self.opencode_bin).parent) + os.pathsep + env.get("PATH", "")
         env.update({"HMOS_OPENCODE_HOST": "127.0.0.1", "HMOS_OPENCODE_PORT": str(port),
                     "HMOS_OPENCODE_PROVIDER_ID": self.judge_runtime["providerId"],
@@ -106,7 +107,7 @@ class WhiteboxEvaluator:
         try:
             completed = subprocess.run([sys.executable, "-m", "harmonyeval.integrations.whitebox.runtime.local",
                                         "--input", task["inputPath"], "--port", str(port)],
-                                       cwd=self.repo_root, env=env, capture_output=True, text=True,
+                                       cwd=self.repo_root, env=env, capture_output=True, text=True, encoding="utf-8",
                                        timeout=self.config["timeoutSec"], check=False)
         except subprocess.TimeoutExpired:
             return {"status": "timed_out", "error": f"白盒评价超时（{self.config['timeoutSec']} 秒）"}

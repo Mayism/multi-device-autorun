@@ -2,10 +2,11 @@
 
 import os
 from pathlib import Path
+from harmonyeval.utils.encoding import python_utf8_environment
 
 
 def tool_environment(settings, base=None):
-    env = dict(os.environ if base is None else base)
+    env = python_utf8_environment(base)
     paths = []
     mapping = {"deveco_home": "DEVECO_HOME", "flutter_home": "FLUTTER_HOME",
                "java_home": "JAVA_HOME", "sdk_home": "DEVECO_SDK_HOME"}

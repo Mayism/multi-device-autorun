@@ -11,28 +11,28 @@ from harmonyeval.utils.security import redact
 def inspect_runtime(prepared, agent, workspace):
     """Use a file for stdout: OpenCode's process.exit can truncate piped JSON."""
     path = Path(prepared["runtime"]) / "resolved.private.json"
-    with path.open("w") as output:
+    with path.open("wb") as output:
         result = subprocess.run([prepared["binary"], "debug", "config"], cwd=workspace,
                                 env=prepared["env"], stdout=output, stderr=subprocess.PIPE, timeout=120)
     path.chmod(0o600)
     if result.returncode:
         raise ValueError("OpenCode 配置加载失败；请检查 Plugin/Agent 入口及依赖")
-    loaded = json.loads(path.read_text())
+    loaded = json.loads(path.read_text(encoding="utf-8"))
     registered = loaded.get("agent", {})
     import re
     agent_file = Path(prepared["runtime"]) / "agents.private.txt"
-    with agent_file.open("w") as output:
+    with agent_file.open("wb") as output:
         listed = subprocess.run([prepared["binary"], "agent", "list"], cwd=workspace,
                                 env=prepared["env"], stdout=output, stderr=subprocess.PIPE, timeout=120)
     agent_file.chmod(0o600)
-    available = re.findall(r"^([^\s].*?) \((?:primary|subagent|all)\)\s*$", agent_file.read_text(), re.M)
+    available = re.findall(r"^([^\s].*?) \((?:primary|subagent|all)\)\s*$", agent_file.read_text(encoding="utf-8"), re.M)
     if listed.returncode or not available:
         raise ValueError("无法解析实际 Agent 列表；当前 OpenCode CLI 接口不兼容")
     if agent not in available:
         raise ValueError(f"未注册 Agent: {agent}；可选: {', '.join(available)}")
     manifest = prepared["manifest"]
     version = subprocess.run([prepared["binary"], "--version"], env=prepared["env"],
-                             capture_output=True, text=True, timeout=15)
+                             capture_output=True, text=True, encoding="utf-8", timeout=15)
     manifest["version"] = version.stdout.strip()
     manifest.update({"agents": sorted(registered), "plugin": redact(loaded.get("plugin", [])),
                      "available_agents": available,

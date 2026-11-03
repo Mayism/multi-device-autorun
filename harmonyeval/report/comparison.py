@@ -120,5 +120,5 @@ def compare_reports(first, second, output):
     root.mkdir(parents=True, exist_ok=True)
     write_json(root / 'comparison.json', data)
     (root / 'index.html').write_text('<!doctype html><meta charset="utf-8"><title>Harmony Eval comparison</title>'
-                                    '<h1>评测对比（右组减左组）</h1><pre>' + escape(json.dumps(data, ensure_ascii=False, indent=2)) + '</pre>')
+                                    '<h1>评测对比（右组减左组）</h1><pre>' + escape(json.dumps(data, ensure_ascii=False, indent=2)) + '</pre>', encoding="utf-8")
     return str(root / 'index.html')

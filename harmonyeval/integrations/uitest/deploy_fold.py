@@ -3,9 +3,11 @@
 import argparse
 
 from harmonyeval.integrations.uitest.ohostest_fold import deploy_fold_trigger
+from harmonyeval.utils.encoding import configure_console
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Deploy FoldTrigger.ets")
     parser.add_argument("--project", required=True)
     parser.add_argument("--port", type=int, default=8765)

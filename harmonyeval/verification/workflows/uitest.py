@@ -69,7 +69,7 @@ class UITest(Workflow):
             await command_run([sys.executable, "-m", "harmonyeval.integrations.uitest.ohostest_case", "--case", str(case_root),
                                "--out", str(root), "--machine-config", str(machine_path), "--run", "swe"],
                               project, context, "uitest-runner", config.get("timeout", 7200))
-            raw = json.loads((root / "result.json").read_text())
+            raw = json.loads((root / "result.json").read_text(encoding="utf-8"))
             raw = raw.get("runs", {}).get("swe", raw)
         else:
             project = await isolated_project(execution, context)
@@ -79,7 +79,7 @@ class UITest(Workflow):
             await command_run([sys.executable, "-m", "harmonyeval.integrations.uitest.ohostest_matrix", "--project", str(project),
                                "--machine-config", str(machine_path), "--out", str(root / "uitest.json")],
                               project, context, "uitest-runner", config.get("timeout", 7200))
-            raw = json.loads((root / "uitest.json").read_text())
+            raw = json.loads((root / "uitest.json").read_text(encoding="utf-8"))
         build_status = raw.get("build", {}).get("status")
         if build_status in ("blocked", None):
             return result(config, "unavailable", error="UITest基础设施或工程准备失败", evidence=[raw])

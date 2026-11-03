@@ -15,7 +15,7 @@ def _rpc(kind, **fields):
     handler = _HANDLER.get()
     if handler is not None:
         return handler(kind, **fields)
-    sys.stdout.write(json.dumps({"type": kind, **fields}, ensure_ascii=False) + "\n")
+    sys.stdout.write(json.dumps({"type": kind, **fields}, ensure_ascii=True) + "\n")
     sys.stdout.flush()
     reply_line = sys.stdin.readline()
     if not reply_line:
@@ -302,7 +302,7 @@ def main():
         sys.stdout.write(json.dumps({"type": "result", "result": result}) + "\n")
         sys.stdout.flush()
     except Exception as exc:
-        sys.stdout.write(json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False) + "\n")
+        sys.stdout.write(json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=True) + "\n")
         sys.stdout.flush()
         sys.exit(1)
 

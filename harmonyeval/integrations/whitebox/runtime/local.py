@@ -26,6 +26,7 @@ from harmonyeval.integrations.whitebox.scoring.schema import validate_whitebox_r
 from harmonyeval.integrations.whitebox.scoring.score_core import load_official_linter_profiles, load_scoring_profiles
 from harmonyeval.integrations.whitebox.scoring.score_result import compute_score_computation
 from harmonyeval.integrations.whitebox.runtime.understanding import project_structure, read_patch_summary
+from harmonyeval.utils.encoding import configure_console, print_json
 
 
 def _write_json(root, relative, value):
@@ -270,6 +271,7 @@ def run_local_whitebox(input_data, *, repo_root=None, runtime=None, runner=run_p
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Run Python whitebox evaluation")
     parser.add_argument("--input", required=True)
     parser.add_argument("--port", type=int)
@@ -285,7 +287,7 @@ def main(argv=None):
                    "outputDir": input_data.get("outputDir", ""), "error": str(error)}
         if input_data.get("outputDir"):
             _write_json(input_data["outputDir"], "failure.json", summary)
-    print(json.dumps(summary, ensure_ascii=False))
+    print_json(summary)
     return 0 if summary["status"] == "completed" else 1
 
 

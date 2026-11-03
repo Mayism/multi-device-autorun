@@ -6,7 +6,7 @@ from pathlib import Path
 def init_project(workspace):
     from harmonyeval.utils.git import initialize_git_baseline
     baseline = initialize_git_baseline(workspace)
-    with (Path(workspace) / ".git/info/exclude").open("a") as stream:
+    with (Path(workspace) / ".git/info/exclude").open("a", encoding="utf-8") as stream:
         stream.write("\n.claude/\n.agents/\n.ohos-adaptation/\n.ohostest-runs/\n")
     return baseline
 

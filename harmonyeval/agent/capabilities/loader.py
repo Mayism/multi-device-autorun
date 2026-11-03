@@ -8,6 +8,19 @@ from harmonyeval.utils.paths import inside
 from harmonyeval.agent.capabilities.config import remove_owned
 
 
+def _write_windows_shim(shim, cli, wrapper_name):
+    # cmd.exe can read batch files using CP936. Keep their contents ASCII and
+    # let Node pass the Unicode path to the real CLI without code-page conversion.
+    wrapper = shim.parent / wrapper_name
+    wrapper.write_text(
+        'const {spawnSync} = require("node:child_process");\n'
+        f'const cli = {json.dumps(str(cli), ensure_ascii=True)};\n'
+        'const child = spawnSync(process.execPath, [cli, ...process.argv.slice(2)], {stdio: "inherit"});\n'
+        'if (child.error) console.error(child.error.message);\n'
+        'process.exit(child.status === null ? 1 : child.status);\n', encoding="utf-8")
+    shim.with_suffix(".cmd").write_text(f'@node "%~dp0{wrapper_name}" %*\n', encoding="utf-8")
+
+
 def load_capabilities(config, task, runtime, original, config_root):
     execution = task['active']['execution']
     oc = execution['opencode']
@@ -51,18 +64,18 @@ def load_capabilities(config, task, runtime, original, config_root):
             if target_root.is_dir():
                 shutil.copytree(target_root, dst, symlinks=False)
                 package_json = dst / "package.json"
-                pkg = json.loads(package_json.read_text()) if package_json.exists() else {}
+                pkg = json.loads(package_json.read_text(encoding="utf-8")) if package_json.exists() else {}
                 entry = item.get("entry") or pkg.get("main") or "index.js"
                 entry_path = inside(dst, entry, exists=True)
                 bins = pkg.get("bin", {})
                 if isinstance(bins, str):
                     bins = {pkg.get("name", "plugin-cli").split("/")[-1]: bins}
-                for name, relative in bins.items():
+                for bin_index, (name, relative) in enumerate(bins.items()):
                     cli = inside(dst, relative, exists=True)
                     cli.chmod(cli.stat().st_mode | 0o111)
                     shim = bin_dir / name
                     if os.name == "nt":
-                        shim.with_suffix(".cmd").write_text(f'@node "{cli}" %*\n')
+                        _write_windows_shim(shim, cli, f".plugin-cli-{index}-{bin_index}.cjs")
                     else:
                         shim.symlink_to(cli)
             else:
@@ -79,7 +92,7 @@ def load_capabilities(config, task, runtime, original, config_root):
         candidates = [root / "SKILL.md"] if (root / "SKILL.md").exists() else list(root.glob("*/SKILL.md"))
         matches = []
         for skill_file in candidates:
-            text = skill_file.read_text()
+            text = skill_file.read_text(encoding="utf-8")
             import yaml
             meta = yaml.safe_load(text.split("---", 2)[1]) if text.startswith("---") else {}
             if not meta.get("name"):

@@ -9,6 +9,7 @@ import time
 from harmonyeval.utils.io import write_json
 from harmonyeval.integrations.uitest.ohostest_execution import CommandLog, run_execution
 from harmonyeval.integrations.uitest.ohostest_project import load_execution_config
+from harmonyeval.utils.encoding import configure_console, print_json
 
 
 def run_matrix(project, machine, out, devices=None, test_class="", skip_build=False,
@@ -50,6 +51,7 @@ def run_matrix(project, machine, out, devices=None, test_class="", skip_build=Fa
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Python ohosTest matrix runner")
     parser.add_argument("--project", required=True)
     parser.add_argument("--machine-config", default="config/machine.json")
@@ -64,7 +66,7 @@ def main(argv=None):
     machine = json.loads(Path(args.machine_config).read_text(encoding="utf-8"))
     result = run_matrix(project, machine, output, args.device, args.test_class,
                         args.skip_build, args.keep_emulators)
-    print(json.dumps({"status": result["status"], "out": str(Path(output).resolve())}, ensure_ascii=False))
+    print_json({"status": result["status"], "out": str(Path(output).resolve())})
     return 0 if result["status"] == "completed" else 1
 
 

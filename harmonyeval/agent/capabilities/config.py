@@ -64,7 +64,7 @@ def remove_owned(config, private, original, target_root, item):
         names.add(target_root.name)
         pkg = target_root / "package.json"
         if pkg.is_file():
-            names.add(json.loads(pkg.read_text()).get("name", ""))
+            names.add(json.loads(pkg.read_text(encoding="utf-8")).get("name", ""))
     names.discard("")
     def owned(value):
         if isinstance(value, list):

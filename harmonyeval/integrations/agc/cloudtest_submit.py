@@ -18,6 +18,7 @@ from harmonyeval.integrations.agc.cloudtest import final_status, summarize_repor
 from harmonyeval.integrations.agc.cloudtest_report import fetch_task_report, write_cloudtest_html_report
 from harmonyeval.utils.json5 import read_loose_json5
 from harmonyeval.utils.projects import copy_project
+from harmonyeval.utils.encoding import console_print, decode_output
 
 
 def read_app_profile(project_dir):
@@ -43,7 +44,7 @@ def read_app_profile(project_dir):
             "signingConfigCount": count, "buildProfilePath": str(build_profile)}
 
 
-def apply_signing_overrides(build_project_dir, settings, on_log=print):
+def apply_signing_overrides(build_project_dir, settings, on_log=console_print):
     project = Path(build_project_dir)
     if settings["bundleName"]:
         app_json = project / "AppScope" / "app.json5"
@@ -72,6 +73,17 @@ def apply_signing_overrides(build_project_dir, settings, on_log=print):
         on_log(f"signingConfigs 已注入 {len(names)} 项（{','.join(names)}），将使用 release 签名打包")
 
 
+def _build_output(output, console):
+    if isinstance(output, bytes):
+        try:
+            output.decode("utf-8")
+        except UnicodeDecodeError:
+            # Keep the original tool output alongside the UTF-8 readable log.
+            with console.with_name(console.name + ".raw").open("ab") as raw:
+                raw.write(output)
+    return decode_output(output)
+
+
 def _run_logged(args, cwd, env, console_path, timeout_sec, on_log):
     started = datetime.now(timezone.utc)
     console = Path(console_path)
@@ -80,7 +92,7 @@ def _run_logged(args, cwd, env, console_path, timeout_sec, on_log):
         stream.write(f"\n[{_iso(started)}] {' '.join(map(str, args))}\n")
         stream.flush()
         process = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                   text=True, errors="replace", start_new_session=(os.name != "nt"))
+                                   start_new_session=(os.name != "nt"))
         try:
             # communicate enforces a timeout and avoids blocking indefinitely on a partial line.
             output, _ = process.communicate(timeout=timeout_sec)
@@ -90,17 +102,17 @@ def _run_logged(args, cwd, env, console_path, timeout_sec, on_log):
             else:
                 os.killpg(process.pid, signal.SIGKILL)
             output, _ = process.communicate()
-            stream.write(output or "")
+            stream.write(_build_output(output, console) or "")
             raise TimeoutError(f"构建超时（{timeout_sec} 秒）") from error
-        stream.write(output or "")
-    for line in (output or "").splitlines():
+        stream.write(_build_output(output, console) or "")
+    for line in (decode_output(output) or "").splitlines():
         if re.search(r"\bERROR\b|Failed|fail", line, re.I):
             on_log(f"[build] {line}")
     return {"command": " ".join(map(str, args)), "startedAt": _iso(started), "finishedAt": _iso(),
             "exitCode": process.returncode}
 
 
-def build_signed_app(project_dir, settings, console_path, on_log=print):
+def build_signed_app(project_dir, settings, console_path, on_log=console_print):
     paths = settings["paths"]
     hvigorw = paths["hvigorw"]
     ohpm = paths["ohpm"]
@@ -141,7 +153,7 @@ def find_signed_app(project_dir):
     return {"path": str(signed), "size": signed.stat().st_size}
 
 
-def prepare_app_artifact(project_dir, app_path, settings, out_dir, console_path, on_log=print):
+def prepare_app_artifact(project_dir, app_path, settings, out_dir, console_path, on_log=console_print):
     if app_path:
         app = Path(app_path).absolute()
         if not app.is_file():
@@ -186,7 +198,7 @@ def _app_info(profile, bundle_name):
             **{key: profile.get(key) for key in ("versionName", "versionCode", "bundleType")}}
 
 
-def query_existing_packages(client, bundle_name, on_log=print):
+def query_existing_packages(client, bundle_name, on_log=console_print):
     try:
         apps = client.list_apps()
         entries = [item for item in apps if item.get("packageName") == bundle_name] if bundle_name else []
@@ -202,7 +214,7 @@ def query_existing_packages(client, bundle_name, on_log=print):
         return []
 
 
-def upload_and_analyze_app(client, package, existing_count, settings, on_log=print):
+def upload_and_analyze_app(client, package, existing_count, settings, on_log=console_print):
     on_log(f"申请上传凭证并直传 OBS: {package['fileName']}（{package['fileSize'] / 1024 / 1024:.2f} MB）...")
     obs = client.request_upload_url(package["fileName"], package["fileSize"], package["sha256"])
     client.put_object(obs, package["appPath"], package)
@@ -219,7 +231,7 @@ def upload_and_analyze_app(client, package, existing_count, settings, on_log=pri
     return upload, app_info
 
 
-def select_cloud_devices(client, app_info, settings, on_log=print):
+def select_cloud_devices(client, app_info, settings, on_log=console_print):
     devices = client.list_business_devices(app_info["appType"],
                                            ",".join(str(item["category"]) for item in settings["testCategories"]),
                                            [app_info["geApiLevel"]])
@@ -270,7 +282,7 @@ def _timestamp_name():
 
 
 def submit_with_device_fallback(client, app_info, candidates, settings, task_name="", task_name_label="",
-                                app_profile=None, on_log=print, sleep=time.sleep):
+                                app_profile=None, on_log=console_print, sleep=time.sleep):
     last_error = None
     for index, device in enumerate(candidates):
         label = str(device.get("typeAlias") or device.get("alias") or device.get("type") or "未知机型")
@@ -313,7 +325,7 @@ def submit_with_device_fallback(client, app_info, candidates, settings, task_nam
 
 
 def submit_cloud_test_for_project(config, project_dir="", app_path="", case_name="", task_name="",
-                                  task_name_label="", out_dir="", on_log=print, client=None, settings=None,
+                                  task_name_label="", out_dir="", on_log=console_print, client=None, settings=None,
                                   sleep=time.sleep):
     settings = settings or load_config({"config": config})
     started_at = datetime.now(timezone.utc)
@@ -366,7 +378,7 @@ def submit_cloud_test_for_project(config, project_dir="", app_path="", case_name
         raise
 
 
-def finish_cloud_test_polling(submission, on_log=print, sleep=time.sleep):
+def finish_cloud_test_polling(submission, on_log=console_print, sleep=time.sleep):
     client = submission["client"]
     settings = submission["settings"]
     result = submission["result"]
@@ -424,7 +436,7 @@ def finish_cloud_test_polling(submission, on_log=print, sleep=time.sleep):
 
 
 def run_cloud_test(config, project_dir="", app_path="", case_name="", task_name="", task_name_label="",
-                   out_dir="", on_log=print, client=None, settings=None, sleep=time.sleep):
+                   out_dir="", on_log=console_print, client=None, settings=None, sleep=time.sleep):
     submission = submit_cloud_test_for_project(config, project_dir, app_path, case_name, task_name,
                                                task_name_label or (Path(project_dir).name if project_dir else ""),
                                                out_dir, on_log, client, settings, sleep)

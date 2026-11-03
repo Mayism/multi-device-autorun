@@ -6,9 +6,11 @@ from pathlib import Path
 import sys
 
 from harmonyeval.integrations.whitebox.scoring.score_result import compute_score_computation
+from harmonyeval.utils.encoding import configure_console, print_json
 
 
 def main():
+    configure_console()
     parser = argparse.ArgumentParser()
     parser.add_argument("--input")
     parser.add_argument("--output")
@@ -21,7 +23,7 @@ def main():
     if args.output:
         Path(args.output).write_text(rendered, encoding="utf-8")
     else:
-        sys.stdout.write(rendered)
+        print_json(result, separators=(",", ":"))
 
 
 if __name__ == "__main__":

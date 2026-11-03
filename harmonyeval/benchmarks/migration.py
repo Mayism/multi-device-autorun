@@ -45,7 +45,7 @@ class MigrationDataset(DatasetAdapter):
             raw = read_yaml(path)
             folder = path.parent
             project = inside(folder, raw["input"]["project"], exists=True)
-            instruction = self.instruction(inside(folder, raw["input"]["instruction"], exists=True).read_text(),
+            instruction = self.instruction(inside(folder, raw["input"]["instruction"], exists=True).read_text(encoding="utf-8"),
                                            bool(raw["input"].get("target_template")))
             expected = self.expected(raw.get("expected", {}))
             meta = {"verification": raw.get("verification", {}), "source_format": config["type"]}

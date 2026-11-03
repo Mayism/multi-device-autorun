@@ -25,6 +25,7 @@ import os
 import socket
 import platform
 import signal
+import sys
 
 # ============ 配置 ============
 # fold-server 监听端口（宿主机）
@@ -233,12 +234,17 @@ def cleanup_fport(target=None):
 
 def run_command(command, timeout):
     """使用参数数组执行命令，兼容 Windows 空格路径并避免 shell 拼接。"""
-    return subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
+    result = subprocess.run(command, capture_output=True, timeout=timeout)
+    # Preserve raw bytes; native HDC/Emulator diagnostics can use the Windows code page.
+    result.stdout_bytes, result.stderr_bytes = result.stdout, result.stderr
+    for field in ("stdout", "stderr"):
+        raw = getattr(result, field)
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("gb18030", errors="backslashreplace")
+        setattr(result, field, text)
+    return result
 
 # 允许的折叠状态
 VALID_STATES = {"open", "half-open", "close"}
@@ -353,6 +359,9 @@ def get_local_ips():
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     global EMULATOR_INSTANCE, PORT, DEVICE_PORT, OWNER_TOKEN
     parser = argparse.ArgumentParser(description="Fold control HTTP server")
     parser.add_argument(

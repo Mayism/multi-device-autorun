@@ -70,7 +70,7 @@ class LibraryAPICount(Workflow):
         baseline = folder / "input-evidence.json"
         if not baseline.is_file():
             return result(config, "unavailable", error="缺少Agent执行前的API快照，请重新执行生成；不能用执行后的源码伪造转换前基线")
-        frozen = json.loads(baseline.read_text())
+        frozen = json.loads(baseline.read_text(encoding="utf-8"))
         if frozen["status"] != "completed":
             return result(config, "unavailable", error="转换前API统计不可用: " + frozen.get("error", ""), evidence=[str(baseline)])
         source = frozen["data"]
@@ -122,7 +122,7 @@ class LibraryAPICompatibility(Workflow):
             total += weight
             symbols = entry.get("required_symbols") or [entry["target"]]
             selected = files if not entry.get("file") else [inside(execution.project, entry["file"], exists=True)]
-            text = "\n".join(p.read_text(errors="replace") for p in selected)
+            text = "\n".join(p.read_text(errors="replace", encoding="utf-8") for p in selected)
             found = all(symbol in text for symbol in symbols)
             if found:
                 matched += weight

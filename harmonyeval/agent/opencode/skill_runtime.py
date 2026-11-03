@@ -9,6 +9,7 @@ import sys
 from urllib.parse import unquote, urlsplit
 
 from harmonyeval.agent.opencode.platform import detect_deveco_cli, format_deveco_cli_failure
+from harmonyeval.utils.encoding import python_utf8_environment
 
 
 ONE_MULTI_NAME = "harmonyos-ui-multi"
@@ -165,10 +166,10 @@ def install_project_skill(runtime, project_dir):
         raise ValueError("预装 Skill 时 .gitignore 不能是符号链接")
     original_ignore = ignore.read_bytes() if ignore.exists() else None
     python = one_multi["python"]
-    env = {**runtime["env"], "PYTHONDONTWRITEBYTECODE": "1"}
+    env = python_utf8_environment({**runtime["env"], "PYTHONDONTWRITEBYTECODE": "1"})
     try:
         result = subprocess.run([python["command"], *python.get("args", []), "-B", one_multi["installer"], str(project)],
-                                cwd=project, env=env, capture_output=True, text=True, timeout=60, check=True)
+                                cwd=project, env=env, capture_output=True, text=True, encoding="utf-8", timeout=60, check=True)
     finally:
         if original_ignore is None:
             ignore.unlink(missing_ok=True)

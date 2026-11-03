@@ -10,9 +10,11 @@ from harmonyeval.utils.security import redact
 from harmonyeval.report.task import write_task_report
 from harmonyeval.evaluator.preflight import check_task
 from harmonyeval.evaluator.identity import execution_identity, scoring_identity, verification_identity
+from harmonyeval.utils.encoding import configure_console, console_print
 
 
-def _run_single_sync(task, on_log=print, cancel_event=None, output_root=None):
+def _run_single_sync(task, on_log=console_print, cancel_event=None, output_root=None):
+    configure_console()
     checked = check_task(task, inspect=False)
     if not checked['ready']:
         raise ValueError('运行前缺少: ' + '、'.join(checked['missing']))
@@ -28,7 +30,7 @@ def _run_single_sync(task, on_log=print, cancel_event=None, output_root=None):
     root.mkdir(parents=True)
     import yaml
     (root / 'task.resolved.yaml').write_text(yaml.safe_dump(
-        redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False))
+        redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False), encoding="utf-8")
     model = task_model(task)
     config = TaskConfig(model=model, model_id=task['id'], datasets=['harmony_eval'], eval_type='custom',
                         dataset_args={'harmony_eval': {'extra_params': {'task': task, 'run_root': str(root)}}},
@@ -80,7 +82,7 @@ def report_exit_code(report):
     return 1 if failed else 0
 
 
-async def run_task(task, on_log=print):
+async def run_task(task, on_log=console_print):
     from harmonyeval.experiments.runner import _run_sync
     cancelled = threading.Event()
     worker = asyncio.create_task(asyncio.to_thread(_run_sync, task, on_log, cancelled))

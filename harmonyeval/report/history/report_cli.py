@@ -5,9 +5,11 @@ from pathlib import Path
 
 from harmonyeval.utils.io import read_json
 from harmonyeval.report.history.reports import write_batch_report
+from harmonyeval.utils.encoding import configure_console
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Regenerate an Autorun batch report")
     parser.add_argument("batch_root")
     args = parser.parse_args(argv)

@@ -1,6 +1,7 @@
 """Stage generated cases and run the Python ohosTest SWE phase."""
 
 import asyncio
+import base64
 import argparse
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from harmonyeval.integrations.uitest.ohostest_project import execution_groups, l
 from harmonyeval.utils.json5 import read_loose_json5
 from harmonyeval.utils.projects import copy_project
 from harmonyeval.integrations.uitest.ohostest_web import WEB_PORT, web_service
+from harmonyeval.utils.encoding import configure_console, console_print, decode_output, print_json
 
 
 class _SkippedCase(Exception):
@@ -119,12 +121,14 @@ def _apply_patch(project, patch, label, log):
     environment["GIT_CEILING_DIRECTORIES"] = str(project.parent)
     for check in (True, False):
         command = ["git", "apply", "--ignore-whitespace", *(("--check",) if check else ()), str(patch)]
-        completed = subprocess.run(command, cwd=project, env=environment, capture_output=True, text=True)
+        completed = subprocess.run(command, cwd=project, env=environment, capture_output=True)
         log.record("command", command=" ".join(command), cwd=str(project),
-                   result={"exitCode": completed.returncode, "stdout": completed.stdout,
-                           "stderr": completed.stderr})
+                   result={"exitCode": completed.returncode, "stdout": decode_output(completed.stdout),
+                           "stderr": decode_output(completed.stderr),
+                           "stdoutBase64": base64.b64encode(completed.stdout).decode("ascii"),
+                           "stderrBase64": base64.b64encode(completed.stderr).decode("ascii")})
         if completed.returncode:
-            raise RuntimeError(f"patch_apply_failed: {label}: {completed.stderr.strip()}")
+            raise RuntimeError(f"patch_apply_failed: {label}: {decode_output(completed.stderr).strip()}")
 
 
 def _copy_work(metadata, output_dir):
@@ -337,7 +341,7 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
     relocated = bool(rn_root) and _is_rn_project(case_dir / case_info["projectName"])
     output = _rn_output_dir(rn_root, case_info["name"], started) if relocated else final_output
     if relocated:
-        print(f"[ohosTest] {case_info['name']}: RN 短路径 {output}，运行结束后仅保留结果目录")
+        console_print(f"[ohosTest] {case_info['name']}: RN 短路径 {output}，运行结束后仅保留结果目录")
     output.mkdir(parents=True, exist_ok=True)
     machine_path = output / "machine.json"
     write_json(machine_path, settings["machineConfig"])
@@ -393,7 +397,7 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
                 output = final_output
             except OSError as error:
                 preserve_error = f"迁移输出目录迁回失败: {error}"
-                print(f"[ohosTest] {case_info['name']}: {preserve_error}，结果暂存于 {output}")
+                console_print(f"[ohosTest] {case_info['name']}: {preserve_error}，结果暂存于 {output}")
         elif work.exists():
             work.rename(retained)
     if (output / "result.json").is_file():
@@ -422,6 +426,7 @@ async def run_ohostest_for_batch(case_info, agent_result, settings, batch_root):
 
 
 def main(argv=None):
+    configure_console()
     parser = argparse.ArgumentParser(description="Python ohosTest case runner")
     parser.add_argument("--case", required=True)
     parser.add_argument("--out")
@@ -436,8 +441,8 @@ def main(argv=None):
     output = Path(args.out) if args.out else Path(args.case) / ".ohostest-runs" / datetime.now().strftime("%Y%m%d%H%M%S")
     result = run_ohostest_case(args.case, machine, output, args.run,
                                args.skip_build, args.keep_emulators, args.keep_workdir, devices=args.device)
-    print(json.dumps({"status": result["status"], "out": str(output / "result.json"),
-                      "summary": str(output / "summary.md")}, ensure_ascii=False))
+    print_json({"status": result["status"], "out": str(output / "result.json"),
+                      "summary": str(output / "summary.md")})
     return 0 if result["status"] == "completed" else 1
 
 
