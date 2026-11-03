@@ -15,7 +15,7 @@
 | `SkillVerifier` | 使用独立 Skill 产出结构化评价 |
 | `Workflow` | 用 steps/workflow_path 组合已注册验证器 |
 
-这些是本框架的注册类型，不等同于 EvalScope 自带同名适配器。各类型参数见 `harmonyeval/verification/workflows/`；完整扩展示例见仓库 `docs/harmony-eval-extension-guide.md`。
+这些是本框架的注册类型，不等同于 EvalScope 自带同名适配器。各类型参数见 `harmonyeval/verification/workflows/`；完整扩展示例见仓库 `docs/harmony-eval-framework-design.md` 第11节。
 
 UITest/云测试内部可以编译、安装、运行、解析；不要为某个场景另造独立的 build 节点。`whiteboxeval` 当前是模型白盒评价，不自动等同于 integrations 中完整 ArkAnalyzer 工具链。
 

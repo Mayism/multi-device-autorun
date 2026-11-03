@@ -86,6 +86,4 @@ HARMONY_EVAL_INTEGRATION=1 python -m unittest discover -s tests -p test_harmony_
 
 共用的设备 Runner、云测试客户端/轮询、白盒工具和历史产物维护代码仍保留；它们不再通过旧 JSON 批量入口启动。可选 ArkAnalyzer 侧车位于 harmonyeval/integrations/whitebox/ark_analyzer，需要时运行 `npm ci`、`npm run build:whitebox`；当前 Harmony Eval 的 whiteboxeval 是模型评价，不等于完整 ArkAnalyzer 流程。
 
-详见 [使用说明](docs/harmony-eval-usage.md)、[其他仓库重构实施指南](docs/harmony-eval-framework-design.md)、[字段与枚举](docs/harmony-eval-config-reference.md)、[各场景 YAML](docs/harmony-eval-task-examples.md)、[验证器和评分器扩展指南](docs/harmony-eval-extension-guide.md)。
-
-目录职责、EvalScope 映射和逐模块迁移说明见 [架构说明](docs/harmonyeval-architecture.md)。
+docs 只维护两份文档：[框架设计与重构指南](docs/harmony-eval-framework-design.md)（架构、迁移、EvalScope和扩展开发），[YAML 配置说明与场景示例](docs/harmony-eval-task-examples.md)（安装运行、字段枚举、对照配置和18份完整任务）。

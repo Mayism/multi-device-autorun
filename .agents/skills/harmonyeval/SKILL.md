@@ -17,7 +17,7 @@ description: "在 HarmonyEval 仓库新增或修改评测场景、task YAML、�
 - 新增验证器、组合流程或评分器：读 [验证与评分](references/verification-and-scoring.md)。
 - 调整公共能力、审查变更或准备交付：读 [架构边界与自验证](references/architecture.md)。
 
-以当前 `harmonyeval/api/{contracts,interfaces,registry}.py` 和具体适配器的实现、schema 为准。发现文档与代码不符时，先核实差异；不要把尚未实现的方案描述为可用功能。其他仓库的重构步骤见 `docs/harmony-eval-framework-design.md`，完整字段见 `docs/harmony-eval-config-reference.md`，18 份 YAML 见 `docs/harmony-eval-task-examples.md`，模块映射见 `docs/harmonyeval-architecture.md`。
+以当前 `harmonyeval/api/{contracts,interfaces,registry}.py` 和具体适配器的实现、schema 为准。发现文档与代码不符时，先核实差异；不要把尚未实现的方案描述为可用功能。docs 只维护两份文档：`docs/harmony-eval-framework-design.md` 说明架构、重构步骤和扩展开发；`docs/harmony-eval-task-examples.md` 说明运行方式、字段枚举、对照配置和18份 YAML。
 
 迁移其他仓库时，不能用本参考仓库的 static_eval 预留状态覆盖目标已有的静态评测。先核实其实际输入、调用时机、执行次数、评分与报告，再保留迁移；任务级评价不能自动变成逐用例评价。
 

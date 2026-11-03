@@ -22,7 +22,7 @@
 - 内置路径字段相对于 YAML 所在目录解析；新增字段不会自动获得路径规范化。模型密钥填写环境变量名，不写入 Skill 或示例。
 - 当前参考仓库的 `static_eval` 暂时仅保留字段，不为它自行发明判据；迁移另一个已有静态评测的仓库时，保留其实际能力，不能套用“预留不执行”。
 
-具体配置从仓库 `config/examples/task.*.yaml` 选择相近场景，再查 `config/loader.py`、`agent/targets/` 和 `experiments/config.py`；这些源码路径均在 `harmonyeval/` 下。完整字段枚举在 `docs/harmony-eval-config-reference.md` 维护，不复制真实配置里的私密参数。
+具体配置从仓库 `config/examples/task.*.yaml` 选择相近场景，再查 `config/loader.py`、`agent/targets/` 和 `experiments/config.py`；这些源码路径均在 `harmonyeval/` 下。完整字段枚举在 `docs/harmony-eval-task-examples.md` 维护，不复制真实配置里的私密参数。
 
 ## 三种现有数据布局
 
