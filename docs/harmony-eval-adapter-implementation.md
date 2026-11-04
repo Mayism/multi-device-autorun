@@ -11,11 +11,12 @@
 - [3. 四种数据契约](#3-四种数据契约)
 - [4. 原始用例 → EvalCase → EvalScope Sample](#4-不同格式的用例怎样转换成-evalscope-输入)
 - [5. EvalScope 回调与单用例执行顺序](#5-evalscope-怎样调用执行验证与评分)
-- [6. 验证适配器接口、调度和内置实现](#6-验证适配器怎样实现)
-- [7. 评分接口、公式和 L2/L3 示例](#7-评分适配器怎样实现)
-- [8. SampleScore 与结果聚合](#8-分数怎样交回-evalscope-与报告)
-- [9. 三个适配器的完整扩展示例](#9-怎样新增三个适配器一个完整扩展示例)
-- [10. 结果目录、复评与接入检查](#10-怎样复用结果与定位问题)
+- [6. 验证与评分：从 YAML 到最终分数](#6-验证与评分怎样一起工作)
+  - [6.1 跟着 UITest 看验证结果怎样变成分数](#61-从-yaml-开始跟着一次-uitest-验证得到分数)
+  - [6.8 指标引用](#68-从-verification-到-scoring-的引用关系)、[6.9 评分调用](#69-评分调用和异常)、[6.10 内置公式](#610-三种内置规则)
+  - [6.11 L2/L3 实例](#611-当前一多-l2l3-的实例)、[6.12 交回 EvalScope](#612-分数怎样交回-evalscope-与报告)
+- [7. 三个适配器的完整扩展示例](#7-怎样新增三个适配器一个完整扩展示例)
+- [8. 结果目录、复评与接入检查](#8-怎样复用结果与定位问题)
 
 ## 1. 一次评测经过哪些步骤
 
@@ -387,11 +388,266 @@ run_inference(model, sample, ...)
 
 公共桥接返回的 `TaskState.completed=True` 表示这次推理步骤已经返回，实际 Agent 是否成功仍读取 `ExecutionResult.status`。
 
-## 6. 验证适配器怎样实现
+## 6. 验证与评分怎样一起工作
 
-### 6.1 验证接口
+### 6.1 从 YAML 开始，跟着一次 UITest 验证得到分数
 
-当前验证器通常继承 `Workflow`，实现：
+先看配置，再看框架怎样执行它。假设 Agent 已经完成一多适配，接下来要在手机上运行用例的设备测试，并把测试通过率换算成百分制分数。
+
+连接验证器与评分器的地方是公共 benchmark 的 `HarmonyBenchmarkAdapter.calculate_metrics()`：它先等待本用例本轮的验证 pipeline 返回，再调用 calculate_scores 计算评分。验证器不需要导入评分器，也不需要知道 YAML 选择了哪种评分公式。
+
+下面取自任务中需要讲解的字段，是 **harmonybot_agent 活动配置块的片段**；dataset、target、Agent 和模型等配置沿用完整任务。DevEco 路径以 macOS 为例，Windows 换成实际安装路径；设备 target 必须换成 `hdc list targets` 返回的地址。这里假设设备已经启动并连接。
+
+```yaml
+harmonybot_agent:
+  execution:
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app
+  verification:
+    - id: ui
+      type: UITest
+      timeout: 7200
+      devices:
+        - id: phone
+          target: 127.0.0.1:15000
+          start_emulator: false
+  scoring:
+    - dimension: ui_quality
+      type: ImmediateValue
+      source: ui.metrics.pass_rate
+      scale: 100
+```
+
+**第一步：YAML 先表达“用什么方法、在哪台设备上验证”。**
+
+| 本例配置 | 框架怎样理解 |
+|---|---|
+| `verification` 下的一个条目 | 为每个评测用例、每轮执行一次该验证流程 |
+| `id: ui` | 本次流程叫 ui，决定结果键和 verification/ui/ 证据目录 |
+| `type: UITest` | 选择已经注册的 UITest 验证实现 |
+| `timeout: 7200` | 传给验证实现的流程超时参数，单位秒 |
+| `devices` | 验证实现使用的设备配置 |
+| `execution.enviroment.deveco_home` | 框架构造验证环境时使用的工具链位置 |
+| `source: ui.metrics.pass_rate` | 验证结束后，从 ui 结果里取通过率供评分使用 |
+
+这里的“评测用例”是一条 EvalCase，例如一个待适配工程。这个工程内可以有多个 UITest 测试函数；验证器一次调用可能执行其中十个测试函数，不是为每个函数重新执行一遍 Agent。
+
+**第二步：配置加载器把 YAML 条目整理成 config。**
+
+`load_task()` 根据顶层 target.type 选中活动块，保存在 task.active。它检查验证器类型是否存在、ID 是否重复、依赖是否有效，并规范化已知路径。后面传给 UITest.verify() 的 config，就是这个 verification 条目整理后的字典：
+
+```python
+config = {
+    "id": "ui",
+    "type": "UITest",
+    "timeout": 7200,
+    "devices": [{"id": "phone", "target": "127.0.0.1:15000", "start_emulator": False}],
+}
+```
+
+config 不包含整个 YAML。DevEco 等公共执行环境由框架另行整理，放到 context['env'] 中。
+
+**第三步：框架用 type 找到已有的 Python 类。**
+
+UITest 类在源码中通过 `@verifiers.register("UITest")` 注册。配置不会自己生成测试代码，而是按名字选中这段实现：
+
+```python
+# pipeline 的类选择与调用关系，省略资源锁、异常处理和清理。
+async def call_selected_verifier(task, case, execution, context, config):
+    from harmonyeval.api import verifiers
+
+    verifier_class = verifiers.get(config["type"])  # 本例找到 UITest 类
+    verifier = verifier_class()
+    return await verifier.verify(
+        case=case,
+        execution=execution,
+        dependencies={},  # 本例没有 depends_on
+        context=context,
+        config=config,
+    )
+```
+
+本例 `type: UITest` 对应 `verification/workflows/uitest.py` 中的 UITest 类。若填写未注册的类型，例如 NewTool，加载时会报未知验证适配器；要先实现并注册该类型才能使用。
+
+**第四步：调用 verify() 时，把“配置”和“本次运行数据”合在一起。**
+
+`HarmonyBenchmarkAdapter.calculate_metrics()` 在 Agent 执行步骤结束后调用 pipeline。pipeline 负责取出流程配置、准备环境和证据目录，然后调用上面的验证类。
+
+| 数据从哪里来 | 本例实际交给验证器什么 |
+|---|---|
+| YAML 的 verification 条目 | config：设备、超时、验证类型和结果 ID |
+| 用例适配器 | case：原用例目录、metadata、test patch 等评估资料 |
+| 刚刚的 Agent 执行 | execution：修复后的工程路径和执行状态 |
+| 验证调度器 | context：verification/ui/ 证据目录、工具环境和取消信号 |
+
+例如 execution.project 指向 `.../cases/CaseA/base/`，context['output'] 指向 `.../cases/CaseA/verification/ui/`。前者是要验证的工程，后者是保存本次测试报告的位置。
+
+**第五步：UITest.verify() 真正准备并运行设备测试。**
+
+这一部分才是验证适配器的业务实现。当前 UITest 的主要步骤是：
+
+1. 根据 DevEco/SDK 环境和 devices 生成测试运行配置。
+2. 把 Agent 生成的工程复制到验证用临时目录，准备该用例的测试资料。
+3. 一多用例含 native metadata 时，准备声明的补丁和 metadata，调用 `harmonyeval.integrations.uitest.ohostest_case --run swe`；其他工程走 `ohostest_matrix` 分支。
+4. 由 ohosTest 集成完成相应构建、安装和设备测试。
+5. 读取测试生成的 JSON，检查构建、设备和实际测试计数是否有效。
+
+也就是说：YAML 负责给出要选的类型与参数；UITest 类负责怎样调用工具和怎样解释工具报告。用例的测试逻辑由测试工程或评估侧 test patch 提供，不会从 type 名称中自动推导出来。
+
+**第六步：适配器把工具报告转换成统一验证结果。**
+
+假设工具报告的关键内容如下，表示手机上实际运行了 10 项测试、8 项通过：
+
+```json
+{
+  "build": {"status": "passed"},
+  "devices": [
+    {"id": "phone", "status": "failed", "testsRun": 10, "passes": 8, "failures": 2}
+  ]
+}
+```
+
+UITest 会计算 tests_run=10、passes=8、pass_rate=8/10，再返回 VerificationResult。pipeline 按 YAML 中的 id 将它保存为以下结果，下面仅展示关键字段：
+
+```json
+{
+  "ui": {
+    "verifier_id": "ui",
+    "status": "completed",
+    "metrics": {
+      "build_passed": true,
+      "tests_run": 10,
+      "passes": 8,
+      "pass_rate": 0.8,
+      "all_tests_passed": false
+    }
+  }
+}
+```
+
+虽然有两项测试失败，验证已经实际执行并获得有效报告，因此这里返回 completed。若没有生成有效报告、设备未执行测试等，则应返回 unavailable，无法据此生成有效通过率。
+
+**第七步：公共 benchmark 接过验证结果，启动评分。**
+
+谁来调用评分器？答案是 `HarmonyBenchmarkAdapter.calculate_metrics()`。它的实际顺序是先调用 pipeline，再把返回的整组 results 交给 calculate_scores。下面把这个顺序摘成一个独立函数，方便阅读；实际调用位置在 benchmarks/evalscope.py：
+
+```python
+import asyncio
+from harmonyeval.verification.pipeline import pipeline
+from harmonyeval.metrics.scoring import calculate_scores
+
+
+def verify_and_score(task, case, execution, case_output, cancel_event=None):
+    # 1. 本用例、本轮的验证流程完成后，拿到所有流程的结果字典。
+    results = asyncio.run(pipeline(task, case, execution, case_output, cancel_event))
+
+    # 2. 读取同一个活动块下的 scoring 配置。
+    rules = task["active"]["scoring"]
+
+    # 3. 统一调用评分器；每个评分器都能读取这份 results。
+    scores = calculate_scores(results, rules)
+    return {"verification": results, "scores": scores}
+```
+
+因此，当前实现是在本用例、本轮的整组验证返回后统一评分，并没有要求某个验证器直接触发另一个评分器。
+
+**第八步：calculate_scores 按 scoring.type 找到评分实现。**
+
+它遍历 YAML 的 scoring 列表。本例只有一个条目，收到的配置是：
+
+```python
+rule = {
+    "dimension": "ui_quality",
+    "type": "ImmediateValue",
+    "source": "ui.metrics.pass_rate",
+    "scale": 100,
+}
+```
+
+具体调用关系如下；这里省略异常转 unavailable 的处理：
+
+```python
+from harmonyeval.api import scorers
+
+scoring_class = scorers.get(rule["type"])   # 找到 ImmediateValue 类
+score_result = scoring_class().score(results, rule)
+scores = {rule["dimension"]: score_result.to_dict()}
+```
+
+评分器收到两个输入：**所有验证结果 results**，以及**自己的评分配置 rule**。它并不会重新读取 UITest 原始日志，所需指标已经由验证器解析好。
+
+**第九步：评分器按 source 取数、计算，并返回评分结果。**
+
+本例 `ImmediateValue.score()` 使用 source_value 读取指标：
+
+```python
+from harmonyeval.metrics.sources import source_value
+
+rate = source_value(results, "ui.metrics.pass_rate")
+# 等价取值：results["ui"]["metrics"]["pass_rate"]，结果为 0.8。
+# source_value 还会检查来源状态以及值是否缺失。
+score = rate * rule["scale"]  # 0.8 × 100 = 80
+```
+
+然后返回 ScoreResult，由 calculate_scores 按 dimension 整理成下面的 scores，示例仅保留关键字段：
+
+```json
+{
+  "ui_quality": {
+    "dimension": "ui_quality",
+    "status": "scored",
+    "score": 80,
+    "max_score": 100
+  }
+}
+```
+
+验证结果中的键 `ui` 来自 verification.id；评分结果中的键 `ui_quality` 来自 scoring.dimension。这两个名字通过 `source: ui.metrics.pass_rate` 关联，不要求同名，也没有 UITest 必须搭配 ImmediateValue 的固定关系。
+
+同一份验证结果可以交给多个评分项，例如通过率计算连续分数、all_tests_passed 计算通过/失败分数；一个 WeightedSummation 评分项也可以同时读取 UI 与白盒两个验证器的结果。评分的对应关系由 source/components 配置表达。
+
+**第十步：benchmark 把验证和评分一起记入报告，并把有效分数交给 EvalScope。**
+
+本条 record 中会同时保存：
+
+```text
+record.verification["ui"].metrics.pass_rate = 0.8
+record.scores["ui_quality"].score = 80
+```
+
+前者保留测试事实，后者保留评分结论及计算明细。benchmark 进一步把有效分数包装成 EvalScope SampleScore，其中 Score.value 为 `{"ui_quality":80}`；汇总阶段再按维度计算平均分和评分覆盖率。
+
+如果 ui 返回 unavailable，或 pass_rate 为 None，source_value 会拒绝取值，calculate_scores 将这个评分项保存为 unavailable + score=None。若实际执行了 10 项测试且全部失败，则 pass_rate=0，可以产生有效的 0 分。
+
+下面这张图把本例中“谁调用谁”连起来：
+
+```mermaid
+sequenceDiagram
+    participant E as EvalScope 调度器
+    participant B as HarmonyBenchmarkAdapter
+    participant P as 验证 pipeline
+    participant V as UITest 验证器
+    participant C as calculate_scores
+    participant S as ImmediateValue 评分器
+    E->>B: calculate_metrics(task_state)
+    B->>P: pipeline(task, case, execution, ...)
+    P->>V: verify(case, execution, ..., config)
+    V-->>P: VerificationResult(pass_rate=0.8)
+    P-->>B: results，按验证 id 整理
+    B->>C: calculate_scores(results, scoring配置)
+    C->>S: score(results, rule)
+    S-->>C: ScoreResult(score=80)
+    C-->>B: scores，按 dimension 整理
+    B-->>E: SampleScore(value含ui_quality=80)
+```
+
+换成云测试时，配置 type: CloudTest，框架选中 CloudTest 类，由它提交并解析云任务；换成问答精确匹配时，type: ExactMatch，对应实现直接比较标准答案。共同的 pipeline、结果格式和评分引用方式继续复用。
+
+### 6.2 验证接口
+
+这里的 `Workflow` 是本框架定义的“验证流程公共基类”，提供版本号和资源需求声明。UITest、CloudTest 等继承它，然后各自实现 verify()。本节讨论的是这些具体实现；YAML 中 type: Workflow 则是后面介绍的组合验证器。
+
+统一的调用接口如下：
 
 ```python
 async def verify(self, case, execution, dependencies, context, config):
@@ -419,7 +675,7 @@ async def verify(self, case, execution, dependencies, context, config):
 
 模型调用、设备执行、远程服务请求、报告解析都可放在验证器。最终只能返回 JSON 可序列化的指标与证据。
 
-### 6.2 调度和依赖
+### 6.3 调度和依赖
 
 配置解析时，`flow_order()` 检查 ID 重复、未知依赖和依赖环。未填写 id 时默认使用 type；同类型多个实例应分别命名。
 
@@ -456,7 +712,7 @@ async def verify(self, case, execution, dependencies, context, config):
 
 `Workflow.requirements(config)` 默认读取 resources。pipeline 按资源名排序加锁，协调同一进程内的并发验证。UITest 根据 devices 构造 device:... 资源名，CloudTest 使用 agc-cloud-submit。这套锁不代替跨进程的设备租约。
 
-### 6.3 工程副本、命令和用例级参数
+### 6.4 工程副本、命令和用例级参数
 
 公共辅助函数来自 `verification/context.py`：
 
@@ -476,7 +732,7 @@ workflow_settings 的取值顺序为：
 
 不是所有验证器都会自动调用 workflow_settings。当前 LibraryTests、LibraryAPICount 等主动使用它；自定义流程需要自行调用。
 
-### 6.4 执行前快照
+### 6.5 执行前快照
 
 需要对比转换前后 API 时，验证器还可实现：
 
@@ -496,7 +752,7 @@ verification/<id>/input-evidence.json
 
 verify 复评命令不会重新执行输入捕获。历史运行没有所需快照时，应重新 run，不能用改后的工程补造转换前数据。
 
-### 6.5 当前验证类型和能力范围
+### 6.6 当前验证类型和能力范围
 
 | verification.type | 主要工作 | 常用结果或限制 |
 |---|---|---|
@@ -518,7 +774,7 @@ UITest 和云测试内部可包含编译、安装、测试和解析。框架目�
 
 `Workflow` 的内部结果不自动展开成顶层流程 ID。需要评分的子指标应通过该组合流程的 metrics 导出，再以 `组合id.metrics.字段` 引用。
 
-### 6.6 当前状态语义必须按源码理解
+### 6.7 当前状态语义必须按源码理解
 
 实际验证器会返回 completed、failed、unavailable、skipped 等字符串。推荐将实际执行的断言失败表达成 completed + 失败指标；LibraryTests 的构建失败、部分 UITest 情况仍会返回 failed。
 
@@ -530,9 +786,7 @@ UITest 和云测试内部可包含编译、安装、测试和解析。框架目�
 
 新增验证器应明确失败分类和哪些指标仍然有效，不能通过填默认零掩盖工具缺失或报告损坏。
 
-## 7. 评分适配器怎样实现
-
-### 7.1 从 verification 到 scoring 的引用关系
+### 6.8 从 verification 到 scoring 的引用关系
 
 ```yaml
 verification:
@@ -558,7 +812,7 @@ scoring:
 
 配置加载阶段检查 source/cap_source 的首段是否为已声明的顶层验证 ID；后续字段存在性和值是否合法，到运行期才检查。
 
-### 7.2 评分调用和异常
+### 6.9 评分调用和异常
 
 `calculate_scores(results, rules)` 对每个评分条目调用：
 
@@ -570,7 +824,7 @@ scorers.get(config["type"])().score(results, config)
 
 KeyError、ValueError、TypeError、IndexError 会被当前 calculate_scores 转为 unavailable，score 为 None；其他异常不保证被该函数兜底。数值校验可复用 `utils.numbers.number()`，它拒绝布尔值、NaN 和无穷值。
 
-### 7.3 三种内置规则
+### 6.10 三种内置规则
 
 | scoring.type | 计算方式 | 关键参数 |
 |---|---|---|
@@ -600,7 +854,7 @@ dimensions 必须非空，维度满分须为正且得分合法。cap_source 可�
 
 当前 validate 接受 mode=deduction 或 sum，但 score() 共用同一套上述计算；不要据字段名假设 sum 另有独立算法或允许不同权重约束。
 
-### 7.4 当前一多 L2/L3 的实例
+### 6.11 当前一多 L2/L3 的实例
 
 这是已确认的一多口径，不是所有场景的默认标准：L2 中 UITest 通过率代表 UX，占 50%；白盒各维度按满分比例分配其余 50%；L3 直接取白盒总分。
 
@@ -631,7 +885,7 @@ scoring:
 - 白盒维度原本得到 15 + 20 = 35 分；总分上限进一步限制为 50×65/100=32.5 分。
 - L2 得 72.5 分；L3 得 65 分。
 
-## 8. 分数怎样交回 EvalScope 与报告
+### 6.12 分数怎样交回 EvalScope 与报告
 
 `HarmonyBenchmarkAdapter.calculate_metrics()` 完成三件事：
 
@@ -659,11 +913,11 @@ aggregate_sample_scores 按维度计算有效值的平均数，生成 EvalScope 
 
 运行命令退出码主要表示执行与评分是否完整：有效的零分仍可退出 0；Agent 失败、计划样本缺失或存在 unavailable 的评分项会使任务退出码为 1。不能把退出 0 当作全部业务测试通过。
 
-## 9. 怎样新增三个适配器：一个完整扩展示例
+## 7. 怎样新增三个适配器：一个完整扩展示例
 
 下面示例新增一种 JSON 工程清单格式、一个读取验收 JSON 的验证器和一个通过率扣分规则。它们复用现有执行引擎与 EvalScope 桥接，不修改主调度。
 
-### 9.1 扩展包布局与注册
+### 7.1 扩展包布局与注册
 
 ```text
 example-eval-extension/
@@ -706,7 +960,7 @@ Registry.get() 会先注册内置类，再发现安装环境中的 entry points�
 
 Registry.validate() 先按可选 schema 做 JSON Schema 校验，再执行可选的 validate(config)。它只检查类型声明的参数，新字段不会自动获得路径解析或语义。
 
-### 9.2 用例适配器
+### 7.2 用例适配器
 
 假设新的数据布局是：
 
@@ -774,7 +1028,7 @@ class ProjectManifestDataset(DatasetAdapter):
 
 该类复用了基类工程复制和指纹方法。新增输入格式后，EvalCase 到 Sample 的转换继续使用第4节同一套代码。
 
-### 9.3 验证器：外部验收报告转换成指标
+### 7.3 验证器：外部验收报告转换成指标
 
 先定义独立于框架的验收程序协议：脚本接受 --project、--output；最终将以下 JSON 写到 --output 指定位置。实际测试脚本由场景提供。
 
@@ -837,7 +1091,7 @@ class JsonAcceptance(Workflow):
 
 这段例子不自动解释任意测试工具的退出码。接入新工具时，需要按其真实报告协议改造验证器。
 
-### 9.4 评分器：只根据已验证指标扣分
+### 7.4 评分器：只根据已验证指标扣分
 
 `example_eval/scorers.py`：
 
@@ -866,7 +1120,7 @@ class PassRateDeduction:
 
 这个公式也可用已有 ImmediateValue + scale 表达。这里为了展示评分接口才单独实现；实际开发优先复用内置规则。
 
-### 9.5 任务如何把三个扩展连接起来
+### 7.5 任务如何把三个扩展连接起来
 
 以下示例放在 cases/manifest.json 同级的 task.yaml。执行环境需要独立 OpenCode、可用模型以及验收脚本所需工具。
 
@@ -922,9 +1176,9 @@ harmonyeval run /absolute/path/to/cases/task.yaml
 
 Windows PowerShell 可把安装路径替换为 `C:\work\example-eval-extension`、任务路径替换为 `C:\work\cases\task.yaml`。`plan` 或 `run --check` 检查准备情况，不代表模型和验收程序已经真实执行成功。
 
-## 10. 怎样复用结果与定位问题
+## 8. 怎样复用结果与定位问题
 
-### 10.1 单组运行的关键目录
+### 8.1 单组运行的关键目录
 
 ```text
 <run_root>/
@@ -949,7 +1203,7 @@ Windows PowerShell 可把安装路径替换为 `C:\work\example-eval-extension`�
 
 这是结构示意；并非每种场景都生成所有文件，补丁文件名以声明路径为准。对照任务的各组位于批次 experiments/<实验ID>/，上面的 run_root 指其中一个单组目录。
 
-### 10.2 verify 与 rescore 的区别
+### 8.2 verify 与 rescore 的区别
 
 ```sh
 harmonyeval verify /absolute/path/to/task.yaml --run /absolute/path/to/single-run
@@ -970,7 +1224,7 @@ replay 会核对执行指纹；rescore 还要求验证指纹一致。当前有�
 
 扩展源码、任意外部命令脚本不保证全部自动进入内容指纹。改变行为或协议时更新类 version，再选择相应阶段重跑。verify/rescore 更新业务报告，并按需要刷新实验比较；不能据此认为 EvalScope 原始 predictions/reports 全部重新生成。
 
-### 10.3 接入前的自验证
+### 8.3 接入前的自验证
 
 | 检查 | 应验证的行为 |
 |---|---|
