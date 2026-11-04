@@ -26,7 +26,7 @@ docs 按用途维护以下文档：
 |---|---|
 | 本文：框架设计与重构指南 | 模块怎么分、旧能力怎么保留、按什么顺序改代码、怎样接 EvalScope、如何扩展和验收 |
 | [YAML 配置说明与场景示例](harmony-eval-task-examples.md) | 怎样安装运行、字段有哪些值、怎样组织用例、怎样配置对照，以及18份完整任务配置 |
-| [适配器设计与实现说明](harmony-eval-adapter-implementation.md) | 当前源码如何实现 EvalCase→Sample、验证调度和评分转换，以及三个适配器的完整扩展示例 |
+| [适配器设计与实现说明](harmony-eval-adapter-implementation.md) | 当前源码如何实现 EvalCase→Sample、Agent 与 Skill/Plugin/MCP 执行及对照、验证调度和评分转换，以及完整扩展示例 |
 
 **阅读顺序：**重构 Agent 先读本文第1～9节并按第5节实施；遇到细节再查[第10节](#10-实现时需要核对的细节)和[第11节](#11-新增验证器和评分器)。只配置任务时直接读 YAML 文档。开发约束同时遵循仓库 [AGENTS.md](../AGENTS.md) 和 [harmonyeval Skill](../.agents/skills/harmonyeval/SKILL.md)。
 

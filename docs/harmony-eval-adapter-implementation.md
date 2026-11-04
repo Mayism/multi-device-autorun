@@ -1,6 +1,6 @@
 # HarmonyEval 适配器设计与实现说明
 
-更新日期：2026-11-04。本文说明当前 `harmonyeval/` 源码的实现，重点回答三个问题：不同格式的用例如何交给 EvalScope、验证流程如何接入、验证结果如何变成分数。示例遵循当前接口；示例中的外部验收程序和服务需要场景开发者提供。
+更新日期：2026-11-04。本文说明当前 `harmonyeval/` 源码的实现，重点说明不同格式用例如何交给 EvalScope，执行阶段怎样选择 Agent 与装载 Skill/Plugin/MCP，以及验证结果如何变成分数。示例遵循当前接口；示例中的外部验收程序和服务需要场景开发者提供。
 
 本文适合新增场景或接手框架的开发者、Agent 阅读。整体迁移步骤见[框架设计与重构指南](harmony-eval-framework-design.md)，完整 YAML 字段和各场景配置见[YAML 配置说明与场景示例](harmony-eval-task-examples.md)。
 
@@ -10,7 +10,10 @@
 - [2. 源码分工](#2-源码怎么分工)
 - [3. 四种数据契约](#3-四种数据契约)
 - [4. 原始用例 → EvalCase → EvalScope Sample](#4-不同格式的用例怎样转换成-evalscope-输入)
-- [5. EvalScope 回调与单用例执行顺序](#5-evalscope-怎样调用执行验证与评分)
+- [5. 执行阶段：Agent、Skill、Plugin、MCP 与对照实验](#5-执行阶段怎样适配-agent-与能力开关)
+  - [5.3 切换 Agent](#53-不同-agent改变-agent_name复用同一执行引擎)、[5.4 有无 Skill](#54-有无-skill按目标目录装载并可自动展开双组)、[5.5 有无 Plugin](#55-有无-plugintarget-装载插件agent_name-仍单独选择)
+  - [5.6 有无 MCP](#56-有无-mcp基础配置定义服务experiments-只覆盖-enabled)、[5.7 组合与限制](#57-固定-skillplugin再比较-mcp哪些组合当前不支持)
+  - [5.8 分组执行](#58-一次双组任务怎样展开以及每组怎样保持独立)、[5.9 私有环境](#59-每次-opencode-执行如何生成私有环境)、[5.10 实际使用证据](#510-怎样判断配置了可用实际调用了)
 - [6. 验证与评分：从 YAML 到最终分数](#6-验证与评分怎样一起工作)
   - [6.1 跟着 UITest 看验证结果怎样变成分数](#61-从-yaml-开始跟着一次-uitest-验证得到分数)
   - [6.8 指标引用](#68-从-verification-到-scoring-的引用关系)、[6.9 评分调用](#69-评分调用和异常)、[6.10 内置公式](#610-三种内置规则)
@@ -68,6 +71,9 @@ flowchart TD
 | `harmonyeval/evaluator/runner.py` | 配置并启动 EvalScope `DefaultEvaluator` |
 | `harmonyeval/evaluator/sample.py` | 单用例工程准备、输入快照、Agent 执行和补丁归档 |
 | `harmonyeval/agent/service.py` | 按 target/engine 执行被测对象 |
+| `harmonyeval/agent/targets/`、`agent/engines/` | 定位并准备宿主、选择 Agent，按 OpenCode/HTTP 协议执行 |
+| `harmonyeval/agent/capabilities/`、`agent/environments/` | Skill/Plugin/MCP 装载、私有配置、环境与实际能力检查的准备 |
+| `harmonyeval/experiments/` | 展开能力对照子任务、复用评测流程并生成配对比较 |
 | `harmonyeval/verification/pipeline.py` | 验证依赖调度、资源互斥、异常处理和临时目录清理 |
 | `harmonyeval/verification/context.py` | 工程副本、命令执行、用例级验证配置合并 |
 | `harmonyeval/verification/workflows/` | 内置验证适配器 |
@@ -356,7 +362,9 @@ def load_dataset(self):
 
 公开 DatasetLoader Protocol 没有列出所有运行期辅助方法。工程类适配器直接继承 DatasetAdapter，可以避免漏掉 project_path。新增私有资料字段时，也要扩展过滤、证据指纹和归档，不能只增加一个 expected 键。
 
-## 5. EvalScope 怎样调用执行、验证与评分
+## 5. 执行阶段怎样适配 Agent 与能力开关
+
+### 5.1 EvalScope 回调与单用例执行顺序
 
 `evaluator/runner.py` 创建 `TaskConfig`，固定使用 datasets=['harmony_eval']，通过 dataset_args.extra_params 传入规范化 task 和 run_root，然后实例化 `DefaultEvaluator`。
 
@@ -387,6 +395,310 @@ run_inference(model, sample, ...)
 然后将 `execution.answer` 包装成 EvalScope `ModelOutput`，放入 TaskState.output；完整 execution 字典和 case_output 放入 TaskState.metadata。Sample 的 case_index、case_id、round 元数据用于后续关联。
 
 公共桥接返回的 `TaskState.completed=True` 表示这次推理步骤已经返回，实际 Agent 是否成功仍读取 `ExecutionResult.status`。
+
+### 5.2 先分清 target、engine、Agent 和能力装载
+
+执行层由 `execute_agent()` 连接两个适配器：target 适配器准备被测对象及配置，execution 适配器用相应协议执行任务。
+
+| YAML 配置 | 回答的问题 | 当前对应实现 |
+|---|---|---|
+| `target.type` | 使用哪个宿主或把什么作为被测对象 | opencode_agent、harmonybot_agent、skills、plugin_agent、knowledge/http_agent |
+| `execution.engine` | 用什么协议运行 | opencode → OpenCodeExecutor；http → HttpExecutor |
+| `execution.agent_name` | OpenCode 本次选哪个已注册 Agent | 最终传给 `opencode run --agent` |
+| `target.dir` | 被测资源在哪里 | HarmonyBot 扩展位置，或被测 Skill/Plugin 目录，具体由 target.type 决定 |
+| `execution.opencode.skills/plugins` | 宿主额外装载哪些能力 | Skill 路径与激活要求；额外 Plugin 的包、入口和选项 |
+| `execution.opencode.config_path` | 用哪份配置覆盖宿主设置 | 读取 JSON/JSONC，合并到本次私有 OpenCode 配置 |
+| `execution.without_enable` | 是否在一次任务中增加不装载被测 Skill/Plugin 的组 | 只支持 skills/plugin_agent |
+| 顶层 `experiments` | 是否逐组改变指定 MCP 的开关 | 当前只允许覆盖已定义 MCP 的 enabled |
+
+Agent 是 OpenCode 执行的角色；Skill 是可读取的操作说明和资源；Plugin 是 OpenCode 加载的扩展代码；MCP 是 OpenCode 可连接的工具服务。Plugin 可能注册 Agent，但 Plugin 名和 Agent ID 没有必须相同的约定。
+
+以下伪代码摘取真实的选择关系，实际调用位置在 `agent/service.py`。模型创建、资源关闭和临时目录生命周期由该模块处理：
+
+```python
+import asyncio
+from harmonyeval.api import targets, executors
+
+
+async def execute_selected_target(task, case, runtime, context):
+    target_adapter = targets.get(task["target"]["type"])()
+    prepared_target = await asyncio.to_thread(target_adapter.prepare, task, runtime)
+    engine = executors.get(task["active"]["execution"]["engine"])()
+    return await engine.execute(case.public(), prepared_target, context)
+```
+
+新增或切换某个现成 Agent、Skill、Plugin、MCP，通常改变配置即可；新增一种执行协议，才需要实现新的 execution 适配器。各场景继续复用同一条 EvalScope 调度与验证评分流程。
+
+### 5.3 不同 Agent：改变 agent_name，复用同一执行引擎
+
+下面是两种宿主的配置片段。均省略 dataset、model、verification、scoring、report 等公共配置，不能作为独立的完整任务运行。
+
+```yaml
+# 独立 OpenCode：使用其中实际注册的 build Agent。
+target:
+  type: opencode_agent
+opencode_agent:
+  execution:
+    engine: opencode
+    agent_name: build
+    opencode:
+      config_path: ./opencode.eval.json
+```
+
+```yaml
+# HarmonyBot：使用插件 Bundle 中实际注册的一多 Agent。
+target:
+  type: harmonybot_agent
+  dir: /path/to/vscode/extensions
+harmonybot_agent:
+  execution:
+    engine: opencode
+    agent_name: harmonyos-multi-device
+    opencode:
+      config_path: ./opencode.eval.json
+```
+
+独立 OpenCode 从 execution.opencode.binary 或 PATH 定位二进制，宿主配置来源默认是 XDG_CONFIG_HOME/opencode，未设置时为 ~/.config/opencode。HarmonyBot 从 target.dir 定位扩展内的 OpenCode 及资源配置；存在匹配的完整 Bundle 缓存时，会读取对应缓存资源。
+
+两者都复用 OpenCodeTarget.prepare() 和 OpenCodeExecutor。换成 HarmonyBot 的 Android 转鸿蒙 Agent 时，保持宿主类型，修改 agent_name 为安装版本中实际存在的 ID，例如 d2h；运行前通过实际 Agent 列表检查该 ID，而不是由框架根据场景名猜测。
+
+执行引擎最后启动的命令关系是：
+
+```text
+<选中的OpenCode二进制> run
+  --format json
+  --agent <execution.agent_name>
+  --dir <本用例工作目录>
+  --model <评测代理模型ID>
+  <公开任务提示词>
+```
+
+真实代码使用参数数组传递参数。Agent 不存在时检查失败，不会自动退回其他 Agent。
+
+Agent A 与 Agent B 的效果可以用两份任务分别指定 agent_name，再按条件比较报告。当前 experiments 不能任意覆盖 agent_name，也没有把“无 Agent”当作默认对照组。
+
+### 5.4 有无 Skill：按目标目录装载，并可自动展开双组
+
+```yaml
+target:
+  type: skills
+  dir: ./skills/api-upgrade
+skills:
+  execution:
+    engine: opencode
+    agent_name: build
+    without_enable: true
+    opencode:
+      skills:
+        - path: ./skills/api-upgrade
+          name: api-upgrade
+          activation: required
+```
+
+示例要求 Skill 的 SKILL.md frontmatter 中声明 name: api-upgrade。未提供 execution.opencode.skills 时，skills 目标默认从 target.dir 选择 Skill，activation 默认为 auto。
+
+真正装载在 `agent/capabilities/loader.py` 中进行：
+
+1. 扫描指定目录的 SKILL.md，或其直接子目录中的 SKILL.md，读取 frontmatter.name；提供 name 时按名称筛选。
+2. 将选中的 Skill 复制到本次私有 runtime/capabilities/skills/...。
+3. 将相应父目录加入生成配置的 skills.paths。
+4. 对 required 的 Skill 记录 required_skills；执行后检查是否观测到成功的 skill(name) 工具调用。
+
+| activation | 当前保证 |
+|---|---|
+| auto | Skill 可被发现，模型自行决定是否读取 |
+| required | 在执行后检查成功的 skill(name) 调用；未观测到时，本次执行失败 |
+
+required 不会直接替模型执行 SKILL.md，也不会自动把整个 Skill 内容拼进任务提示词。若任务要求必须使用它，应在公开提示词中明确要求，再由执行后检查核对。
+
+without_enable=true 会先跑 without，再跑 with。Skill 的 without 组默认沿用相同 Agent，但移除框架可识别的被测 Skill 配置和自动发现副本，也不保留该目标的 required 要求；with 组按上述步骤装载。其他宿主能力是否保留，要看它们的配置和归属。
+
+### 5.5 有无 Plugin：target 装载插件，agent_name 仍单独选择
+
+```yaml
+target:
+  type: plugin_agent
+  dir: ./plugins/library-converter
+plugin_agent:
+  execution:
+    engine: opencode
+    agent_name: build
+    without_agent_name: build
+    without_enable: true
+```
+
+这里有意让两组都使用 build，用于评估同一 Agent 装载该 Plugin 前后的效果。模型等公共字段沿用完整任务。
+
+装载流程也是 `load_capabilities()`：
+
+1. 被测 Plugin 从 target.dir、可选 target.entry、target.options 读取；plugin_agent 不允许在 execution.opencode.plugins 重复声明它。
+2. 本地 Plugin 复制到 runtime/capabilities/plugins/...，入口优先取显式 entry，然后 package.json.main，最后 index.js。
+3. 将入口的 file URI 写入生成配置的 plugin 数组；有 options 时使用相应的配置形式。
+4. package.json 声明的 CLI bin 也准备到私有 bin 目录；Windows 通过 ASCII .cmd 和 Node 桥接传递路径。
+5. 由 OpenCode 加载 Plugin；Plugin 对 Agent、工具或配置的修改才会生效。
+
+当 Plugin 自身注册专用 Agent 时，加载组的 agent_name 应填真实 Agent ID；without 组默认用 build，也可指定 without_agent_name。若两组 Agent 不同，比较的是“Plugin 提供的完整方案”相对宿主方案的效果，不能只归因于一个配置开关。
+
+移除能力使用 `remove_owned()`，依据目标路径、包名、id 和可识别的管理标识，清理私有配置里的相关 plugin/skills.paths、自动发现目录及归属 Agent。框架也会在运行前检查已知关闭目标是否残留。自定义包装或间接重复装载仍应核对实际配置，不能只看 YAML 已填写 without_enable。
+
+只有 skills/plugin_agent 的被测目标会按这种方式关闭。opencode_agent/harmonybot_agent 中的额外 Skill/Plugin 是宿主能力，不会因为任务带有 MCP 实验就一起移除。
+
+### 5.6 有无 MCP：基础配置定义服务，experiments 只覆盖 enabled
+
+先在与 task.yaml 同目录的 opencode.eval.json 中定义服务。地址必须替换为实际 MCP 服务地址：
+
+```json
+{
+  "mcp": {
+    "knowledge_docs": {
+      "type": "remote",
+      "url": "https://your-mcp.example/mcp",
+      "enabled": true
+    }
+  }
+}
+```
+
+然后在 task YAML 中保持相同 Agent，声明两组：
+
+```yaml
+target:
+  type: opencode_agent
+opencode_agent:
+  execution:
+    engine: opencode
+    agent_name: build
+    opencode:
+      config_path: ./opencode.eval.json
+experiments:
+  - id: without_mcp
+    overrides:
+      mcp:
+        knowledge_docs:
+          enabled: false
+  - id: with_mcp
+    overrides:
+      mcp:
+        knowledge_docs:
+          enabled: true
+```
+
+`apply_mcp_overrides()` 在私有配置中修改服务的 enabled。它要求服务已经有完整定义：remote 需要 url，local 需要 command；仅填写一个 enabled 不能创建服务。所有实验组须显式覆盖相同的 MCP 名称，且每个覆盖当前只支持 enabled。
+
+HarmonyBot 的一多/d2h Agent 也采用同样方式：换成 harmonybot_agent 目标及活动块，在其 execution.opencode.config_path 指向配置文件，experiments 不变。无需改成 knowledge 目标；knowledge/http_agent 对应的是 HTTP 智能问答后端。
+
+也可以分别准备 MCP 启用与关闭的两份 OpenCode 配置、两份 task，各自运行。单组任务名或 variant=with 并不能证明 MCP 已开启，实际状态看最终配置的 mcp.<服务名>.enabled。
+
+### 5.7 固定 Skill/Plugin，再比较 MCP；哪些组合当前不支持
+
+例如要评估“装载三方库转换 Plugin 后，额外增加 MCP 的效果”，可以这样配置：
+
+```yaml
+target:
+  type: plugin_agent
+  dir: ./plugins/library-converter
+plugin_agent:
+  execution:
+    engine: opencode
+    agent_name: build
+    without_enable: false
+    opencode:
+      config_path: ./opencode.eval.json
+experiments:
+  - id: without_mcp
+    overrides:
+      mcp:
+        knowledge_docs:
+          enabled: false
+  - id: with_mcp
+    overrides:
+      mcp:
+        knowledge_docs:
+          enabled: true
+```
+
+两组都装载同一个 Plugin，只改变 knowledge_docs 的 enabled。固定 Skill 的方式类似：target 选择 skills，保留相同 Skill 选择与激活设置，使用 experiments 切换 MCP。
+
+| 想比较什么 | 当前配置方式 |
+|---|---|
+| 同一 Agent，有/无被测 Skill | skills + without_enable=true |
+| 有/无被测 Plugin | plugin_agent + without_enable=true，可声明两组 Agent |
+| 同一 Agent，有/无某个 MCP | OpenCode 目标 + config_path + experiments |
+| 固定 Skill/Plugin，有/无 MCP | 保持目标装载，without_enable=false/省略，experiments 切换 MCP |
+| Agent A 与 Agent B | 两份任务选择不同 agent_name，按可比条件比较 |
+| 一次任务同时展开 Skill/Plugin 开关与 MCP 开关的四组组合 | 当前不支持自动展开；without_enable=true 与 experiments 不能同时使用 |
+
+没有通用的 execution.with_skill、with_plugin、with_mcp 三个布尔字段。当前不同能力有各自明确的装载入口与对照协议。
+
+### 5.8 一次双组任务怎样展开，以及每组怎样保持独立
+
+展开逻辑在 `experiments/config.py`，执行逻辑在 `experiments/runner.py`：
+
+```text
+读取原 task
+  ├─ without_enable=true → 生成 without、with 两个子任务
+  │    └─ 内部 experiment.overrides.capability.enabled=false/true
+  └─ 显式 experiments → 按数组生成 MCP 子任务
+       └─ 内部 experiment.overrides.mcp.<name>.enabled=false/true
+
+每个子任务：
+  → 同一套 DefaultEvaluator
+  → 为每个用例、每轮准备独立工作工程
+  → 准备独立 OpenCode runtime 和配置
+  → 执行 Agent → 验证 → 评分 → 单组报告
+
+所有组完成后：
+  → 按 case_id + round 配对 → comparisons → 实验汇总报告
+```
+
+自动 Skill/Plugin 双组的顺序固定为 without、with；显式 experiments 按数组顺序，第一组是比较基准。组之间按顺序运行，组内样本并发仍由 execution.concurrency 控制。某一组运行失败后，其余组仍可继续；缺少可比报告时比较结果不可用。
+
+子任务是原 task 的深拷贝，沿用公共输入、模型、验证和评分配置。它们写入 experiments/<实验ID>/ 下，各自重新执行被测任务，不是用一组 Agent 输出计算两次分数。差值与输入、能力、实际 MCP 状态的可比性检查由 report/comparison.py 负责。
+
+without_enable 表示“需要双组对照”，不表示“本次目标已关闭”。with/without 子任务都可能仍保留这个请求字段；实际关闭逻辑读取内部 experiment.overrides.capability.enabled，实际装载证据看 capabilities.target_enabled 和 selected_skills/selected_plugins。experiment 是框架生成的内部字段，不能直接写入原 task YAML。
+
+### 5.9 每次 OpenCode 执行如何生成私有环境
+
+这些场景复用 `OpenCodeTarget.prepare()`，主要顺序如下：
+
+| 步骤 | 当前实现 |
+|---|---|
+| 定位宿主 | 取得独立 OpenCode 或 HarmonyBot 的二进制与基础配置目录 |
+| 复制基础资源 | 在系统临时目录复制基础配置所需的原始 Agent、Plugin、Skill、依赖等资源 |
+| 合并任务覆盖 | 读取 execution.opencode.config_path，处理相对文件引用，合并到基础配置 |
+| 应用 MCP 开关 | apply_mcp_overrides 仅修改本实验声明的服务 enabled |
+| 应用 Skill/Plugin 装载 | load_capabilities 按目标及内部实验状态装载或清理目标能力 |
+| 规范模型选择 | 清除继承的 provider/model 选择，执行时由 EvalScope 模型代理注入统一配置 |
+| 设置私有路径 | OPENCODE_CONFIG_DIR、XDG 路径、状态/缓存和 OPENCODE_TEST_HOME 等指向本次 runtime |
+| 检查实际配置 | inspect_runtime 调用实际二进制的 debug config、agent list、--version |
+| 发起会话 | OpenCodeExecutor 使用 --agent、--dir、--model 和公开任务提示词启动 run |
+| 留证与清理 | 保存会话、工具调用和能力信息，结束后清理临时 runtime |
+
+私有环境关闭项目配置和若干外部自动发现入口，减少原工程或用户全局状态造成的干扰；基础能力是否保留，同时取决于配置合并、能力归属清理及 OpenCode 的自动发现。配置副本与发现入口控制不等于操作系统文件访问沙箱。
+
+配置合并还有一个需要按当前代码核对的细节：列表字段由覆盖值替换，当前 resolve_references() 对未声明 plugin 的覆盖文件也会补出 plugin=[]，因此仅含 MCP 的覆盖文件可能清空基础配置中的显式 plugin 数组；原自动发现资源目录则仍会复制。要固定必要插件，优先用第5.7节的 target 显式装载，或在覆盖文件中完整声明要保留的 plugin 列表，并核对实际配置。不能从“只在文件里写了 mcp”直接推断其他能力一定原样保留。
+
+模型调用经 EvalScope ModelProxyServer 路由到框架选定的模型，主 Agent、小模型以及已配置子 Agent 的模型选择会被统一覆盖。这个步骤与启用 Skill/Plugin/MCP 是两个独立问题。
+
+### 5.10 怎样判断“配置了、可用、实际调用了”
+
+不能只凭 YAML 声明判断实验有效。当前保留的主要信息位于 task-report.json 每条 record.execution 中：
+
+| 信息 | 可以核对什么 |
+|---|---|
+| capabilities.agent、available_agents | 本次选择哪个 Agent，实际列表是否存在它 |
+| capabilities.distribution、binary、version | 独立 OpenCode 还是 HarmonyBot，以及执行版本 |
+| capabilities.target_enabled、selected_skills、selected_plugins | 被测 Skill/Plugin 的本次装载状态 |
+| capabilities.required_skills、skill_paths | 需核对读取的 Skill 及实际发现路径 |
+| capabilities.mcp、mcp_comparison_servers | 实际配置的 MCP enabled 和本实验控制的服务 |
+| tool_calls | 实际工具调用、参数、状态与输出；用于复核 Skill/MCP 的使用 |
+| generate/events.jsonl、stderr.jsonl、agent-output.json/html | 会话事件、错误和可读轨迹 |
+
+inspect_runtime 会检查所选 Agent 是否存在、被控制 MCP 的实际 enabled 是否符合实验，以及关闭组中可识别的目标是否残留。配置正确仍不意味着模型已经使用知识或按 Skill 完成任务。
+
+Skill 的 required 检查寻找成功的 skill(name) 调用。MCP 可配合 ToolUsage 验证器，观察 configured、enabled、attempted、succeeded；当前按目标 MCP 名称前缀匹配工具名。启用但未调用与调用失败是不同事实，答案或工程质量仍要由独立验证器评价。
+
+单独更换 Agent/能力一般不改验证和评分代码。新增执行协议才考虑注册 `harmonyeval.targets`、`harmonyeval.execution` 扩展，实现 source()/prepare() 或 execute()，最终统一返回 ExecutionResult，交给第6章的验证评分流程。
 
 ## 6. 验证与评分怎样一起工作
 
