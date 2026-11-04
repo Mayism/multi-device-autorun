@@ -2,6 +2,8 @@
 
 更新日期：2026-11-03。本文件集中回答“怎样写 task.yaml、怎样运行、每种场景怎么配”；框架架构、迁移步骤与扩展代码统一见[框架设计与重构指南](harmony-eval-framework-design.md)。
 
+需要了解用例如何转成 EvalScope 输入、验证与评分怎样接入时，读[适配器设计与实现说明](harmony-eval-adapter-implementation.md)。
+
 ## 目录
 
 - [1. 安装与运行](#1-安装与运行)
