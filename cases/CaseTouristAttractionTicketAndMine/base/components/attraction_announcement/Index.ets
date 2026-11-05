@@ -1,1 +1,0 @@
-export { VoiceComponent } from './src/main/ets/components/VoiceComponent';

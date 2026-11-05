@@ -82,7 +82,7 @@ def load_config(payload):
     missing = [key for key in ("teamId", "projectId", "agcAuthInfo") if not normalized[key]]
     if missing:
         raise ValueError("cloudTest 配置不完整，缺少: " + ", ".join(missing)
-                         + "（请在 config 中补齐或设置环境变量 AGC_TEAM_ID / AGC_PROJECT_ID / AGC_AUTH_INFO）")
+                         + "（请在任务 YAML 同目录提供 agc-cookie.txt，或设置环境变量 AGC_TEAM_ID / AGC_PROJECT_ID / AGC_AUTH_INFO）")
     return normalized
 
 

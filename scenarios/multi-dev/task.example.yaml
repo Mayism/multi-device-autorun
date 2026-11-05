@@ -1,0 +1,77 @@
+# v2配置示例：按实际数据集、工具链和模型配置替换路径。
+schema_version: 2
+scenario: MultiDev
+id: multidev-harmonybot
+description: 评测 HarmonyBot 一多 Agent 的适配效果
+dataset:
+  type: swe-bench-hm-multi-dev
+  dir: "../../datasets/multidev"
+target:
+  type: harmonybot_agent
+  dir: /path/to/vscode/extensions
+harmonybot_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: harmonyos-multi-device
+    timeout: 900
+    idle_timeout: 300
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+  verification:
+  - id: ui
+    type: UITest
+    deveco_home: /Applications/DevEco-Studio.app/Contents
+    emulator_deployed_dir: /path/to/emulators
+    devices:
+    - id: phone
+      profile: Pura 90 Pro
+      target: 127.0.0.1:15001
+      hdc_port: 15001
+      start_emulator: true
+  - id: code
+    type: whiteboxeval
+    model:
+      api_type: openai_api
+      name: qwen-plus
+      base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api_key: DASHSCOPE_API_KEY
+  scoring:
+  - dimension: L1
+    type: BooleanScoring
+    all:
+    - source: ui.metrics.build_passed
+      equals: true
+    - source: ui.metrics.all_tests_passed
+      equals: true
+    pass_score: 100
+    fail_score: 0
+  - dimension: L2
+    type: WeightedSummation
+    mode: deduction
+    base_score: 100
+    components:
+    - name: UX
+      source: ui.metrics.pass_rate
+      range:
+      - 0
+      - 1
+      weight: 0.5
+    - name: Whitebox
+      source: code.dimensions
+      reducer: proportional_deduction
+      cap_source: code.metrics.total_score
+      weight: 0.5
+    missing: unavailable
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: "../../outputs/multidev-harmonybot"
+    format: html

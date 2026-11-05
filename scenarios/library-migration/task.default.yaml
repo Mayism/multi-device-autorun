@@ -1,0 +1,48 @@
+# 默认本机任务，只保留 target.type 对应的活动配置；各场景模板见 scenarios 下的 *.example.yaml。
+schema_version: 2
+scenario: LibraryMigration
+id: thirdcase-library-plugin
+description: 评测hmos-library-adapter-fast转换thirdcase库的效果
+dataset:
+  type: library-migration
+  dir: /Users/mayism/thirdcase
+  layout: repositories
+  instruction: 请将当前第三方库适配到HarmonyOS，在当前工程内完成实现。阅读README和源码，保持原有公开API及已有平台行为，识别并处理依赖的鸿蒙兼容性；对于无法等价实现的平台能力，明确说明限制与替代方案，不得虚构API或用空实现冒充支持。请提供使用说明和构建、验证结果。
+target:
+  type: plugin_agent
+  dir: /Users/mayism/.config/opencode/plugins/hmos-library-adapter-fast
+plugin_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: hmos-library-adapter-fast
+    without_enable: false  # false：只运行加载组；true：一次运行 without+with
+    timeout: 3600
+    idle_timeout: 3600
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+    model:
+      api_type: openai_api
+      name: glm-4.7
+      max_tokens: 8192
+      temperature: 0.7
+      base_url: https://open.bigmodel.cn/api/coding/paas/v4
+      api_key: ZHIPU_API_KEY
+  verification:
+  - id: api
+    type: LibraryAPICount
+  - id: code
+    type: whiteboxeval
+    rubric_path: "./rubric.md"
+  scoring:
+  - dimension: api_count_consistency
+    type: ImmediateValue
+    source: api.metrics.count_consistency
+    scale: 100
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: "../../output/harmony-eval/thirdcase-plugin"
+    format: html

@@ -15,14 +15,15 @@
 `knowledge`/`http_agent` 使用 HTTP 执行智能问答；`knowledge_agent` 尚未实现。工程类和 OpenCode 文本问答复用 OpenCode engine。
 
 - 主入口是 `harmonyeval run <task.yaml>`；schema_version 当前为 `2`。
+- 仓库任务统一放在 `scenarios/<scenario>/`，子目录使用 YAML `scenario` 标签对应的小写短横线形式；通用模板以 `*.example.yaml` 命名。场景使用的 JSON、rubric、题集和工具配置放在对应场景目录；共享资料保留一份，由其他场景通过相对路径引用。移动 YAML 时修正相对路径，保留 Plugin entry 相对于 target.dir 的语义；不改 loader 去硬编码场景位置。
 - `execution.agent_name` 指实际注册的 Agent ID。被测 Plugin 由 `target` 装载，不重复放入 plugin_agent 的 `execution.opencode.plugins`。
 - 被测 Skill/Plugin 的 `execution.without_enable: true` 启用一次任务的 without+with 对照；false/省略只跑 with，只支持 `skills`/`plugin_agent`。Plugin 的 without 组默认使用 build，可用 without_agent_name 指定；Skill 默认沿用相同 Agent。MCP 的完整定义放在 OpenCode JSON，通过 `execution.opencode.config_path` 加载；同一任务比较可用 `experiments` 覆盖指定 MCP 的 enabled。
 - 对照应保持同一用例、提示词、Agent、模型和评分规则，明确唯一变化的能力。不要为 Agent 本身评测自动构造“没有 Agent”的对照。
 - 工具链路径字段拼写为 `execution.enviroment`，例如 `deveco_home`、`flutter_home`；不要新增 `runtime_config`/`execution.runtime`。
 - 内置路径字段相对于 YAML 所在目录解析；新增字段不会自动获得路径规范化。模型密钥填写环境变量名，不写入 Skill 或示例。
-- 当前参考仓库的 `static_eval` 暂时仅保留字段，不为它自行发明判据；迁移另一个已有静态评测的仓库时，保留其实际能力，不能套用“预留不执行”。
+- 当前 `static_eval` 通过独立包调用两个 wheel，对显式 Skill 集合执行任务级静态质量与安全 LLM 评估，与主评测并行且每批一次；空对象关闭。model、skill_roots、checks、timeout、concurrency 的实现见 static_eval/ 和实现文档第9节。迁移其他仓库时保留原有静态评测口径，不能自动变成逐用例验证。
 
-具体配置从仓库 `config/examples/task.*.yaml` 选择相近场景，再查 `config/loader.py`、`agent/targets/` 和 `experiments/config.py`；这些源码路径均在 `harmonyeval/` 下。完整字段枚举在 `docs/harmony-eval-task-examples.md` 维护，不复制真实配置里的私密参数。
+具体配置从仓库 `scenarios/<场景名>/*.example.yaml` 选择相近场景，再查 `config/loader.py`、`agent/targets/` 和 `experiments/config.py`；这些源码路径均在 `harmonyeval/` 下。完整字段枚举在 `docs/harmony-eval-task-examples.md` 维护，不复制真实配置里的私密参数。
 
 ## 三种现有数据布局
 

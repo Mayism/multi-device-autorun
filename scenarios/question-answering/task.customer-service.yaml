@@ -1,0 +1,39 @@
+# 默认评本地桩返回，与标准答案精确匹配；不调用付费模型。
+# 与 MCP 开启/关闭任务共用 ../knowledge-eval/data/cases.json 的三个 HarmonyOS 知识问题。
+# 更换真实客服后应切换为 LLM_judge 语义评分，见 ../knowledge-eval/README.md。
+schema_version: 2
+scenario: QuestionAnswering
+id: customer-service-stub
+description: 本地客服 URL 冒烟，验证 JSON 用例、HTTP 请求和确定性评分
+dataset:
+  type: text-qa
+  dir: "../knowledge-eval/data/cases.json"
+target:
+  type: knowledge
+knowledge:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: http
+    http_url: http://127.0.0.1:18081/answer
+    method: POST
+    timeout: 30
+    concurrency: 2
+    request:
+      json:
+        case_id: ${case.case_id}
+        question: ${case.question}
+    response:
+      protocol: json
+      answer_path: data.answer
+      session_id_path: data.session_id
+  verification:
+  - id: answer
+    type: ExactMatch
+  scoring:
+  - dimension: answer_correctness
+    type: ImmediateValue
+    source: answer.metrics.score
+  report:
+    output_dir: "../../output/harmony-eval/customer-service"
+    format: html

@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "utils",
-    "type": "har",
-    "deviceTypes": [
-      "phone"
-    ]
-  }
-}

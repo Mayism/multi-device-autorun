@@ -91,6 +91,30 @@ def normalize_flow(flow, base, stack=()):
     verifiers.validate(flow.get("type"), flow)
 
 
+def normalize_static(value, base, target):
+    from harmonyeval.static_eval.config import normalize
+    value = normalize(value, base, target)
+    if value.get("model"):
+        validate_model(value["model"])
+        if "quality" in value.get("checks", []) and value["model"].get("temperature", 0) != 0:
+            raise ValueError("static_eval 质量评估要求 model.temperature=0")
+    return value
+
+
+def load_static_task(path):
+    """Read just static configuration; no dataset/Agent/model/verification prerequisites."""
+    source = Path(path).expanduser().resolve()
+    raw = object_value(read_yaml(source), "task")
+    target = deepcopy(object_value(raw.get("target"), "target"))
+    block = object_value(raw.get(target.get("type")), "活动目标块")
+    if target.get("dir"):
+        target["dir"] = resolve(source.parent, target["dir"])
+    return {"id": safe_id(raw.get("id", "")), "source": str(source), "base_dir": str(source.parent),
+            "target": target, "active": {
+                "static_eval": normalize_static(block.get("static_eval"), source.parent, target),
+                "report": {"output_dir": resolve(source.parent, (block.get("report") or {}).get("output_dir", "output/static-eval"))}}}
+
+
 def load_task(path):
     # Imports register builtins; extension entry points use exactly the same contracts.
     from harmonyeval.api.builtins import register_builtins
@@ -130,6 +154,7 @@ def load_task(path):
     block["rounds"] = positive(block.get("rounds", 1), "rounds")
     if block["rounds"] > 100:
         raise ValueError("rounds 不得超过 100")
+    block["static_eval"] = normalize_static(block.get("static_eval"), source.parent, target)
     execution = object_value(block.get("execution"), "execution")
     if "runtime" in execution:
         raise ValueError("execution.runtime 已更名为 enviroment")

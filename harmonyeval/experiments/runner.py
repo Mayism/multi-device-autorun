@@ -36,17 +36,19 @@ def update_experiment_comparisons(summary, reports, root):
     summary['exitCode'] = 1 if failed else 0
 
 
-def _run_sync(task, on_log=console_print, cancel_event=None):
+def _run_sync(task, on_log=console_print, cancel_event=None, output_root=None):
     if not has_experiments(task):
-        return _run_single_sync(task, on_log, cancel_event)
+        if output_root is None:
+            return _run_single_sync(task, on_log, cancel_event)
+        return _run_single_sync(task, on_log, cancel_event, output_root)
     checked = check_task(task, inspect=False)
     if not checked['ready']:
         problems = [f"{p['experiment']['id']}: {p.get('error') or '、'.join(p['missing'])}"
                     for p in checked['experiments'] if not p['ready']]
         raise ValueError('实验运行前检查失败: ' + '；'.join(problems))
     run_id = datetime.now().strftime('%Y%m%d%H%M%S') + '-' + uuid4().hex[:6]
-    root = Path(task['active']['report']['output_dir']) / run_id
-    root.mkdir(parents=True)
+    root = Path(output_root) if output_root is not None else Path(task['active']['report']['output_dir']) / run_id
+    root.mkdir(parents=True, exist_ok=output_root is not None)
     import yaml
     (root / 'task.resolved.yaml').write_text(yaml.safe_dump(
         redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False), encoding="utf-8")

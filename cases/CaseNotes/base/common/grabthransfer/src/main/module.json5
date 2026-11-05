@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "grabthransfer",
-    "type": "har",
-    "deviceTypes": [
-      "default"
-    ]
-  }
-}

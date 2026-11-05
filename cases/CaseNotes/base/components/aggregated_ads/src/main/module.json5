@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "aggregated_ads",
-    "type": "har",
-    "deviceTypes": [
-      "default"
-    ]
-  }
-}

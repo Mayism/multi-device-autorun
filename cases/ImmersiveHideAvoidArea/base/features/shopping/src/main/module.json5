@@ -1,9 +1,0 @@
-{
-  "module": {
-    "name": "shopping",
-    "type": "har",
-    "deviceTypes": [
-      "phone"
-    ]
-  }
-}

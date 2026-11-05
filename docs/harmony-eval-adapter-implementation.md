@@ -20,6 +20,7 @@
   - [6.11 L2/L3 实例](#611-当前一多-l2l3-的实例)、[6.12 交回 EvalScope](#612-分数怎样交回-evalscope-与报告)
 - [7. 三个适配器的完整扩展示例](#7-怎样新增三个适配器一个完整扩展示例)
 - [8. 结果目录、复评与接入检查](#8-怎样复用结果与定位问题)
+- [9. 独立并行的 static_eval](#9-static_eval与主评测并行的任务级静态评估)
 
 ## 1. 一次评测经过哪些步骤
 
@@ -1553,3 +1554,113 @@ replay 会核对执行指纹；rescore 还要求验证指纹一致。当前有�
 现有可参考测试：`tests/test_harmony_eval.py`、`test_harmony_eval_qa_json.py`、`test_harmony_eval_protocols.py`、`test_harmony_eval_experiments.py`、`test_architecture.py`、`test_windows_encoding.py`。
 
 框架 `utils/encoding.py` 提供控制台安全输出、JSON 输出、Python 子进程环境及诊断解码。所有新文本文件显式使用 UTF-8；已知结构化协议严格解析；原生工具的 GBK/GB18030 诊断与 JSON 验收协议分开处理。具体开发约束以根目录 AGENTS.md 和仓库维护的 HarmonyEval Skill 为准。
+
+## 9. static_eval：与主评测并行的任务级静态评估
+
+### 9.1 执行边界
+
+static_eval 评估指定 Skill 包的质量与安全，使用下载的两个工具包：
+
+| 检查 | wheel / 已验证版本 | 调用接口 | 原始结果 |
+|---|---|---|---|
+| quality | agent_extension_eval-0.2.0 | core.skill_quality_eval.evaluate_skill_quality，传入内存 ModelSpec | 10维/120分的质量报告，以及工具自身计算的百分比、等级 |
+| security | skill_security_scan-1.2.3 | skill_scanner.engine.run_skill_scan(LocalScanConfig(use_llm=True, llm_provider="openai", ...)) | 原始安全/规范发现、分析器覆盖与失败信息 |
+
+这两个检查面向含 SKILL.md 的 Skill 目录，不能把任意 Agent 配置文件或整个 Plugin 强行当成 Skill。评估一多 Agent 时，当前 scenarios/multi-dev/task.yaml 显式选取一多插件的 harmonyos-one-multi 目录，该份安装资源中共发现9个 Skill；其他版本的目录和数量可能不同，应以实际选定资源为准。Plugin/Agent 的行为效果仍由主评测独立验证。
+
+```text
+harmonyeval run task.yaml
+  └─ evaluator.coordinator
+       ├─ 主评测：单组或多组实验 → 用例执行 → verification → scoring
+       └─ static_eval：指定Skill集合 → quality / security → 独立静态报告
+```
+
+静态分支每批任务只执行一次，不随用例数、rounds 或实验组倍增。两条分支可以同时运行，均不会等待静态结果来启动主流程。静态失败不取消主评测，主评测失败也不取消静态分支；用户中断则通知两条分支结束并清理进程。
+
+任务入口最终等待两条分支收尾，生成各自结果的汇总入口。静态报告不写入逐用例 VerificationResult、ScoreResult，不加入 L2/L3，也不参与 verify/rescore 的评分身份。静态评估发现风险或给出低分仍是有效业务结果；模型/工具失败、超时、缺失报告才表示评估未完成。
+
+### 9.2 配置与模型
+
+在与 target.type 对应的活动块配置，模型取自 static_eval.model，不复用 execution.model：
+
+```yaml
+harmonybot_agent:
+  static_eval:
+    enabled: true
+    skill_roots:
+      - /path/to/multi-device-plugin/skills/harmonyos-one-multi
+    checks: [quality, security]
+    timeout: 900
+    concurrency: 2
+    model:
+      api_type: openai_api
+      name: YOUR_MODEL
+      base_url: https://your-provider.example/v1
+      api_key: STATIC_EVAL_API_KEY
+      max_tokens: 8192
+      max_context_tokens: 128000
+      temperature: 0
+```
+
+这是活动块片段，其他任务字段沿用现有完整 YAML。路径支持 Windows/macOS，换成实际安装位置；相对路径从 task YAML 所在目录解析。
+
+| 字段 | 当前语义 |
+|---|---|
+| 空对象 {} / 省略 | 不执行静态评估，保持现有任务行为 |
+| enabled | 非空配置默认 true；显式 false 可关闭 |
+| skill_roots | 目录数组。根本身含 SKILL.md 时评该 Skill；否则递归发现 Skill，过滤 .git/node_modules/.venv/venv，重叠路径去重 |
+| checks | 非空且不重复的 quality/security 数组，默认两者均运行 |
+| timeout | 每个 Skill×检查的进程总时限，单位秒，默认900；包括包内部重试。宿主休眠恢复后也检查实际经过时间，超时即清理该进程 |
+| concurrency | 静态检查进程最大并发数，默认2，上限16，与主 execution.concurrency 分开 |
+| model | 必需，name/base_url/api_key 沿用框架模型字段；API key 支持环境变量名或现有内联密钥兼容处理 |
+| model.max_tokens | 两个包的输出预算，默认8192 |
+| model.max_context_tokens | 质量工具的本地上下文预算，默认128000 |
+| model.temperature | 质量包要求为0 |
+| model.timeout | 安全扫描器的单请求时限，默认120秒；质量包的总时限由外层 timeout 约束 |
+
+skills/plugin_agent 目标未填 skill_roots 时，默认使用 target.dir；Agent/HTTP 目标须显式给出 Skill 范围，避免扫描整个宿主。两个包各自调用其 SDK 的 OpenAI 兼容接口，不经过主 Agent 的 OpenCode 会话。
+
+### 9.3 包安装和独立验证入口
+
+在运行 harmonyeval 的同一个 Python 3.10+ 环境安装 wheel，例如：
+
+```sh
+python -m pip install /path/to/agent_extension_eval-0.2.0-py3-none-any.whl /path/to/skill_security_scan-1.2.3-py3-none-any.whl
+harmonyeval run ./scenarios/multi-dev/task.yaml --check
+harmonyeval static-eval ./scenarios/multi-dev/task.yaml --output ./output/static-only
+harmonyeval run ./scenarios/multi-dev/task.yaml
+```
+
+static-eval 命令只读取任务 ID、target、活动块的 static_eval 与报告目录，不要求配置 dataset、主 Agent、execution 或 verification，也不启动设备或云测试，便于独立验证 wheel 和静态模型配置。普通 run --check 仍检查主评测，其 static_eval 字段显示静态分支的目录、包版本和密钥准备情况；主流程的 ready 与静态分支状态分开保留。
+
+### 9.4 怎样避免与主流程耦合
+
+| 源码 | 责任 |
+|---|---|
+| static_eval/config.py | 配置规范化、Skill发现、包版本和准备状态检查 |
+| static_eval/worker.py | 调用两个wheel API，各自保留原始 JSON/Markdown/HTML |
+| static_eval/service.py | 独立调度、超时、取消、日志脱敏、静态汇总报告 |
+| evaluator/coordinator.py | 仅在任务边界并行启动主评测与静态分支，组合报告入口 |
+| evaluator/runner.py | static_eval 启用时交给 coordinator；未启用时保持原主流程 |
+
+第三方工具在独立 Python 子进程中导入，防止 agent_extension_eval 的通用 core/llm/run 模块名污染 EvalScope 或主 Agent。凭据经 stdin 传入内存，不放进进程参数和磁盘模型配置；子进程使用 UTF-8 环境，原始报告与日志按已知模型密钥脱敏。
+
+质量工具直接用 ModelSpec，不生成包含密钥的 model.yml；上下文溢出时生成未评分诊断，不启动包的额外 Agent-judge，保持静态性质。安全工具必须真正启用 LLMAnalyzer；分析器失败不把 is_safe 的默认值当作安全结论。
+
+### 9.5 报告与退出语义
+
+```text
+<run_root>/
+├── run-summary.json / run-summary.html   # 两条分支的状态与入口
+├── index.html / task-report.json        # 原主评测，实验任务使用原实验报告
+├── experiments/...                      # 有对照实验时
+└── static-eval/
+    ├── static-result.json / index.html
+    └── <skill名称-路径摘要>/
+        ├── quality/                    # quality_eval.json/md/html + result.json + worker.log
+        └── security/                   # security_scan.json/md/html + result.json + worker.log
+```
+
+每条静态检查记录 skill_path、check、执行状态和工具原始指标。quality 总分与 security 风险列表不强行合成新的总分。原工具报告保留完整维度、扣分证据及风险发现，汇总页链接到原报告。
+
+静态检查运行中使用 queued、running，结束时使用 completed、unavailable、timed_out、interrupted；整个静态分支还可能是 disabled、running、incomplete。零分/风险发现属于 completed；无有效结果不填零分或安全通过。总任务退出码在任一分支执行不完整时为1，两条分支状态仍分别保存。

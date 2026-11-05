@@ -1,0 +1,55 @@
+# 固定 Agent/模型/题集，一次任务比较目标 MCP 关闭和开启；不使用 without_enable。
+# 只跑开启组时删除 experiments，opencode.json 中保持 enabled: true。
+schema_version: 2
+scenario: KnowledgeEval
+id: huawei-mcp-qa
+description: 同一独立 OpenCode Agent 在有/无华为开发者知识 MCP 时的问答对照
+dataset:
+  type: text-qa
+  dir: "./data/cases.json"
+target:
+  type: opencode_agent
+opencode_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: build
+    timeout: 900
+    idle_timeout: 900
+    concurrency: 1
+    opencode:
+      config_path: "./opencode.json"
+    model:
+      api_type: openai_api
+      name: glm-5.3
+      base_url: https://open.bigmodel.cn/api/coding/paas/v4
+      api_key: ZHIPU_API_KEY
+      max_tokens: 8192
+      temperature: 0
+  verification:
+  - id: quality
+    type: LLM_judge
+    prompt_path: "./rubric.md"
+  - id: usage
+    type: ToolUsage
+    target_mcp: harmonyos_developer_knowledge
+    mode: observe
+  scoring:
+  - dimension: answer_quality
+    type: ImmediateValue
+    source: quality.metrics.score
+  report:
+    output_dir: "../../output/harmony-eval/huawei-mcp-qa"
+    format: html
+experiments:
+- id: without_mcp
+  overrides:
+    mcp:
+      harmonyos_developer_knowledge:
+        enabled: false
+- id: with_mcp
+  overrides:
+    mcp:
+      harmonyos_developer_knowledge:
+        enabled: true

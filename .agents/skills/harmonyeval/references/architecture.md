@@ -10,6 +10,7 @@
 | `config` | YAML 加载、规范化、类型参数校验 | 调用注册接口，不按 scenario 写选择分支 |
 | `benchmarks` | 用例集与 EvalScope benchmark 桥接 | 输入准备、评估资料隔离、指纹和归档 |
 | `evaluator` | EvalScope 全流程、缓存、重评估 | 共用主生命周期，不复制场景调度器 |
+| `static_eval` | 任务级 Skill 静态质量/安全评估 | 通过 evaluator/coordinator 与主评测并行；不依赖 agent、verification、metrics、report 或用例调度 |
 | `agent` | 被测对象、执行引擎、环境与会话 | 产生 ExecutionResult，不判分 |
 | `verification` | 验证流程和依赖资源调度 | 产生 VerificationResult，允许使用 integrations |
 | `metrics` | 确定性评分、指标聚合 | 消费验证结果，不运行被测任务或验收工具 |
@@ -33,6 +34,9 @@
 | metrics | agent/evaluator/verification/benchmarks/integrations/report |
 | agent | evaluator/verification/benchmarks |
 | integrations | evaluator/verification/benchmarks |
+| static_eval | agent/evaluator/verification/benchmarks/metrics/report/config |
+
+api/utils/models/metrics/agent/integrations 也不得反向依赖 static_eval；任务边界由 evaluator/coordinator.py 组合，配置边界由 config/loader.py 规范化。
 
 不要用延迟、相对或动态 import 绕过边界。当前 `tests/test_architecture.py` 检查显式绝对 import，不能证明所有动态依赖或业务设计均正确；仍需审查变更。必要公共契约放在 api，通过注册或依赖注入连接实现。
 

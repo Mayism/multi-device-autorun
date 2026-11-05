@@ -74,9 +74,14 @@ def _check_single_task(task, inspect=True):
             manifest = inspect_runtime(prepared, execution['agent_name'], str(workspace)) if inspect else prepared['manifest']
     else:
         manifest = source
+    from harmonyeval.static_eval.config import plan as static_plan
+    try:
+        static_info = static_plan(task['active'].get('static_eval', {}))
+    except Exception as error:
+        static_info = {'enabled': True, 'status': 'unavailable', 'errors': [f'{type(error).__name__}: {error}']}
     return {'taskId': task['id'], 'scenario': task['scenario'], 'dataset': task['dataset'],
             'cases': len(cases), 'caseIds': [case.case_id for case in cases], 'rounds': task['active']['rounds'],
             'targets': 1, 'variant': task['variant'], 'capabilities': redact(manifest),
             'verification': [{'id': f['id'], 'type': f['type']} for f in task['active']['verification']],
-            'static_eval': 'reserved' if 'static_eval' in task['active'] else 'absent',
+            'static_eval': static_info,
             'evalscopeVersion': installed, 'missing': sorted(set(missing)), 'warnings': sorted(set(warnings)), 'ready': not missing}

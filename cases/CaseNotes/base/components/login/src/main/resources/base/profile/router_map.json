@@ -1,9 +1,0 @@
-{
-  "routerMap": [
-    {
-      "name": "QuickLoginPage",
-      "pageSourceFile": "src/main/ets/pages/QuickLoginPage.ets",
-      "buildFunction": "QuickLoginPageBuilder"
-    }
-  ]
-}

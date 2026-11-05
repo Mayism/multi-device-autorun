@@ -3,7 +3,7 @@
 基于 EvalScope 1.14.x 的通用评测框架，支持一多适配、三方库转鸿蒙库、安卓应用转鸿蒙、MCP 对照和 HTTP 智能问答。任务统一由 YAML 驱动：
 
 ```sh
-harmonyeval run ./config/task.yaml
+harmonyeval run ./scenarios/library-migration/task.default.yaml
 ```
 
 原 JSON 批量执行入口已移除。模型、用例、执行环境、评估流程和评分规则统一配置在 task YAML 中。
@@ -32,28 +32,30 @@ python -m pip install -e '.[eval]'
 
 | 操作 | 命令 |
 |---|---|
-| 展示任务计划 | `harmonyeval plan ./config/task.yaml` |
-| 配置与实际能力装载检查 | `harmonyeval run ./config/task.yaml --check` |
-| 执行任务 | `harmonyeval run ./config/task.yaml` |
-| 使用已有工程/答案重新评估 | `harmonyeval verify ./config/task.yaml --run <单组运行目录>` |
-| 使用已有验证指标重新评分 | `harmonyeval rescore ./config/task.yaml --run <单组运行目录>` |
+| 展示任务计划 | `harmonyeval plan ./scenarios/library-migration/task.default.yaml` |
+| 配置与实际能力装载检查 | `harmonyeval run ./scenarios/library-migration/task.default.yaml --check` |
+| 执行任务 | `harmonyeval run ./scenarios/library-migration/task.default.yaml` |
+| 使用已有工程/答案重新评估 | `harmonyeval verify ./scenarios/library-migration/task.default.yaml --run <单组运行目录>` |
+| 使用已有验证指标重新评分 | `harmonyeval rescore ./scenarios/library-migration/task.default.yaml --run <单组运行目录>` |
 | 两组对比，差值为右组减左组 | `harmonyeval compare <左组目录> <右组目录> --output <对比目录>` |
 
-也可用同一环境的 `python -m harmonyeval run ./config/task.yaml`或 `python -m harmonyeval.cli run ./config/task.yaml`，它们都进入相同的 Harmony Eval CLI。npm 快捷命令为 `npm run harmonyeval -- run ./config/task.yaml`；该脚本使用 PATH 中的 python3，需先激活评测环境。
+也可用同一环境的 `python -m harmonyeval run ./scenarios/library-migration/task.default.yaml`或 `python -m harmonyeval.cli run ./scenarios/library-migration/task.default.yaml`，它们都进入相同的 Harmony Eval CLI。npm 快捷命令为 `npm run harmonyeval -- run ./scenarios/library-migration/task.default.yaml`；该脚本使用 PATH 中的 python3，需先激活评测环境。
 
 `--check` 不请求生成模型，检查通过不证明密钥已获服务授权、MCP 已连通或设备测试成功。实际执行会保留错误和缺失证据，不将 unavailable 自动计为零分或满分。
 
 ## 场景配置
 
+任务 YAML 统一放在 `scenarios/<scenario>/`，子目录与 YAML 的 scenario 字段一致。`*.example.yaml` 是需要替换路径的通用模板；JSON、评分说明和认证等配套资源仍放在 config/。CLI 直接接收所选 YAML 路径，不依赖固定目录。
+
 | 场景 | 配置 |
 |---|---|
-| 默认任务 | [config/task.yaml](config/task.yaml)，当前选择本机 thirdcase 的插件评测 |
-| 一多适配 | [task.multidev.yaml](config/task.multidev.yaml) |
-| 三方库单组/一键有无插件对照 | [with](config/task.library-plugin.with.yaml)、[without](config/task.library-plugin.without.yaml) |
-| 三方库插件固定，有/无 MCP | [task.library-plugin.mcp.yaml](config/task.library-plugin.mcp.yaml)，一次执行两组并自动比较 |
-| API 升级单组/一键有无 Skill 对照 | [with](config/task.api-upgrade.with.yaml)、[without](config/task.api-upgrade.without.yaml) |
-| 知识问答有/无 MCP、智能客服 URL | [问答任务说明](config/qa/README.md)，统一读取 [data/cases.json](config/qa/data/cases.json) |
-| 各类型通用模板 | [config/examples](config/examples) |
+| 默认任务 | [scenarios/library-migration/task.default.yaml](scenarios/library-migration/task.default.yaml)，当前选择本机 thirdcase 的插件评测 |
+| 一多适配 | [multi-dev/task.yaml](scenarios/multi-dev/task.yaml) |
+| 三方库单组/一键有无插件对照 | [library-migration/task.plugin.yaml](scenarios/library-migration/task.plugin.yaml)，用 without_enable 切换 |
+| 三方库插件固定，有/无 MCP | [library-migration/task.plugin-mcp.yaml](scenarios/library-migration/task.plugin-mcp.yaml)，一次执行两组并自动比较 |
+| API 升级单组/一键有无 Skill 对照 | [api-upgrade/task.yaml](scenarios/api-upgrade/task.yaml)，用 without_enable 切换 |
+| 知识问答有/无 MCP、智能客服 URL | [问答任务说明](scenarios/knowledge-eval/README.md)，统一读取 [data/cases.json](scenarios/knowledge-eval/data/cases.json) |
+| 各类型通用模板 | [scenarios](scenarios) |
 
 `dataset` 选择用例适配器，`target.type` 决定同名的活动目标块；该块定义 `execution`、`verification`、`scoring` 和 `report`。`execution.enviroment` 配置 deveco_home、flutter_home、java_home、sdk_home。UITest、CloudTest 和白盒均在 verification 中声明，评分器通过 source 引用其指标。
 
@@ -86,4 +88,4 @@ HARMONY_EVAL_INTEGRATION=1 python -m unittest discover -s tests -p test_harmony_
 
 共用的设备 Runner、云测试客户端/轮询、白盒工具和历史产物维护代码仍保留；它们不再通过旧 JSON 批量入口启动。可选 ArkAnalyzer 侧车位于 harmonyeval/integrations/whitebox/ark_analyzer，需要时运行 `npm ci`、`npm run build:whitebox`；当前 Harmony Eval 的 whiteboxeval 是模型评价，不等于完整 ArkAnalyzer 流程。
 
-docs 只维护两份文档：[框架设计与重构指南](docs/harmony-eval-framework-design.md)（架构、迁移、EvalScope和扩展开发），[YAML 配置说明与场景示例](docs/harmony-eval-task-examples.md)（安装运行、字段枚举、对照配置和18份完整任务）。
+docs 维护三份文档：[框架设计与重构指南](docs/harmony-eval-framework-design.md)（架构、迁移、EvalScope和扩展开发）、[YAML 配置说明与场景示例](docs/harmony-eval-task-examples.md)（安装运行、字段枚举、对照配置和15份完整任务）、[适配器设计与实现说明](docs/harmony-eval-adapter-implementation.md)（用例转换、执行、验证、评分及静态评估的源码调用关系）。

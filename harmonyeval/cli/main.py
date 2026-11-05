@@ -21,6 +21,9 @@ def main(argv=None):
     run.add_argument('--check', action='store_true', help='仅检查任务、依赖和实际能力装载')
     plan = commands.add_parser('plan', help='检查并展示执行计划')
     plan.add_argument('task')
+    static = commands.add_parser('static-eval', help='仅运行独立静态评估，不执行主评测')
+    static.add_argument('task')
+    static.add_argument('--output', help='静态评估输出目录')
     for name in ('verify', 'rescore'):
         command = commands.add_parser(name, help='使用已有执行结果复评或重新评分')
         command.add_argument('task')
@@ -36,6 +39,16 @@ def main(argv=None):
             _, right = load_report(args.right)
             console_print(compare_reports(left, right, args.output))
             return 0
+        if args.command == 'static-eval':
+            from pathlib import Path
+            from harmonyeval.config.loader import load_static_task
+            from harmonyeval.evaluator.coordinator import allocate_run_root
+            from harmonyeval.static_eval.service import run_static_eval
+            task = load_static_task(args.task)
+            root = Path(args.output).expanduser().resolve() if args.output else allocate_run_root(task) / 'static-eval'
+            result = asyncio.run(run_static_eval(task, root))
+            console_print(f"静态评估报告：{result['reportPath']}")
+            return result['exitCode']
         task = load_task(args.task)
         if args.command == 'plan' or (args.command == 'run' and args.check):
             result = check_task(task)

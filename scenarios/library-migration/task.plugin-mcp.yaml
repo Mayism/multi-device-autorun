@@ -1,0 +1,65 @@
+# 一次运行两组实验：两组均加载 hmos-library-adapter-fast，仅改变目标 MCP enabled。
+# 基准为第一组 without_mcp；汇总报告自动比较 with_mcp − without_mcp。
+# 模型与现有三方库任务一致；先设置 ZHIPU_API_KEY 环境变量。
+# MCP 配置和预检通过不保证实际调用，调用证据见 mcp_usage 与 agent-output。
+schema_version: 2
+scenario: LibraryMigration
+id: thirdcase-library-plugin-mcp
+description: 三方库插件保持加载，仅比较目标 MCP 启用和关闭的转换效果。
+dataset:
+  type: library-migration
+  dir: /Users/mayism/thirdcase
+  layout: repositories
+  instruction: 请将当前第三方库适配到HarmonyOS，在当前工程内完成实现。阅读README和源码，保持原有公开API及已有平台行为，识别并处理依赖的鸿蒙兼容性；对于无法等价实现的平台能力，明确说明限制与替代方案，不得虚构API或用空实现冒充支持。请提供使用说明和构建、验证结果。
+target:
+  type: plugin_agent
+  dir: /Users/mayism/.config/opencode/plugins/hmos-library-adapter-fast
+plugin_agent:
+  rounds: 1
+  static_eval: {}
+  execution:
+    engine: opencode
+    agent_name: hmos-library-adapter-fast
+    without_enable: false  # true：追加不加载评测对象的 without 组，并与 with 组自动比较；false：只跑 with
+    timeout: 3600
+    idle_timeout: 3600
+    enviroment:
+      deveco_home: /Applications/DevEco-Studio.app/Contents
+    model:
+      api_type: openai_api
+      name: glm-5.3
+      base_url: https://open.bigmodel.cn/api/coding/paas/v4
+      api_key: ZHIPU_API_KEY
+    opencode:
+      config_path: "./opencode.library-mcp.json"
+  verification:
+  - id: api
+    type: LibraryAPICount
+  - id: code
+    type: whiteboxeval
+    rubric_path: "./rubric.md"
+  - id: mcp_usage
+    type: ToolUsage
+    target_mcp: harmonyos_developer_knowledge
+  scoring:
+  - dimension: api_count_consistency
+    type: ImmediateValue
+    source: api.metrics.count_consistency
+    scale: 100
+  - dimension: L3
+    type: ImmediateValue
+    source: code.metrics.total_score
+  report:
+    output_dir: "../../output/harmony-eval/thirdcase-plugin-mcp"
+    format: html
+experiments:
+- id: without_mcp
+  overrides:
+    mcp:
+      harmonyos_developer_knowledge:
+        enabled: false
+- id: with_mcp
+  overrides:
+    mcp:
+      harmonyos_developer_knowledge:
+        enabled: true

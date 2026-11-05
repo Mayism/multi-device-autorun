@@ -1,9 +1,0 @@
-{
-  "routerMap": [
-    {
-      "name": "AddressListPage",
-      "pageSourceFile": "src/main/ets/pages/AddressListPage.ets",
-      "buildFunction": "buildAddressListPage"
-    }
-  ]
-}

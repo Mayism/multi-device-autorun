@@ -25,7 +25,7 @@ docs 按用途维护以下文档：
 | 文档 | 用来解决什么问题 |
 |---|---|
 | 本文：框架设计与重构指南 | 模块怎么分、旧能力怎么保留、按什么顺序改代码、怎样接 EvalScope、如何扩展和验收 |
-| [YAML 配置说明与场景示例](harmony-eval-task-examples.md) | 怎样安装运行、字段有哪些值、怎样组织用例、怎样配置对照，以及18份完整任务配置 |
+| [YAML 配置说明与场景示例](harmony-eval-task-examples.md) | 怎样安装运行、字段有哪些值、怎样组织用例、怎样配置对照，以及15份完整任务配置 |
 | [适配器设计与实现说明](harmony-eval-adapter-implementation.md) | 当前源码如何实现 EvalCase→Sample、Agent 与 Skill/Plugin/MCP 执行及对照、验证调度和评分转换，以及完整扩展示例 |
 
 **阅读顺序：**重构 Agent 先读本文第1～9节并按第5节实施；遇到细节再查[第10节](#10-实现时需要核对的细节)和[第11节](#11-新增验证器和评分器)。只配置任务时直接读 YAML 文档。开发约束同时遵循仓库 [AGENTS.md](../AGENTS.md) 和 [harmonyeval Skill](../.agents/skills/harmonyeval/SKILL.md)。
@@ -44,7 +44,7 @@ docs 按用途维护以下文档：
 统一任务入口：
 
 ```sh
-harmonyeval run ./config/task.yaml
+harmonyeval run ./scenarios/library-migration/task.default.yaml
 ```
 
 一份配置回答六个问题：
@@ -86,25 +86,27 @@ static_eval 仍按目标仓库已有语义运行。它是否针对能力配置�
 
 ### 3.2 static_eval 的迁移要求
 
-参考仓库的 static_eval 目前仅保留配置，尚未执行。**目标仓库已经有这个能力，因此不能照抄参考仓库的“忽略此字段”逻辑。**示例中的 static_eval: {} 也不能覆盖目标的真实配置。
+参考仓库现已接入 agent-extension-eval 0.2.0 与 skill-security-scan 1.2.3，对显式指定的 Skill 集合执行任务级静态评估，使用 static_eval.model，和主评测并行运行。空 static_eval: {} 表示关闭。**迁移另一个已有静态评估的仓库时，仍须保留它的真实输入、判据与计分，不能用参考实现覆盖已有能力。**详见[静态评估实现](harmony-eval-adapter-implementation.md#9-static_eval与主评测并行的任务级静态评估)。
 
 实施 Agent 先确认：它评什么、由谁触发、执行几次、是否改工程、结果怎么计分、失败时如何处理。然后选择连接方式：
 
 | 目标仓库的实际行为 | 迁移方式 |
 |---|---|
 | 每个用例运行一次的工程静态检查 | 包装为 verification 工作流；检查放验证器，计算公式放评分器 |
-| 对 Agent/Skill/Plugin 做一次静态评价 | 保留任务级调用和单独结果，公共编排放 evaluator，检查实现放 verification 或 integrations；不要把一次结果重复当成所有用例的独立评分 |
+| 对 Agent/Skill/Plugin 做一次静态评价 | 保留任务级调用和单独结果；参考实现的公共并行编排在 evaluator/coordinator，检查实现在独立 static_eval 包，不经逐用例 verification；不要重复当成所有用例的独立评分 |
 | 现有独立命令或服务 | 先保留可运行入口，用适配层连接现有输出，后续再逐步统一 |
 
-当前通用框架的 verification pipeline 是逐用例的，没有已经实现的通用“任务级 static_eval”协议。若目标静态评价是任务级，需补对应编排和结果接入；不能仅把它塞进 verification 列表就声称等价。
+当前 verification pipeline 是逐用例的；static_eval 独立分支每批任务只运行一次，不随用例、轮次或对照组倍增。任务入口等待两条分支各自收尾，保留独立报告；互不以对方成功作为启动门禁，静态结果不混入 L2/L3。
 
-第一阶段不改 static_eval 的业务口径，不假定它等同于 whiteboxeval，也不预先发明 enabled/scope 等新字段。已有字段、执行次数、失败语义和报告内容先保持兼容；需要统一结果格式时保留原始报告供核对。
+第一阶段不改目标 static_eval 的业务口径，不假定它等同于 whiteboxeval。参考实现的 enabled/skill_roots/checks/timeout/concurrency 已有明确语义；映射目标仓库时先核对原字段、次数、失败语义和报告，保留原始包报告供复核。
 
 完成标志：迁移前后同一固定输入走到了同一检查逻辑，执行次数一致；确定性分数相同。模型评价用固定裁判响应验证解析和计分，真实调用另验，不能要求两次自然生成文字完全相同。
 
 ## 4. 代码应拆到哪里
 
 源码直接放在根目录 **harmonyeval/**。包名、安装名和命令都用 harmonyeval，不增加 src 这一层。
+
+任务 YAML 放在根目录 scenarios/，按 scenario 字段分到同名子目录；通用模板以 *.example.yaml 命名。config/ 保留 JSON、题集、rubric 和工具配置等配套资料。移动任务文件时同步修正相对路径和文档命令，CLI 仍直接读取传入的 YAML，不硬编码这些目录。
 
 | 目录 | 只负责什么 | 旧结构中可能对应的代码 |
 |---|---|---|
@@ -116,6 +118,7 @@ static_eval 仍按目标仓库已有语义运行。它是否针对能力配置�
 | verification | 运行检查，产生指标和证据 | 设备验证、云测试、白盒/静态检查的接入层 |
 | metrics | 根据指标算分、汇总有效分数 | L1/L2/L3 和其他计算公式 |
 | models | EvalScope 模型访问与兼容层 | 模型客户端及代理接入 |
+| static_eval | 任务级 Skill 静态质量/安全评估 | 独立工具包调用与报告；由 evaluator/coordinator 并行调度 |
 | integrations | SDK、设备、AGC、分析器等底层工具 | devices、cloud、静态分析工具实现 |
 | experiments | 多组对照，只改变声明的条件 | 原有开关组别与对照编排 |
 | report / utils | 展示结果；公共文件/进程/路径工具 | reporting、artifacts 等公共部分 |
@@ -200,7 +203,7 @@ static_eval 仍按目标仓库已有语义运行。它是否针对能力配置�
 | MCP 对照 | 在同一任务上切换指定 MCP enabled | 其他条件相同，实际配置与调用证据可查 |
 | HTTP 问答/客服 | text-qa；请求/响应映射；规则或 Judge | 公开请求不含标准答案，正确/错误/空答案/服务错误分别记录 |
 
-- **交付**：各场景最小 YAML、最小用例、验证与评分口径。18 份参考配置可按需选用。
+- **交付**：各场景最小 YAML、最小用例、验证与评分口径。15 份参考配置可按需选用。
 - **验收**：新增场景主要落在对应适配器或配置，主调度无需增加场景分支。真实 SDK、服务或用例暂缺时，适配链路与业务验收状态分别报告，不冒充已完成真实转换。
 
 ### 阶段 6：支持复评、重算和多组实验
@@ -370,14 +373,14 @@ Agent 工作工程保留 base/；会话轨迹保留 generate/agent-output.json/h
 
 ```sh
 python -m pip install -e '.[eval]'
-python -m harmonyeval plan ./config/task.yaml
-python -m harmonyeval run ./config/task.yaml --check
+python -m harmonyeval plan ./scenarios/library-migration/task.default.yaml
+python -m harmonyeval run ./scenarios/library-migration/task.default.yaml --check
 python -m unittest discover -s tests -q
 ```
 
 ```sh
-harmonyeval verify ./config/task.yaml --run /path/to/single-run
-harmonyeval rescore ./config/task.yaml --run /path/to/single-run
+harmonyeval verify ./scenarios/library-migration/task.default.yaml --run /path/to/single-run
+harmonyeval rescore ./scenarios/library-migration/task.default.yaml --run /path/to/single-run
 harmonyeval compare /path/to/without-run /path/to/with-run --output ./output/comparison
 ```
 
@@ -392,12 +395,12 @@ harmonyeval compare /path/to/without-run /path/to/with-run --output ./output/com
 
 目标仓库已有 static_eval 和一多适配评测，结构类似旧 develop；不要假定它已经包含参考仓库的新框架。
 先阅读当前代码，列出入口、配置、输出、测试以及旧模块到新目录的迁移映射。
-特别确认 static_eval 实际评测对象、调用时机、执行次数、判据和评分；保留真实实现，不能照抄参考仓库的预留行为。
+特别确认 static_eval 实际评测对象、调用时机、执行次数、判据和评分；保留真实实现，参考仓库的 Skill 静态评估不能自动替代目标已有判据。
 
 按主指南第5节分阶段实施：骨架与契约 → 保留静态评价 → 提取一多单用例执行与验证 → 接 EvalScope → 扩展其他场景 → 复评/对照 → 清理旧结构。
 统一主入口为 harmonyeval run task.yaml，源码放根目录 harmonyeval。
 新增场景通过用例集、执行、验证、评分适配器连接，不复制主调度器或为 scenario 添加专用分支。
-完整字段、用例格式和18份配置都查《YAML 配置说明与场景示例》；桥接与扩展查本文第7、10、11节，本机路径和密钥不要照抄。
+完整字段、用例格式和15份配置都查《YAML 配置说明与场景示例》；桥接与扩展查本文第7、10、11节，本机路径和密钥不要照抄。
 
 边检查边实施，每阶段做相应自验证；业务口径无法从代码确定时再提出具体问题。
 结束时列出已改内容、保留的 static_eval/一多能力、实际验证命令和结果、尚需外部环境才能验证的项目。
@@ -407,7 +410,7 @@ harmonyeval compare /path/to/without-run /path/to/with-run --output ./output/com
 
 ## 10. 实现时需要核对的细节
 
-本节供实施时查阅。参考源码路径均相对根目录 harmonyeval/；目标仓库的已有 static_eval 仍按第3节保留，不能因参考源码缺少对应实现就关闭它。
+本节供实施时查阅。参考源码路径均相对根目录 harmonyeval/；目标仓库的已有 static_eval 仍按第3节保留，不能因参考仓库采用不同输入或判据就关闭它。
 
 ### 10.1 单用例的调用顺序
 
@@ -852,14 +855,14 @@ source_value 拒绝 unavailable/skipped/error 来源；缺字段、非法数据�
 ### 11.7 运行、复评与版本
 
 ```sh
-harmonyeval run ./config/task.library-plugin.with.yaml --check
-harmonyeval run ./config/task.library-plugin.with.yaml
+harmonyeval run ./scenarios/library-migration/task.plugin.yaml --check
+harmonyeval run ./scenarios/library-migration/task.plugin.yaml
 
 # 验证逻辑新增或改变：复用已有 Agent 工程，重新运行评估。
-harmonyeval verify ./config/task.library-plugin.with.yaml --run /absolute/path/to/existing_run
+harmonyeval verify ./scenarios/library-migration/task.plugin.yaml --run /absolute/path/to/existing_run
 
 # 只有计分规则变化：复用既有验证指标，不再执行验收工具。
-harmonyeval rescore ./config/task.library-plugin.with.yaml --run /absolute/path/to/existing_run
+harmonyeval rescore ./scenarios/library-migration/task.plugin.yaml --run /absolute/path/to/existing_run
 ```
 
 执行目标、输入或模型等配置改变后不能直接复用旧生成。新增需要 capture_input 的验证器时，旧运行缺转换前证据，应重新 run。验证器增加后，原有 API/白盒也会随 verify 的完整评估流程重新执行，当前没有仅运行某个 id 的 CLI 参数。

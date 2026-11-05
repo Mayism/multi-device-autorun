@@ -1,1 +1,0 @@
-export { Hotline } from './src/main/ets/component/Hotline'

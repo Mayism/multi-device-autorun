@@ -21,11 +21,14 @@ class ArchitectureTest(unittest.TestCase):
             'metrics': {'agent', 'evaluator', 'verification', 'benchmarks', 'integrations', 'report'},
             'agent': {'evaluator', 'verification', 'benchmarks'},
             'integrations': {'evaluator', 'verification', 'benchmarks'},
+            'static_eval': {'agent', 'evaluator', 'verification', 'benchmarks', 'metrics', 'report', 'config'},
         }
+        for layer in ('api', 'utils', 'models', 'metrics', 'agent', 'integrations'):
+            forbidden[layer].add('static_eval')
         failures = []
         for path in root.rglob('*.py'):
             layer = path.relative_to(root).parts[0]
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding='utf-8'))
             for node in ast.walk(tree):
                 modules = ([node.module] if isinstance(node, ast.ImportFrom) and node.module else
                            [item.name for item in node.names] if isinstance(node, ast.Import) else [])

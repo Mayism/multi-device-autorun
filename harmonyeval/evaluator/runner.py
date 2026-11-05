@@ -27,7 +27,7 @@ def _run_single_sync(task, on_log=console_print, cancel_event=None, output_root=
     require_evalscope()
     run_id = datetime.now().strftime('%Y%m%d%H%M%S') + '-' + uuid4().hex[:6]
     root = Path(output_root) if output_root is not None else Path(task['active']['report']['output_dir']) / run_id
-    root.mkdir(parents=True)
+    root.mkdir(parents=True, exist_ok=output_root is not None)
     import yaml
     (root / 'task.resolved.yaml').write_text(yaml.safe_dump(
         redact({k: v for k, v in task.items() if k != 'active'}), allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -85,7 +85,11 @@ def report_exit_code(report):
 async def run_task(task, on_log=console_print):
     from harmonyeval.experiments.runner import _run_sync
     cancelled = threading.Event()
-    worker = asyncio.create_task(asyncio.to_thread(_run_sync, task, on_log, cancelled))
+    if task['active'].get('static_eval', {}).get('enabled', False):
+        from harmonyeval.evaluator.coordinator import run_parallel
+        worker = asyncio.create_task(run_parallel(task, _run_sync, cancelled, on_log))
+    else:
+        worker = asyncio.create_task(asyncio.to_thread(_run_sync, task, on_log, cancelled))
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:
